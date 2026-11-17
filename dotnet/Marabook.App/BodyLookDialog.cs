@@ -8,6 +8,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Marabook.Model;
 
 namespace Marabook.App
@@ -38,7 +39,10 @@ namespace Marabook.App
         private readonly TextBlock _resultDiameter, _resultDistance, _resultTilt;
         private readonly Button _useCalculator;
         private readonly Accordion _calculator;
-        private readonly Slider _ringSize, _ringGap, _ringThickness, _ringAngle, _ringGrain;
+        private readonly Slider _ringSize, _ringGap, _ringThickness, _ringAngle, _ringGrain, _ringDensity;
+        internal double DensityForProbe { get { return _ringDensity.Value; } }
+        internal bool DensityShownForProbe { get { return _ringDensity.IsEffectivelyVisible; } }
+        internal void SetDensityForProbe(double density) { _ringDensity.Value = density; }
         private readonly CheckBox _rings, _texture;
         private readonly StackPanel _ringBox;
         private readonly Control _grainRow;
@@ -133,6 +137,11 @@ namespace Marabook.App
             _ringGap = SliderRow(sliders, "Écart à l'astre", 0, 3, look.RingGap, "look-ring-gap", delegate(double v) { return v < 0.02 ? "au ras" : "× " + v.ToString("0.0#", French); }, "Rapproche les anneaux de l'astre, ou les en éloigne");
             _ringThickness = SliderRow(sliders, "Épaisseur", 0.1, 3, look.RingThickness, "look-ring-thickness", delegate(double v) { return "× " + v.ToString("0.0#", French); }, "La largeur de la bande, de son bord intérieur à son bord extérieur");
             _ringAngle = SliderRow(sliders, "Angle", -90, 90, look.RingAngle, "look-ring-angle", delegate(double v) { return Math.Round(v).ToString("0", French) + "°"; }, "Penche le plan des anneaux sur l'équateur de l'astre (0 = dans le plan de l'équateur)");
+            // Lot 18 : la densité de la ceinture — l'ombre qu'elle porte sur son astre.
+            _ringDensity = SliderRow(sliders, "Densité", 0, 1, look.RingDensity, "look-ring-density", delegate(double v) { return v < 0.005 ? "sans ombre" : v.ToString("0.00", French); },
+                "La densité de la ceinture, de 0 à 1 : à 0, les anneaux se voient sans assombrir l'astre ; à 1, leur ombre vaut une nuit");
+            // (Sur le globe, seul le monde est assez grand pour qu'on y voie l'ombre de ses anneaux.)
+            ((Control)_ringDensity.Parent).IsVisible = kind == WorldKind;
             _ringBox.Children.Add(sliders);
             _texture = new CheckBox { Content = "Texture (du grain dans les anneaux)", IsChecked = look.RingTexture, Margin = new Thickness(0, 6, 0, 0), Tag = "look-ring-texture" };
             _ringBox.Children.Add(_texture);
@@ -375,6 +384,7 @@ namespace Marabook.App
             _look.RingAngle = Math.Round(_ringAngle.Value);
             _look.RingTexture = _texture.IsChecked == true;
             _look.RingGrain = _ringGrain.Value;
+            _look.RingDensity = Math.Round(_ringDensity.Value, 2);
             _ringBox.IsVisible = _look.Rings;
             _grainRow.IsVisible = _look.RingTexture;
             _previewHost.IsVisible = _look.Rings; // l'extension de la fenêtre : elle paraît avec les anneaux
@@ -578,7 +588,7 @@ namespace Marabook.App
                 // porte son ombre (un soleil, lui, n'en a pas).
                 var turn = Math.PI / 2 - _lon;
                 var scene = new RingArt.Scene { HasRef = true, Rx = Math.Sin(turn), Ry = -sinP * Math.Cos(turn), Rz = cosP * Math.Cos(turn) };
-                if (_kind != BodyLookDialog.SunKind) { scene.HasSun = true; scene.Sx = -0.47; scene.Sy = 0.60; scene.Sz = 0.65; }
+                if (_kind != BodyLookDialog.SunKind) { scene.HasSun = true; scene.Sx = -0.62; scene.Sy = 0.30; scene.Sz = 0.72; }
                 RingArt.Draw(context, centre, radius, nx, ny, nz, _look, ring, 0, false, 512, scene);
 
                 // La sphère : éclairée d'en haut à gauche ; un soleil, lui, brille de partout.
@@ -597,6 +607,8 @@ namespace Marabook.App
                     ball.GradientStops.Add(new GradientStop(shade(_body, 0.42), 1));
                 }
                 context.DrawEllipse(ball, null, centre, radius, radius);
+                // Lot 18 : l'ombre des anneaux sur l'astre, selon leur densité.
+                if (_look.Rings && scene.HasSun && _look.RingDensity > 0.001) context.DrawImage(RingShade(radius, nx, ny, nz, scene), new Rect(centre.X - radius, centre.Y - radius, radius * 2, radius * 2));
 
                 // Un quadrillage discret : sans lui, on ne verrait pas l'astre tourner.
                 var line = new Pen(new SolidColorBrush(Colors.White, _kind == BodyLookDialog.SunKind ? 0.16 : 0.13), 1);
@@ -605,6 +617,49 @@ namespace Marabook.App
 
                 RingArt.Draw(context, centre, radius, nx, ny, nz, _look, ring, 0, true, 512, scene);
             }
+        }
+
+        private WriteableBitmap _shade;
+        private int[] _shadeBuffer;
+
+        /// <summary>L'ombre que les anneaux portent sur l'astre de l'aperçu : un voile noir, plus ou moins
+        /// opaque selon leur densité, là où ils passent entre sa surface et la lumière.</summary>
+        private WriteableBitmap RingShade(double radius, double nx, double ny, double nz, RingArt.Scene scene)
+        {
+            var side = Math.Max(16, (int)Math.Ceiling(radius * 2));
+            if (_shade == null || _shade.PixelSize.Width != side)
+            {
+                _shade = new WriteableBitmap(new PixelSize(side, side), new Vector(96, 96), Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Premul);
+                _shadeBuffer = new int[side * side];
+            }
+            double inner, outer;
+            _look.RingSpan(out inner, out outer);
+            var length = Math.Sqrt(nx * nx + ny * ny + nz * nz);
+            float fx = (float)(nx / length), fy = (float)(ny / length), fz = (float)(nz / length);
+            float sx = (float)scene.Sx, sy = (float)scene.Sy, sz = (float)scene.Sz, density = (float)Math.Min(1, _look.RingDensity);
+            var bands = RingArt.Bands();
+            var half = side / 2.0;
+            for (var py = 0; py < side; py++)
+                for (var px = 0; px < side; px++)
+                {
+                    float x = (float)((px + 0.5 - half) / half), y = (float)((half - py - 0.5) / half);
+                    var d = x * x + y * y;
+                    var veil = 0f;
+                    if (d < 1)
+                    {
+                        var z = (float)Math.Sqrt(1 - d);
+                        var facing = x * sx + y * sy + z * sz;
+                        // (Vers le côté que la lumière n'atteint pas, l'ombre s'efface : pas de bord franc.)
+                        if (facing > 0) veil = (1 - RingArt.ShadowOn(x, y, z, sx, sy, sz, fx, fy, fz, (float)inner, (float)outer, bands, density)) * 0.62f * Math.Min(1f, facing / 0.35f);
+                    }
+                    _shadeBuffer[py * side + px] = (int)(veil * 255) << 24;
+                }
+            using (var frame = _shade.Lock())
+            {
+                if (frame.RowBytes == side * 4) System.Runtime.InteropServices.Marshal.Copy(_shadeBuffer, 0, frame.Address, _shadeBuffer.Length);
+                else for (var py = 0; py < side; py++) System.Runtime.InteropServices.Marshal.Copy(_shadeBuffer, py * side, frame.Address + py * frame.RowBytes, side);
+            }
+            return _shade;
         }
 
         private void Curve(DrawingContext context, Pen pen, Point centre, double radius, bool parallel, double fixedAngle)

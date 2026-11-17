@@ -1083,7 +1083,7 @@ namespace Marabook.App
             if (world == null || !world.Look.Rings) return "";
             double inner, outer;
             world.Look.RingSpan(out inner, out outer);
-            return "o" + inner.ToString("R", CultureInfo.InvariantCulture) + "/" + outer.ToString("R", CultureInfo.InvariantCulture) + "/" + world.Look.RingAngle.ToString("R", CultureInfo.InvariantCulture);
+            return "o" + inner.ToString("R", CultureInfo.InvariantCulture) + "/" + outer.ToString("R", CultureInfo.InvariantCulture) + "/" + world.Look.RingAngle.ToString("R", CultureInfo.InvariantCulture) + "/" + world.Look.RingDensity.ToString("R", CultureInfo.InvariantCulture);
         }
 
         /// <summary>Un point de l'image sur le globe ; faux s'il est sur la face cachée.</summary>
@@ -1221,7 +1221,8 @@ namespace Marabook.App
             if (tropic < 1e-6f) veil = false;
             var strength = (float)HeatStrength;
             // Lot 17 : l'ombre des anneaux sur le monde — là où, entre le sol et le soleil, passent les anneaux.
-            var ringed = night && world != null && world.Look.Rings;
+            var ringed = night && world != null && world.Look.Rings && world.Look.RingDensity > 0.001;
+            var density = ringed ? (float)Math.Max(0, Math.Min(1, world.Look.RingDensity)) : 0f;
             float ringX = 0, ringY = 0, ringZ = 1, ringInner = 1, ringOuter = 1;
             float[] bands = null;
             if (ringed)
@@ -1260,8 +1261,13 @@ namespace Marabook.App
                     if (night)
                     {
                         var sun = nx[i] * sx + ny[i] * sy + nz[i] * sz;
-                        light *= sun > 0.1f ? 1f : sun < -0.1f ? 0.3f : 0.3f + 0.7f * (sun + 0.1f) / 0.2f;
-                        if (ringed && sun > 0) light *= RingArt.ShadowOn(nx[i], ny[i], nz[i], sx, sy, sz, ringX, ringY, ringZ, ringInner, ringOuter, bands);
+                        // Lot 18 (Rémi : « la jonction entre l'ombre des anneaux et l'ombre générale de la
+                        // planète laisse une petite coupure ») : UNE seule part de jour — celle que laisse
+                        // le soleil qui se couche, fois celle que laissent passer les anneaux —, puis une
+                        // seule ombre. Sous des anneaux denses, il fait donc exactement nuit.
+                        var day = sun > 0.1f ? 1f : sun < -0.1f ? 0f : (sun + 0.1f) / 0.2f;
+                        if (ringed && day > 0) day *= RingArt.ShadowOn(nx[i], ny[i], nz[i], sx, sy, sz, ringX, ringY, ringZ, ringInner, ringOuter, bands, density);
+                        light *= 0.3f + 0.7f * day;
                     }
                     buffer[i] = (alpha << 24) | ((int)(red * light) << 16) | ((int)(green * light) << 8) | (int)(blue * light);
                 }

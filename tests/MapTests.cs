@@ -38,6 +38,30 @@ namespace Marabook.Tests
             Rings(t);
             t.Suite("C78 — lot 17 : le diamètre et la distance des astres entrent dans les calculs (éclipses, marées, taille dans le ciel)");
             Sizes(t);
+            t.Suite("C79 — lot 18 : la densité des anneaux");
+            Density(t);
+        }
+
+        private static void Density(Harness t)
+        {
+            var look = new BodyLook();
+            t.Check(look.RingDensity == 0.6 && BodyLook.DefaultDensity == 0.6 && look.IsDefault, "d'office, des anneaux de densité 0,6 — et c'est encore « d'office »");
+            look.RingDensity = 0.25;
+            t.Check(!look.IsDefault && look.Clone().RingDensity == 0.25, "une densité choisie n'est plus « d'office » ; une copie l'emporte");
+            var world = World.Earth();
+            world.Look = new BodyLook { Rings = true, RingDensity = 1 };
+            var back = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(back.Look.Rings && back.Look.RingDensity == 1, "elle s'enregistre et se relit");
+            world.Look.RingDensity = 0;
+            back = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(back.Look.RingDensity == 0, "zéro (des anneaux sans ombre) se relit zéro, pas « d'office »");
+            world.Look = new BodyLook { Rings = true };
+            var text = Json.Write(TimelineJson.BuildWorlds(new List<World> { world }));
+            back = TimelineJson.ReadWorlds(Json.Parse(text))[0];
+            t.Check(!text.Contains("ringDensity") && back.Look.RingDensity == 0.6, "d'office, rien n'est écrit : un monde d'avant le lot 18 se relit à 0,6");
+            world.Look.RingDensity = 7;
+            back = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(back.Look.RingDensity == 1, "une valeur folle dans le fichier est ramenée entre 0 et 1");
         }
 
         private static void Sizes(Harness t)

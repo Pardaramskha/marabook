@@ -48,6 +48,10 @@ namespace Marabook.Model
         public double RingAngle;              // degrés : le plan des anneaux, penché sur l'équateur de l'astre
         public bool RingTexture = true;       // le grain (texture) ; faux = des bandes lisses
         public double RingGrain = 1;          // l'échelle du grain : plus grand = un détail plus gros
+        // Lot 18 : la densité de la ceinture, de 0 à 1 — l'ombre qu'elle porte sur son astre. À 0, les anneaux
+        // se voient sans rien assombrir ; à 1, sous le grand anneau, il fait nuit.
+        public const double DefaultDensity = 0.6;
+        public double RingDensity = DefaultDensity;
         public double Tilt;                   // degrés
 
         /// <summary>L'allure d'office d'un soleil : la même, à la distance de la Terre au Soleil.</summary>
@@ -61,7 +65,7 @@ namespace Marabook.Model
             get
             {
                 return string.IsNullOrEmpty(Accent) && Math.Abs(Distance - DefaultDistance) < 1e-6 && Diameter <= 0 && !Rings && string.IsNullOrEmpty(RingColor) && Math.Abs(RingSize - 1) < 1e-9
-                    && Math.Abs(RingGap - 1) < 1e-9 && Math.Abs(RingThickness - 1) < 1e-9 && Math.Abs(RingAngle) < 1e-9 && RingTexture && Math.Abs(RingGrain - 1) < 1e-9 && Math.Abs(Tilt) < 1e-9;
+                    && Math.Abs(RingGap - 1) < 1e-9 && Math.Abs(RingThickness - 1) < 1e-9 && Math.Abs(RingAngle) < 1e-9 && RingTexture && Math.Abs(RingGrain - 1) < 1e-9 && Math.Abs(RingDensity - DefaultDensity) < 1e-9 && Math.Abs(Tilt) < 1e-9;
             }
         }
 
@@ -82,7 +86,7 @@ namespace Marabook.Model
             return new BodyLook
             {
                 Accent = Accent, Distance = Distance, DefaultDistance = DefaultDistance, Diameter = Diameter, Rings = Rings, RingColor = RingColor, RingSize = RingSize,
-                RingGap = RingGap, RingThickness = RingThickness, RingAngle = RingAngle, RingTexture = RingTexture, RingGrain = RingGrain, Tilt = Tilt
+                RingGap = RingGap, RingThickness = RingThickness, RingAngle = RingAngle, RingTexture = RingTexture, RingGrain = RingGrain, RingDensity = RingDensity, Tilt = Tilt
             };
         }
 

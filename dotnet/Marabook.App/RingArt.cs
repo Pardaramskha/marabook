@@ -109,6 +109,7 @@ namespace Marabook.App
         {
             public string Key;
             public Bitmap Image;
+            public int[] Buffer;
         }
 
         private static readonly List<Face> Faces = new List<Face>();
@@ -117,7 +118,9 @@ namespace Marabook.App
 
         /// <summary>Le disque des anneaux vu de face, de `pixels` de côté : son bord est le bord EXTÉRIEUR
         /// des anneaux. Gardé d'une image à l'autre tant que rien de ce qui le dessine ne change.</summary>
-        internal static Bitmap FaceOf(BodyLook look, Color color, int pixels)
+        internal static Bitmap FaceOf(BodyLook look, Color color, int pixels) { return FaceEntry(look, color, pixels).Image; }
+
+        private static Face FaceEntry(BodyLook look, Color color, int pixels)
         {
             double inner, outer;
             look.RingSpan(out inner, out outer);
@@ -128,7 +131,7 @@ namespace Marabook.App
                 {
                     var found = Faces[i];
                     if (i > 0) { Faces.RemoveAt(i); Faces.Insert(0, found); }
-                    return found.Image;
+                    return found;
                 }
 
             var buffer = new int[pixels * pixels];
@@ -173,9 +176,10 @@ namespace Marabook.App
                 else for (var py = 0; py < pixels; py++) Marshal.Copy(buffer, py * pixels, frame.Address + py * frame.RowBytes, pixels);
             }
             _built++;
-            Faces.Insert(0, new Face { Key = key, Image = image });
+            var made = new Face { Key = key, Image = image, Buffer = buffer };
+            Faces.Insert(0, made);
             if (Faces.Count > 24) Faces.RemoveAt(Faces.Count - 1);
-            return image;
+            return made;
         }
 
         // ------------------------------------------------------------ dans l'espace
@@ -192,16 +196,96 @@ namespace Marabook.App
         }
 
         /// <summary>La clarté des anneaux vus par leur face que le soleil n'éclaire pas, et dans l'ombre de l'astre.</summary>
-        internal const double UnlitFace = 0.42, InShadow = 0.14;
-
-        private static Color Dim(Color color, double k)
-        {
-            return Color.FromRgb((byte)(color.R * k), (byte)(color.G * k), (byte)(color.B * k));
-        }
+        internal const double UnlitFace = 0.5, InShadow = 0.14;
 
         internal static int ShadowsDrawnForProbe { get; private set; }
         internal static double LastTurnForProbe { get; private set; }
         internal static double LastFaceLightForProbe { get; private set; }
+
+        private static double Smooth(double from, double to, double t)
+        {
+            t = Math.Max(0, Math.Min(1, (t - from) / (to - from)));
+            return t * t * (3 - 2 * t);
+        }
+
+        /// <summary>La clarté de la face qu'on voit, selon la hauteur du soleil au-dessus d'elle (de −1 à 1).
+        /// LOT 18 (Rémi : « ils changent brutalement de seuil de luminosité ») : elle glisse d'une clarté à
+        /// l'autre tant que le soleil est près du plan des anneaux, au lieu de basculer d'un coup.</summary>
+        internal static double FaceLight(double height)
+        {
+            return UnlitFace + (1 - UnlitFace) * Smooth(-0.32, 0.32, height);
+        }
+
+        /// <summary>L'ombre de l'astre en un point du plan de ses anneaux (0 = en pleine lumière, 1 = dans
+        /// l'ombre). `back` : la distance derrière l'astre, à l'opposé du soleil ; `aside` : l'écart à
+        /// l'axe de l'ombre ; `along` : la hauteur du soleil sur le plan. LOT 18 (Rémi : « un poil trop
+        /// nette ») : ses bords sont fondus, et de plus en plus à mesure qu'on s'éloigne de l'astre.</summary>
+        internal static double ShadowAt(double back, double aside, double along)
+        {
+            if (back <= 0) return 0;
+            var off = Math.Sqrt(aside * aside + back * back * along * along);
+            var soft = 0.07 + 0.05 * Math.Min(3, back);
+            return 1 - Smooth(1 - soft, 1 + soft, off);
+        }
+
+        // Les anneaux ÉCLAIRÉS d'un astre : l'image de face, reprise pixel par pixel (lot 18). Une image
+        // par astre, repeinte quand la lumière ou la rotation change.
+        private sealed class Lit
+        {
+            public WriteableBitmap Image;
+            public int[] Buffer;
+            public string Key;
+        }
+
+        private static readonly Dictionary<string, Lit> Lits = new Dictionary<string, Lit>();
+
+        private static Bitmap LitFace(BodyLook look, Face face, int pixels, double outer, double faceLight, bool shadow, double dx, double dy, double along)
+        {
+            var inv = CultureInfo.InvariantCulture;
+            var owner = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(look) + "/" + pixels;
+            var key = face.Key + "|" + faceLight.ToString("0.###", inv) + "|" + (shadow ? dx.ToString("0.####", inv) + "/" + dy.ToString("0.####", inv) + "/" + along.ToString("0.####", inv) : "-");
+            Lit lit;
+            if (!Lits.TryGetValue(owner, out lit))
+            {
+                if (Lits.Count > 24) Lits.Clear();
+                lit = new Lit();
+                Lits[owner] = lit;
+            }
+            if (lit.Key == key && lit.Image != null) return lit.Image;
+            if (lit.Image == null || lit.Image.PixelSize.Width != pixels)
+            {
+                lit.Image = new WriteableBitmap(new PixelSize(pixels, pixels), new Vector(96, 96), PixelFormat.Bgra8888, AlphaFormat.Premul);
+                lit.Buffer = new int[pixels * pixels];
+            }
+            int[] source = face.Buffer, target = lit.Buffer;
+            var half = pixels / 2.0;
+            System.Threading.Tasks.Parallel.For(0, pixels, delegate(int py)
+            {
+                var y = (py + 0.5 - half) / half * outer;
+                var row = py * pixels;
+                for (var px = 0; px < pixels; px++)
+                {
+                    var packed = source[row + px];
+                    if (packed == 0) { target[row + px] = 0; continue; }
+                    var light = faceLight;
+                    if (shadow)
+                    {
+                        var x = (px + 0.5 - half) / half * outer;
+                        var back = -(x * dx + y * dy);
+                        if (back > 0) light += (InShadow - light) * ShadowAt(back, y * dx - x * dy, along);
+                    }
+                    var k = (int)(light * 256);
+                    target[row + px] = (packed & unchecked((int)0xFF000000)) | ((((packed >> 16) & 0xFF) * k >> 8) << 16) | ((((packed >> 8) & 0xFF) * k >> 8) << 8) | ((packed & 0xFF) * k >> 8);
+                }
+            });
+            using (var frame = lit.Image.Lock())
+            {
+                if (frame.RowBytes == pixels * 4) Marshal.Copy(target, 0, frame.Address, target.Length);
+                else for (var py = 0; py < pixels; py++) Marshal.Copy(target, py * pixels, frame.Address + py * frame.RowBytes, pixels);
+            }
+            lit.Key = key;
+            return lit.Image;
+        }
 
         /// <summary>Dessine les anneaux d'un astre de rayon `radius` à l'écran, centré en `centre`.
         /// (nx, ny, nz) est la NORMALE au plan des anneaux, vue de l'écran : x vers la droite, y vers le
@@ -235,74 +319,41 @@ namespace Marabook.App
                 spin += turn;
             }
 
-            // LOT 17 : la lumière. La face tournée vers nous est-elle celle que le soleil éclaire ? Et où
-            // tombe l'ombre de l'astre : un demi-ovale, large comme lui, qui s'étire à l'opposé du soleil.
-            var faceLight = 1.0;
-            Geometry shadow = null, lit = null;
+            var face = FaceEntry(look, color, pixels);
+            Bitmap image = face.Image;
+            // LOT 17 puis 18 : la lumière. La face tournée vers nous est-elle celle que le soleil éclaire ?
+            // Et où tombe l'ombre de l'astre ? L'image de face est reprise pixel par pixel : l'ombre a des
+            // bords fondus, et la clarté de la face change en douceur.
             if (scene != null && scene.HasSun)
             {
                 var along = scene.Sx * nx + scene.Sy * ny + scene.Sz * nz;      // le soleil au-dessus (+) ou au-dessous du plan
-                if (along * nz < 0) faceLight = UnlitFace;
+                var faceLight = FaceLight(nz < 0 ? -along : along);
+                LastFaceLightForProbe = faceLight;
                 double su = scene.Sx * ax + scene.Sy * ay, sv = scene.Sx * bx + scene.Sy * by + scene.Sz * bz;
                 var slant = Math.Sqrt(su * su + sv * sv);
-                if (slant > 0.02)
+                var shadow = slant > 0.02;
+                double dx = 0, dy = 0;
+                if (shadow)
                 {
-                    var reach = Math.Min(outer * 3, 1 / Math.Max(1e-3, Math.Abs(along)));
-                    double dx = su / slant, dy = sv / slant;
-                    var path = new StreamGeometry();
-                    var both = new StreamGeometry();
-                    using (var pen = path.Open())
-                    using (var pen2 = both.Open())
-                    {
-                        pen2.SetFillRule(FillRule.EvenOdd);
-                        var far = outer + 2;
-                        pen2.BeginFigure(new Point(-far, -far), true);
-                        pen2.LineTo(new Point(far, -far));
-                        pen2.LineTo(new Point(far, far));
-                        pen2.LineTo(new Point(-far, far));
-                        pen2.EndFigure(true);
-                        const int steps = 40;
-                        for (var i = 0; i <= steps; i++)
-                        {
-                            var t = -Math.PI / 2 + Math.PI * i / steps;
-                            double alpha = -reach * Math.Cos(t), beta = Math.Sin(t);
-                            var p = new Point(alpha * dx - beta * dy, alpha * dy + beta * dx);
-                            if (i == 0) { pen.BeginFigure(p, true); pen2.BeginFigure(p, true); }
-                            else { pen.LineTo(p); pen2.LineTo(p); }
-                        }
-                        pen.EndFigure(true);
-                        pen2.EndFigure(true);
-                    }
-                    shadow = path;
-                    lit = both;
+                    // La direction du soleil dans le plan, ramenée dans le repère de l'image (qui tourne de `spin`).
+                    double ux = su / slant, uy = sv / slant, cos = Math.Cos(spin), sin = Math.Sin(spin);
+                    dx = ux * cos + uy * sin;
+                    dy = -ux * sin + uy * cos;
+                    if (!front) ShadowsDrawnForProbe++;
                 }
+                image = LitFace(look, face, pixels, outer, faceLight, shadow, dx, dy, along);
             }
-            LastFaceLightForProbe = faceLight;
+            else LastFaceLightForProbe = 1;
 
-            var face = FaceOf(look, faceLight < 1 ? Dim(color, faceLight) : color, pixels);
-            var dark = shadow == null ? null : FaceOf(look, Dim(color, InShadow), pixels);
             var rect = new Rect(-outer, -outer, outer * 2, outer * 2);
             var rotation = Matrix.CreateRotation(spin);
-            Action paint = delegate
-            {
-                if (shadow == null)
-                {
-                    using (context.PushTransform(rotation)) context.DrawImage(face, rect);
-                    return;
-                }
-                using (context.PushGeometryClip(lit))
-                using (context.PushTransform(rotation))
-                    context.DrawImage(face, rect);
-                using (context.PushGeometryClip(shadow))
-                using (context.PushTransform(rotation))
-                    context.DrawImage(dark, rect);
-                ShadowsDrawnForProbe++;
-            };
             using (context.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.HighQuality }))
             {
                 if (!front)
                 {
-                    using (context.PushTransform(space)) paint();
+                    using (context.PushTransform(space))
+                    using (context.PushTransform(rotation))
+                        context.DrawImage(image, rect);
                     return;
                 }
                 // Devant : seulement à l'intérieur du disque de l'astre (dehors, la passe de derrière a déjà
@@ -310,14 +361,15 @@ namespace Marabook.App
                 using (context.PushGeometryClip(new EllipseGeometry(new Rect(centre.X - radius + 0.4, centre.Y - radius + 0.4, radius * 2 - 0.8, radius * 2 - 0.8))))
                 using (context.PushTransform(space))
                 using (context.PushClip(new Rect(-outer - 1, 0, outer * 2 + 2, outer + 1)))
-                    paint();
+                using (context.PushTransform(rotation))
+                    context.DrawImage(image, rect);
             }
         }
 
         /// <summary>L'ombre des anneaux sur leur astre (lot 17) : la part de lumière que garde un point de
         /// sa surface. Tout est dans le même repère (peu importe lequel) : le point (px, py, pz) sur la
         /// sphère de rayon 1, le soleil (sx, sy, sz), la normale des anneaux (nx, ny, nz). `bands` : Bands().</summary>
-        internal static float ShadowOn(float px, float py, float pz, float sx, float sy, float sz, float nx, float ny, float nz, float inner, float outer, float[] bands)
+        internal static float ShadowOn(float px, float py, float pz, float sx, float sy, float sz, float nx, float ny, float nz, float inner, float outer, float[] bands, float density)
         {
             var down = sx * nx + sy * ny + sz * nz;
             if (down > -1e-4f && down < 1e-4f) return 1f;
@@ -326,7 +378,7 @@ namespace Marabook.App
             float hx = px + t * sx, hy = py + t * sy, hz = pz + t * sz;
             var r = (float)Math.Sqrt(hx * hx + hy * hy + hz * hz);
             if (r <= inner || r >= outer) return 1f;
-            return 1f - 0.62f * bands[(int)((r - inner) / (outer - inner) * (bands.Length - 1))];
+            return 1f - density * bands[(int)((r - inner) / (outer - inner) * (bands.Length - 1))];
         }
 
         private static float[] _bands;
@@ -336,7 +388,8 @@ namespace Marabook.App
         {
             if (_bands != null) return _bands;
             var bands = new float[512];
-            for (var i = 0; i < bands.Length; i++) bands[i] = (float)Math.Min(1, Band(i / (double)(bands.Length - 1)));
+            // Ramenée à 1 dans le grand anneau (à pleine densité, son ombre vaut une nuit) ; les deux bords fondus.
+            for (var i = 0; i < bands.Length; i++) bands[i] = (float)(Math.Min(1, Band(i / (double)(bands.Length - 1)) / 0.9) * Math.Min(1, Math.Min(i, bands.Length - 1 - i) / 10.0));
             return _bands = bands;
         }
 

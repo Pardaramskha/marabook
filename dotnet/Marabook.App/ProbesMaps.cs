@@ -611,13 +611,46 @@ namespace Marabook.App
                 turned -= 2 * Math.PI * Math.Round(turned / (2 * Math.PI));
                 Check(Math.Abs(turned + 0.3) < 0.12, "le globe pivote de 0,3 radian : le disque des anneaux tourne d'autant dans son plan (" + turned.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + ")");
                 Check(RingArt.ShadowsDrawnForProbe > shadowsBefore, "jour et nuit montrés : l'ombre du monde tombe sur ses anneaux");
-                Check(RingArt.ShadowOn(0.9f, 0f, -0.436f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands()) < 0.9f
-                    && RingArt.ShadowOn(0.9f, 0f, 0.436f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands()) == 1f
-                    && RingArt.ShadowOn(0.28f, 0f, -0.96f, 0.6f, 0f, 0.8f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands()) == 1f,
+                Check(RingArt.ShadowOn(0.9f, 0f, -0.436f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands(), 0.6f) < 0.9f
+                    && RingArt.ShadowOn(0.9f, 0f, 0.436f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands(), 0.6f) == 1f
+                    && RingArt.ShadowOn(0.28f, 0f, -0.96f, 0.6f, 0f, 0.8f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands(), 0.6f) == 1f,
                     "l'ombre des anneaux sur le monde : sous eux, du côté opposé au soleil — pas du côté éclairé, ni là où la lumière passe entre le monde et ses anneaux");
                 var accented = mapView.SkyBodies().Find(delegate(MapCanvas.SkyDot d) { return d.Satellite; });
                 Check(accented.HasAccent && accented.Accent == Color.Parse("#6FC3C0") && canvas.AccentsDrawnForProbe == canvas.SatellitesDrawnForProbe,
                     "l'accent d'un satellite : son liseré d'atmosphère, dessiné avec lui (" + canvas.AccentsDrawnForProbe + ")");
+                // Lot 18 : la densité des anneaux règle leur ombre ; l'ombre du monde sur eux a des bords fondus ;
+                // la clarté de leur face glisse au lieu de basculer.
+                var under = RingArt.ShadowOn(0.82f, 0f, -0.572f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands(), 1f);
+                Check(under < 0.05f && RingArt.ShadowOn(0.82f, 0f, -0.572f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands(), 0f) == 1f
+                    && Math.Abs(RingArt.ShadowOn(0.82f, 0f, -0.572f, 0.8f, 0f, 0.6f, 0f, 0f, 1f, 1.35f, 2.1f, RingArt.Bands(), 0.5f) - (1 + under) / 2) < 0.01f,
+                    "la densité des anneaux : à 1, sous le grand anneau, il fait nuit ; à 0, aucune ombre ; entre les deux, à proportion (" + under.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + ")");
+                Check(RingArt.ShadowAt(1.5, 0, 0.3) == 1 && RingArt.ShadowAt(1.5, 1.4, 0.3) == 0 && RingArt.ShadowAt(-0.5, 0, 0.3) == 0
+                    && RingArt.ShadowAt(1.5, 0.9, 0.3) > 0.05 && RingArt.ShadowAt(1.5, 0.9, 0.3) < 0.95 && RingArt.ShadowAt(1.5, 0.8, 0.3) > RingArt.ShadowAt(1.5, 0.95, 0.3),
+                    "l'ombre du monde sur ses anneaux : pleine en son milieu, nulle au large et du côté du soleil, fondue sur ses bords");
+                var lights = new List<double>();
+                for (var height = -1.0; height <= 1.0001; height += 0.05) lights.Add(RingArt.FaceLight(height));
+                var steepest = 0.0;
+                for (var i = 1; i < lights.Count; i++) steepest = Math.Max(steepest, lights[i] - lights[i - 1]);
+                Check(Math.Abs(lights[0] - RingArt.UnlitFace) < 1e-9 && Math.Abs(lights[lights.Count - 1] - 1) < 1e-9 && steepest < 0.07 && Math.Abs(RingArt.FaceLight(0) - (1 + RingArt.UnlitFace) / 2) < 1e-9,
+                    "la face des anneaux : sa clarté glisse quand le soleil traverse leur plan, sans saut (" + steepest.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " au plus par pas)");
+                earth.Look.RingDensity = 1;
+                canvas.InvalidateVisual();
+                await Settle();
+                Shot(mapView, "cartes-26-anneaux-denses.png");
+                earth.Look.RingDensity = BodyLook.DefaultDensity;
+                var densityDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.WorldKind, "Essai", new BodyLook { Rings = true });
+                densityDialog.Show();
+                await Settle();
+                var moonDensity = BodyLookDialog.ForProbe(shell, BodyLookDialog.MoonKind, "Essai", new BodyLook { Rings = true });
+                moonDensity.Show();
+                await Settle();
+                Check(densityDialog.DensityShownForProbe && Math.Abs(densityDialog.DensityForProbe - 0.6) < 1e-9 && !moonDensity.DensityShownForProbe, "le configurateur d'anneaux du monde : un curseur « Densité », à 0,6 d'office ; pas pour un satellite, trop petit pour qu'on y voie l'ombre");
+                densityDialog.SetDensityForProbe(1);
+                await Settle();
+                Shot(densityDialog, "cartes-27-densite-des-anneaux.png");
+                moonDensity.Close();
+                densityDialog.Close();
+                await Settle();
                 earth.Moons[0].Look.Accent = accentBefore;
                 canvas.RotateGlobeForProbe(Math.PI + 0.45, 0.35);
                 await Settle();

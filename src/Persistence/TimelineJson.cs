@@ -101,6 +101,7 @@ namespace Marabook.Persistence
             if (Math.Abs(look.RingAngle) > 1e-9) l["ringAngle"] = look.RingAngle;
             if (!look.RingTexture) l["ringTexture"] = false;
             if (Math.Abs(look.RingGrain - 1) > 1e-9) l["ringGrain"] = look.RingGrain;
+            if (Math.Abs(look.RingDensity - BodyLook.DefaultDensity) > 1e-9) l["ringDensity"] = look.RingDensity;
             if (Math.Abs(look.Tilt) > 1e-9) l["tilt"] = look.Tilt;
             if (l.Count > 0) node["look"] = l;
         }
@@ -125,6 +126,7 @@ namespace Marabook.Persistence
             look.RingAngle = Math.Max(-90, Math.Min(90, Json.AsDouble(Json.Field(l, "ringAngle"), 0)));
             look.RingTexture = Json.AsBool(Json.Field(l, "ringTexture"), true);
             look.RingGrain = Math.Max(0.25, Math.Min(4, Json.AsDouble(Json.Field(l, "ringGrain"), 1)));
+            look.RingDensity = Math.Max(0, Math.Min(1, Json.AsDouble(Json.Field(l, "ringDensity"), BodyLook.DefaultDensity)));
             look.Tilt = Math.Max(-90, Math.Min(90, Json.AsDouble(Json.Field(l, "tilt"), 0)));
             return look;
         }
