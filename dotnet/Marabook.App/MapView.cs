@@ -30,9 +30,9 @@ namespace Marabook.App
         private readonly TextBlock _title;
         private readonly MapCanvas _canvas;
         private readonly StackPanel _general, _sky, _shapes, _nav;
-        private readonly TextBlock _hint, _zoomLabel, _viewLabel;
-        private readonly Border _viewRule;
-        private readonly ToggleButton _flat, _globe;
+        private readonly TextBlock _hint, _zoomLabel, _animationNote;
+        private readonly Border _toolBar, _animateHost;
+        private readonly ToggleButton _globe;
         private ToggleButton _animate;
         private readonly Dictionary<MapCanvas.Tool, ToggleButton> _tools = new Dictionary<MapCanvas.Tool, ToggleButton>();
         private readonly TextBlock _empty;
@@ -73,6 +73,13 @@ namespace Marabook.App
             SetDock(head, Dock.Top);
             var row = new DockPanel();
             var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Spacing = 6 };
+            // LA VUE PLANÉTAIRE (lot 16, 17/11, Rémi) : plus de « Rendu : Planisphère / Globe » dans la barre
+            // des outils — une seule bascule, à l'icône des Cartes, à gauche du zoom.
+            _globe = Buttons.IconToggle("pile-cartes", "Vue planétaire", Buttons.Compact, Buttons.Look.Outline);
+            _globe.Tag = "map-view-globe";
+            _globe.Margin = new Thickness(0, 0, 6, 0);
+            _globe.Click += delegate { SetViewMode(_globe.IsChecked == true ? Maps.ViewGlobe : Maps.ViewFlat); };
+            right.Children.Add(_globe);
             _zoomLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0), Tag = "map-zoom" };
             right.Children.Add(_zoomLabel);
             var zoomOut = Buttons.Text("−", "Dézoomer", Buttons.Compact, Buttons.Look.Outline);
@@ -108,25 +115,7 @@ namespace Marabook.App
 
             // ================================================== la barre du rendu et des outils
             var bar = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            _viewLabel = new TextBlock { Text = "Rendu :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
-            bar.Children.Add(_viewLabel);
-            _flat = Buttons.TextToggle("Planisphère", "L'image à plat : c'est ici qu'on trace les zones, les repères, l'échelle", Buttons.Compact);
-            _flat.Tag = "map-view-flat";
-            _flat.Click += delegate { SetViewMode(Maps.ViewFlat); };
-            _globe = Buttons.TextToggle("Globe", "L'image enroulée sur une planète, qu'on fait tourner à la souris", Buttons.Compact);
-            _globe.Tag = "map-view-globe";
-            _globe.Margin = new Thickness(4, 0, 0, 0);
-            _globe.Click += delegate { SetViewMode(Maps.ViewGlobe); };
-            bar.Children.Add(_flat);
-            bar.Children.Add(_globe);
-            // « Animer » (lot 14) : au globe seulement — les jours et les ans passent.
-            _animate = Buttons.TextToggle("Animer", "Faire passer lentement les jours et les ans : le jour tourne, les saisons et les astres suivent. Tant que l'animation court, « Jour, nuit et saisons » ne se règle pas à la main.", Buttons.Compact);
-            _animate.Tag = "map-animate";
-            _animate.Margin = new Thickness(10, 0, 0, 0);
-            _animate.Click += delegate { SetAnimation(_animate.IsChecked == true); };
-            bar.Children.Add(_animate);
-            _viewRule = new Border { Width = 1, Background = Chrome.Border, Margin = new Thickness(12, 2, 12, 2) };
-            bar.Children.Add(_viewRule);
+
             bar.Children.Add(new TextBlock { Text = "Outil :", Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
             AddTool(bar, MapCanvas.Tool.Pan, "Déplacer", "Promener la carte, choisir une zone ou un repère, tirer ses poignées");
             AddTool(bar, MapCanvas.Tool.Zone, "Zone", "Tracer une zone : un clic par sommet, double-clic (ou Entrée) pour fermer");
@@ -138,9 +127,10 @@ namespace Marabook.App
             DockPanel.SetDock(bar, Dock.Left);
             barRow.Children.Add(bar);
             barRow.Children.Add(_hint);
-            var barBox = new Border { Padding = new Thickness(16, 6, 16, 6), BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1), Background = Chrome.BarBg, Child = barRow };
-            SetDock(barBox, Dock.Top);
-            Children.Add(barBox);
+            // En vue planétaire, cette barre disparaît (lot 16) : on n'y trace rien.
+            _toolBar = new Border { Padding = new Thickness(16, 6, 16, 6), BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1), Background = Chrome.BarBg, Child = barRow, Tag = "map-toolbar" };
+            SetDock(_toolBar, Dock.Top);
+            Children.Add(_toolBar);
 
             // ================================================== les panneaux du rail (lot 12)
             _general = new StackPanel { Tag = "map-general" };
@@ -160,6 +150,22 @@ namespace Marabook.App
             var center = new Grid();
             center.Children.Add(_canvas);
             center.Children.Add(_empty);
+            // « ANIMER » (lot 14 ; lot 16 : un bouton FLOTTANT, en haut à gauche du globe) : les jours et les
+            // ans passent. À côté de lui, tant que l'animation court, le jour, la saison et l'heure montrés.
+            _animate = Buttons.IconToggle("play-pause-fill", "Faire passer lentement les jours et les ans : le jour tourne, les saisons et les astres suivent. Tant que l'animation court, « Jour, nuit et saisons » ne se règle pas à la main.", Buttons.Bar, Buttons.Look.Outline);
+            _animate.Tag = "map-animate";
+            _animate.Click += delegate { SetAnimation(_animate.IsChecked == true); };
+            _animationNote = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 8, 0), IsVisible = false, Tag = "map-animation-note" };
+            var floating = new StackPanel { Orientation = Orientation.Horizontal };
+            floating.Children.Add(_animate);
+            floating.Children.Add(_animationNote);
+            _animateHost = new Border
+            {
+                Child = floating, Padding = new Thickness(4), CornerRadius = new CornerRadius(10), Background = Chrome.BarBgLight, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1),
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(14, 14, 0, 0), IsVisible = false,
+                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = 2, Blur = 10, Color = Color.FromArgb(90, 0, 0, 0) }), Tag = "map-animate-host"
+            };
+            center.Children.Add(_animateHost);
             Children.Add(center);
 
             // ESPACE = la main (lot 12) : écouté à la fenêtre, pour valoir même quand le clavier est au rail.
@@ -231,7 +237,7 @@ namespace Marabook.App
             if (world == null) return list;
             var noon = Maps.NoonLongitude(_dayFraction);
             var declination = Declination;
-            var day = _dayOfYear + _dayFraction;
+            var day = SkyDay;
             Func<string, Color, Color> tint = delegate(string hex, Color fallback) { Color parsed; return !string.IsNullOrEmpty(hex) && Color.TryParse(hex, out parsed) ? parsed : fallback; };
             Func<Color, Color> pale = delegate(Color c) { return Color.FromRgb((byte)(c.R + (255 - c.R) * 0.45), (byte)(c.G + (255 - c.G) * 0.45), (byte)(c.B + (255 - c.B) * 0.45)); };
             Action<MapCanvas.SkyDot, BodyLook> dress = delegate(MapCanvas.SkyDot dot, BodyLook look)
@@ -241,6 +247,7 @@ namespace Marabook.App
                 dot.RingColor = tint(look.RingColor, pale(dot.Color));
                 dot.RingSize = Math.Max(0.2, Math.Min(4, look.RingSize));
                 dot.Tilt = look.Tilt;
+                dot.Look = look;
             };
             var gold = Color.FromRgb(0xF5, 0xC5, 0x42);
             if (world.Suns.Count == 0) list.Add(new MapCanvas.SkyDot { Longitude = noon, Latitude = declination, Color = gold, Accent = gold, Size = 11, Sun = true });
@@ -310,7 +317,7 @@ namespace Marabook.App
                     var dot = new MapCanvas.SkyDot
                     {
                         Satellite = true, Longitude = noon + Math.PI + angle, Latitude = Math.Max(-1.45, Math.Min(1.45, -declination * Math.Cos(angle) + lean * Math.Sin(angle))),
-                        Color = tint(Astro.ColorOf(moon, i), Color.FromRgb(0xD8, 0xDC, 0xE6)), Size = 6.5 * zoom, Lit = Astro.Illumination(phase), Name = moon.Name,
+                        Color = tint(Astro.ColorOf(moon, i), Color.FromRgb(0xD8, 0xDC, 0xE6)), Size = 6.5 * zoom * MoonScale(moon.Look.DiameterKm), Lit = Astro.Illumination(phase), Name = moon.Name,
                         Orbit = MoonOrbit(moon.Look.Distance), Angle = angle
                     };
                     MapCanvas.SkyDot parent;
@@ -322,7 +329,34 @@ namespace Marabook.App
             return list;
         }
 
-        private static double SunSize(Sun sun) { return 11 * Math.Max(0.6, Math.Min(2, sun.Size <= 0 ? 1 : Math.Sqrt(sun.Size))); }
+        /// <summary>La taille d'un soleil dans le ciel du globe : plus large s'il est grand, plus petit s'il
+        /// est loin (lot 16 : sa distance, en fois celle de la Terre au Soleil) — resserrée pour rester lisible.</summary>
+        internal static double SunSize(Sun sun)
+        {
+            var wide = sun.Size <= 0 ? 1 : sun.Size;
+            var far = sun.Look != null && Math.Abs(sun.Look.DefaultDistance - BodyLook.SunDistance) < 1 && sun.Look.Distance > 0 ? sun.Look.Distance / BodyLook.SunDistance : 1;
+            return 11 * Math.Max(0.6, Math.Min(2, Math.Sqrt(wide / far)));
+        }
+
+        /// <summary>La taille d'un satellite autour du globe, en fois celle d'un satellite large comme notre
+        /// Lune (lot 16 : son diamètre) — resserrée elle aussi : de la moitié à un peu plus du double.</summary>
+        internal static double MoonScale(double km)
+        {
+            return Math.Max(0.5, Math.Min(2.3, Math.Pow(Math.Max(1, km) / BodyLook.MoonDiameter, 0.4)));
+        }
+
+        // LE JOUR DU CIEL (lot 16, bug « la lune saute à intervalles réguliers » dans TEST SGF) : les astres
+        // lisaient « jour de l'année + heure du jour ». Pendant l'animation, les deux avancent à des allures
+        // sans rapport (un jour en six secondes, une année en deux minutes) : chaque fois que l'heure
+        // repassait par zéro, le jour reculait d'un coup, et la lune avec lui. Animé, le ciel suit donc le
+        // seul jour qui défile — continu, et qui ne repart pas de zéro au nouvel an (_skyLaps).
+        private double _skyLaps;
+        internal double SkyDay { get { return _animating ? _dayOfYear + _skyLaps : _dayOfYear + _dayFraction; } }
+
+        // Les anneaux tournent lentement tant que l'animation court (lot 16) : un tour en une minute et demie.
+        private double _ringSpin;
+        public const double RingTurnSeconds = 90;
+        internal double RingSpin { get { return _ringSpin; } }
 
         /// <summary>Le rayon de l'orbite d'un satellite à l'écran, en rayons du globe : la distance Terre–Lune
         /// (60 rayons terrestres en vrai) est ramenée à 1,9 — et le reste suit, resserré, pour tenir dans la vue.</summary>
@@ -374,6 +408,7 @@ namespace Marabook.App
             {
                 if (_animationTimer != null) _animationTimer.Stop();
                 _dayOfYear = Math.Max(1, Math.Min(Math.Floor(YearDays), Math.Round(_dayOfYear)));
+                _skyLaps = 0;
                 RememberState(false);
             }
             DescribeTool();
@@ -389,7 +424,9 @@ namespace Marabook.App
             _dayFraction += seconds / AnimationDaySeconds;
             _dayFraction -= Math.Floor(_dayFraction);
             _dayOfYear += seconds * year / AnimationYearSeconds;
-            while (_dayOfYear >= year + 1) _dayOfYear -= year;
+            while (_dayOfYear >= year + 1) { _dayOfYear -= year; _skyLaps += year; }
+            _ringSpin += seconds * 2 * Math.PI / RingTurnSeconds;
+            if (_ringSpin > 2 * Math.PI) _ringSpin -= 2 * Math.PI;
             DescribeTool();
             _canvas.InvalidateVisual();
         }
@@ -551,6 +588,7 @@ namespace Marabook.App
         {
             if (on || !_animating) return;
             _animating = false;
+            _skyLaps = 0;
             if (_animationTimer != null) _animationTimer.Stop();
             _dayOfYear = Math.Max(1, Math.Round(_dayOfYear));
         }
@@ -576,11 +614,11 @@ namespace Marabook.App
             if (!NightPossible) _night = false;
             var globe = GlobeShown;
             // Le choix du rendu n'existe que pour la carte d'un monde entier (lot 12) : sinon, pas de bouton Globe.
-            _viewLabel.IsVisible = _flat.IsVisible = _globe.IsVisible = _viewRule.IsVisible = map.WholeWorld && map.HasImage;
-            _flat.IsChecked = !globe;
+            _globe.IsVisible = map.WholeWorld && map.HasImage;
             _globe.IsChecked = globe;
+            _toolBar.IsVisible = !globe; // en vue planétaire, la barre des outils s'efface (lot 16)
             if (_animating && !AnimationPossible) SetAnimationQuietly(false);
-            _animate.IsVisible = globe;
+            _animateHost.IsVisible = globe;
             _animate.IsEnabled = AnimationPossible;
             _animate.IsChecked = _animating;
             ToolTip.SetTip(_animate, AnimationPossible
@@ -656,8 +694,9 @@ namespace Marabook.App
         {
             _hint.Foreground = Chrome.SoftText;
             var map = Map;
+            _animationNote.IsVisible = map != null && GlobeShown && _animating;
             if (map == null || !map.HasImage) { _hint.Text = ""; return; }
-            if (GlobeShown && _animating) { _hint.Text = AnimationLabel(); return; }
+            if (GlobeShown && _animating) { _hint.Text = _animationNote.Text = AnimationLabel(); return; }
             if (GlobeShown) { _hint.Text = "Glisser fait tourner le globe ; la molette l'approche. Le tracé se fait au planisphère."; return; }
             switch (_canvas.CurrentTool)
             {
@@ -1418,7 +1457,11 @@ namespace Marabook.App
         internal string ZoomLabelForProbe { get { return _zoomLabel.Text; } }
         internal void SetWorldForProbe(string id, bool whole) { var before = Map.Clone(); Map.WorldId = id; Map.WholeWorld = whole; if (!whole) Map.View = Maps.ViewFlat; Commit(before); }
         internal bool GlobeButtonShownForProbe { get { return _globe.IsVisible; } }
-        internal bool AnimateShownForProbe { get { return _animate.IsVisible; } }
+        internal bool AnimateShownForProbe { get { return _animateHost.IsVisible; } }
+        internal bool AnimateFloatsForProbe { get { return _animateHost.Parent is Grid && _animateHost.HorizontalAlignment == HorizontalAlignment.Left && _animateHost.VerticalAlignment == VerticalAlignment.Top; } }
+        internal bool ToolBarShownForProbe { get { return _toolBar.IsVisible; } }
+        internal string AnimationNoteForProbe { get { return _animationNote.IsVisible ? _animationNote.Text ?? "" : ""; } }
+        internal ToggleButton GlobeToggleForProbe { get { return _globe; } }
         internal bool ToolCheckedForProbe(MapCanvas.Tool tool) { return _tools[tool].IsChecked == true; }
         internal void SetSeasonHeatForProbe(bool on) { _seasonHeat = on; RememberState(false); RefreshSide(); _canvas.InvalidateVisual(); }
         internal bool SpaceKeyForProbe(bool down, bool pointerOver)

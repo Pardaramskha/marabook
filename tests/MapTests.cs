@@ -34,6 +34,54 @@ namespace Marabook.Tests
             MapMemory(t);
             t.Suite("C76 — lot 14 : l'allure d'un astre (accent, distance, anneaux, inclinaison)");
             Looks(t);
+            t.Suite("C77 — lot 16 : taille et orbite d'un astre, écart, épaisseur, angle et grain des anneaux");
+            Rings(t);
+        }
+
+        /// <summary>Lot 16 (17/11) : le diamètre et la distance d'un astre, les réglages de ses anneaux.</summary>
+        private static void Rings(Harness t)
+        {
+            var look = new BodyLook();
+            double inner, outer;
+            look.RingSpan(out inner, out outer);
+            t.Check(look.RingGap == 1 && look.RingThickness == 1 && look.RingAngle == 0 && look.RingTexture && look.RingGrain == 1 && look.Diameter == 0 && look.DiameterKm == 3474.8,
+                "l'allure d'office : des anneaux à l'écart et à l'épaisseur de Saturne, sans angle, avec leur grain ; un satellite large comme notre Lune");
+            t.Check(Math.Abs(inner - 1.35) < 1e-9 && Math.Abs(outer - 2.1) < 1e-9, "d'office, les anneaux vont de 1,35 à 2,1 rayons de l'astre");
+            look.RingGap = 0;
+            look.RingSpan(out inner, out outer);
+            t.Check(Math.Abs(inner - 1) < 1e-9 && Math.Abs(outer - 1.75) < 1e-9, "sans écart, ils commencent au ras de l'astre — jamais dedans");
+            look.RingGap = 2; look.RingThickness = 0.5; look.RingSize = 2;
+            look.RingSpan(out inner, out outer);
+            t.Check(Math.Abs(inner - 2.4) < 1e-9 && Math.Abs(outer - 3.15) < 1e-9, "l'écart les éloigne, l'épaisseur les amincit, l'ampleur grandit le tout");
+            look.RingGap = 99; look.RingThickness = -4; look.RingSize = 99;
+            look.RingSpan(out inner, out outer);
+            t.Check(Math.Abs(inner - 5.2) < 1e-9 && outer > inner, "des réglages fous restent dans leurs bornes : la bande garde une largeur");
+
+            var sun = BodyLook.ForSun();
+            t.Check(sun.IsDefault && sun.Distance == BodyLook.SunDistance && new Sun().Look.IsDefault && new Sun().Look.Distance == BodyLook.SunDistance, "un soleil est d'office à la distance de la Terre au Soleil — et c'est encore « d'office »");
+            t.Equal("1,2 × notre Lune", BodyLook.TimesLabel(4169.76, BodyLook.MoonDiameter, "notre Lune"), "une grandeur, dite en fois celle de notre système");
+
+            var world = World.Earth();
+            world.Look = new BodyLook { Rings = true, RingGap = 1.8, RingThickness = 0.6, RingAngle = 25, RingTexture = false, RingGrain = 2.5 };
+            world.Moons[0].Look = new BodyLook { Diameter = 4169.76 };
+            world.Suns[0].Look.Distance = BodyLook.SunDistance * 2;
+            t.Check(!world.Look.IsDefault && !world.Moons[0].Look.IsDefault && !world.Suns[0].Look.IsDefault, "un diamètre, une distance de soleil, un réglage d'anneaux : plus « d'office »");
+            var copy = world.Clone();
+            t.Check(copy.Look.RingGap == 1.8 && copy.Look.RingThickness == 0.6 && copy.Look.RingAngle == 25 && !copy.Look.RingTexture && copy.Look.RingGrain == 2.5 && copy.Moons[0].Look.Diameter == 4169.76
+                && copy.Suns[0].Look.Distance == BodyLook.SunDistance * 2 && copy.Suns[0].Look.DefaultDistance == BodyLook.SunDistance, "une copie du monde emporte tout cela");
+            var back = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { world }))))[0];
+            t.Check(back.Look.Rings && back.Look.RingGap == 1.8 && back.Look.RingThickness == 0.6 && back.Look.RingAngle == 25 && !back.Look.RingTexture && back.Look.RingGrain == 2.5, "le monde relu : l'écart, l'épaisseur, l'angle, la texture et le grain de ses anneaux");
+            t.Check(back.Moons[0].Look.Diameter == 4169.76 && back.Moons[0].Look.Distance == BodyLook.MoonDistance, "son satellite : le diamètre ; la distance, restée d'office");
+            t.Check(back.Suns[0].Look.Distance == BodyLook.SunDistance * 2 && back.Suns[0].Look.DefaultDistance == BodyLook.SunDistance, "son soleil : deux fois plus loin que le nôtre");
+            var plain = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { World.Earth() }))))[0];
+            t.Check(plain.Suns[0].Look.IsDefault && plain.Suns[0].Look.Distance == BodyLook.SunDistance && plain.Moons[0].Look.IsDefault, "un monde d'avant le lot 16 se relit : son soleil à la distance du nôtre, sa lune large comme la nôtre");
+            // Une allure de satellite posée sur un soleil (un .plot du lot 14) : sa distance « d'office » ne devient pas celle de la Lune.
+            var old = World.Earth();
+            old.Suns[0].Look = new BodyLook { Accent = "#D9503A" };
+            var oldBack = TimelineJson.ReadWorlds(Json.Parse(Json.Write(TimelineJson.BuildWorlds(new List<World> { old }))))[0];
+            t.Check(oldBack.Suns[0].Look.Accent == "#D9503A" && oldBack.Suns[0].Look.Distance == BodyLook.SunDistance, "un soleil personnalisé au lot 14 garde son accent et prend la distance d'un soleil");
+            var odd = TimelineJson.ReadWorlds(Json.Parse("[{\"id\":\"w\",\"name\":\"X\",\"look\":{\"ringGap\":-3,\"ringThickness\":50,\"ringAngle\":400,\"ringGrain\":0,\"diameter\":-8}}]"))[0];
+            t.Check(odd.Look.RingGap == 0 && odd.Look.RingThickness == 3 && odd.Look.RingAngle == 90 && odd.Look.RingGrain == 0.25 && odd.Look.Diameter == 0, "des valeurs folles dans le fichier sont ramenées dans leurs bornes");
         }
 
         /// <summary>Lot 14 (16/11) : personnaliser un soleil, un satellite, le monde.</summary>

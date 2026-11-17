@@ -20,11 +20,95 @@ namespace Marabook.App
     {
         private static IBrush CardFill { get { return new SolidColorBrush(Chrome.FieldBg.Color, Chrome.Dark ? 0.45 : 0.7); } }
 
+        // ---- LES SECTIONS « OUTIL » (lot 16, 17/11, Rémi) : un calculateur, un testeur, une explication ne
+        // sont pas des champs de configuration — une icône avant le titre et une légère teinte bleue le disent.
+
+        /// <summary>Le bleu des outils et des aides.</summary>
+        public static Color ToolBlue { get { return Chrome.Dark ? Color.FromRgb(0x6D, 0xB3, 0xF2) : Color.FromRgb(0x2F, 0x7F, 0xD0); } }
+        public static IBrush ToolFill { get { return new SolidColorBrush(ToolBlue, Chrome.Dark ? 0.13 : 0.09); } }
+        public static IBrush ToolEdge { get { return new SolidColorBrush(ToolBlue, 0.45); } }
+
+        /// <summary>Le titre d'une section, précédé de son icône s'il en a une.</summary>
+        public static Control Title(string title, string icon, bool tool)
+        {
+            var text = new TextBlock { Text = title, Foreground = Chrome.Ink, FontSize = 13.5, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            if (string.IsNullOrEmpty(icon)) return text;
+            var glyph = Icons.Make(icon, 15, tool ? new SolidColorBrush(ToolBlue) : Chrome.SoftText);
+            glyph.VerticalAlignment = VerticalAlignment.Center;
+            glyph.Margin = new Thickness(0, 0, 7, 0);
+            glyph.Tag = "section-icon";
+            var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            row.Children.Add(glyph);
+            row.Children.Add(text);
+            return row;
+        }
+
+        /// <summary>Donne à une carte la teinte des outils.</summary>
+        public static T Tool<T>(T card) where T : Border
+        {
+            card.Background = ToolFill;
+            card.BorderBrush = ToolEdge;
+            card.Classes.Add("tool");
+            return card;
+        }
+
+        /// <summary>UN REPÈRE AU SURVOL (lot 16, Rémi : « créer des repères visuels ») : la ligne ou le bloc
+        /// survolé se teinte légèrement d'accent ; s'il n'avait pas de bords arrondis, il en prend.</summary>
+        public static T HoverTint<T>(T card) where T : Border
+        {
+            var rest = card.Background;
+            if (card.CornerRadius.TopLeft <= 0) card.CornerRadius = new CornerRadius(8);
+            card.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property != InputElement.IsPointerOverProperty) return;
+                card.Background = card.IsPointerOver ? HoverFill(rest) : rest;
+            };
+            card.Classes.Add("hover-tint");
+            return card;
+        }
+
+        /// <summary>Le fond d'un bloc survolé : son fond de repos, mêlé d'un peu d'accent.</summary>
+        public static IBrush HoverFill(IBrush rest)
+        {
+            var accent = Chrome.Accent.Color;
+            var solid = rest as ISolidColorBrush;
+            if (solid == null || solid.Color.A == 0 || solid.Opacity <= 0) return new SolidColorBrush(accent, Chrome.Dark ? 0.16 : 0.09);
+            var from = solid.Color;
+            var share = Chrome.Dark ? 0.16 : 0.09;
+            return new SolidColorBrush(Color.FromArgb(from.A, (byte)Math.Round(from.R + (accent.R - from.R) * share), (byte)Math.Round(from.G + (accent.G - from.G) * share), (byte)Math.Round(from.B + (accent.B - from.B) * share)), solid.Opacity);
+        }
+
+        /// <summary>Les sections « outil » d'une fenêtre (sonde).</summary>
+        internal static int CountTools(Control root)
+        {
+            // Le contenu de l'onglet ouvert est parcouru deux fois (par l'onglet, et par la zone qui le montre).
+            var seen = new HashSet<Border>();
+            foreach (var control in Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(root))
+            {
+                var card = control as Border;
+                if (card != null && card.Classes.Contains("tool")) seen.Add(card);
+            }
+            return seen.Count;
+        }
+
+        /// <summary>LES ONGLETS EN COLONNE (lot 16, Rémi : « au lieu d'onglets, une colonne à gauche comme
+        /// pour les préférences ») : la même classe « column » du thème que les Préférences.</summary>
+        public static TabControl ColumnTabs(double height)
+        {
+            var tabs = new TabControl
+            {
+                Margin = new Thickness(0, 12, 0, 0), Height = height, TabStripPlacement = Dock.Left,
+                ItemsPanel = new Avalonia.Controls.Templates.FuncTemplate<Panel>(() => new StackPanel { Orientation = Orientation.Vertical })
+            };
+            tabs.Classes.Add("column");
+            return tabs;
+        }
+
         /// <summary>Une sous-section : son titre, ce qu'elle règle en une ligne, son contenu — dans une carte.</summary>
-        public static Border Section(string title, string subtitle, Control body, string tag = null)
+        public static Border Section(string title, string subtitle, Control body, string tag = null, string icon = null, bool tool = false)
         {
             var stack = new StackPanel();
-            stack.Children.Add(new TextBlock { Text = title, Foreground = Chrome.Ink, FontSize = 13.5, FontWeight = FontWeight.SemiBold });
+            stack.Children.Add(Title(title, icon, tool));
             if (!string.IsNullOrEmpty(subtitle))
                 stack.Children.Add(new TextBlock { Text = subtitle, Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
             if (body != null)
@@ -32,11 +116,12 @@ namespace Marabook.App
                 body.Margin = new Thickness(0, 9, 0, 0);
                 stack.Children.Add(body);
             }
-            return new Border
+            var card = new Border
             {
                 Child = stack, Padding = new Thickness(14, 11, 14, 13), Margin = new Thickness(0, 0, 0, 10), CornerRadius = new CornerRadius(10),
                 Background = CardFill, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Tag = tag
             };
+            return tool ? Tool(card) : card;
         }
 
         /// <summary>L'encadré d'un exemple : teinté d'accent, en demi-gras — il ne se confond plus avec les libellés.</summary>
@@ -124,7 +209,7 @@ namespace Marabook.App
         private readonly TextBlock _summary;
         private bool _open;
 
-        public Accordion(string title, string summary, Control body, bool open = false, string tag = null)
+        public Accordion(string title, string summary, Control body, bool open = false, string tag = null, string icon = null, bool tool = false)
         {
             _body = body;
             Tag = tag;
@@ -140,7 +225,7 @@ namespace Marabook.App
             var head = new DockPanel();
             DockPanel.SetDock(_caret, Dock.Left);
             head.Children.Add(_caret);
-            var name = new TextBlock { Text = title, Foreground = Chrome.Ink, FontSize = 13.5, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            var name = AstrolabeUi.Title(title, icon, tool);
             DockPanel.SetDock(name, Dock.Left);
             head.Children.Add(name);
             head.Children.Add(_summary);
@@ -158,6 +243,7 @@ namespace Marabook.App
             stack.Children.Add(header);
             stack.Children.Add(_body);
             Child = stack;
+            if (tool) AstrolabeUi.Tool(this);
             _open = !open;
             IsOpen = open;
         }

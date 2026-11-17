@@ -90,25 +90,41 @@ namespace Marabook.Persistence
             if (look == null || look.IsDefault) return;
             var l = new Dictionary<string, object>();
             if (!string.IsNullOrEmpty(look.Accent)) l["accent"] = look.Accent;
-            if (Math.Abs(look.Distance - BodyLook.MoonDistance) > 1e-6) l["distance"] = look.Distance;
+            if (Math.Abs(look.Distance - look.DefaultDistance) > 1e-6) l["distance"] = look.Distance;
+            if (look.Diameter > 0) l["diameter"] = look.Diameter;
             if (look.Rings) l["rings"] = true;
             if (!string.IsNullOrEmpty(look.RingColor)) l["ringColor"] = look.RingColor;
             if (Math.Abs(look.RingSize - 1) > 1e-9) l["ringSize"] = look.RingSize;
+            // Lot 16 (17/11) : l'écart, l'épaisseur, l'angle et le grain des anneaux.
+            if (Math.Abs(look.RingGap - 1) > 1e-9) l["ringGap"] = look.RingGap;
+            if (Math.Abs(look.RingThickness - 1) > 1e-9) l["ringThickness"] = look.RingThickness;
+            if (Math.Abs(look.RingAngle) > 1e-9) l["ringAngle"] = look.RingAngle;
+            if (!look.RingTexture) l["ringTexture"] = false;
+            if (Math.Abs(look.RingGrain - 1) > 1e-9) l["ringGrain"] = look.RingGrain;
             if (Math.Abs(look.Tilt) > 1e-9) l["tilt"] = look.Tilt;
-            node["look"] = l;
+            if (l.Count > 0) node["look"] = l;
         }
 
-        private static BodyLook ReadLook(object node)
+        /// <summary>L'allure relue ; la distance d'office dépend de l'astre (un satellite : celle de la
+        /// Lune ; un soleil : celle du Soleil).</summary>
+        private static BodyLook ReadLook(object node, double defaultDistance = BodyLook.MoonDistance)
         {
-            var look = new BodyLook();
+            var look = new BodyLook { Distance = defaultDistance, DefaultDistance = defaultDistance };
             var l = Json.AsObject(node);
             if (l == null) return look;
             look.Accent = Json.AsString(Json.Field(l, "accent"));
-            var distance = Json.AsDouble(Json.Field(l, "distance"), BodyLook.MoonDistance);
-            look.Distance = distance > 0 && !double.IsInfinity(distance) ? distance : BodyLook.MoonDistance;
+            var distance = Json.AsDouble(Json.Field(l, "distance"), defaultDistance);
+            look.Distance = distance > 0 && !double.IsInfinity(distance) ? distance : defaultDistance;
+            var diameter = Json.AsDouble(Json.Field(l, "diameter"), 0);
+            look.Diameter = diameter > 0 && !double.IsInfinity(diameter) ? diameter : 0;
             look.Rings = Json.AsBool(Json.Field(l, "rings"), false);
             look.RingColor = Json.AsString(Json.Field(l, "ringColor"));
             look.RingSize = Math.Max(0.2, Math.Min(4, Json.AsDouble(Json.Field(l, "ringSize"), 1)));
+            look.RingGap = Math.Max(0, Math.Min(3, Json.AsDouble(Json.Field(l, "ringGap"), 1)));
+            look.RingThickness = Math.Max(0.1, Math.Min(3, Json.AsDouble(Json.Field(l, "ringThickness"), 1)));
+            look.RingAngle = Math.Max(-90, Math.Min(90, Json.AsDouble(Json.Field(l, "ringAngle"), 0)));
+            look.RingTexture = Json.AsBool(Json.Field(l, "ringTexture"), true);
+            look.RingGrain = Math.Max(0.25, Math.Min(4, Json.AsDouble(Json.Field(l, "ringGrain"), 1)));
             look.Tilt = Math.Max(-90, Math.Min(90, Json.AsDouble(Json.Field(l, "tilt"), 0)));
             return look;
         }
@@ -285,7 +301,7 @@ namespace Marabook.Persistence
                         var sunId = Json.AsString(Json.Field(u, "id"));
                         if (!string.IsNullOrEmpty(sunId)) sun.Id = sunId;
                         sun.Size = Math.Max(0.0001, Json.AsDouble(Json.Field(u, "size"), 1));
-                        sun.Look = ReadLook(Json.Field(u, "look"));
+                        sun.Look = ReadLook(Json.Field(u, "look"), BodyLook.SunDistance);
                         var sunOrbit = Json.AsString(Json.Field(u, "orbit"));
                         sun.OrbitId = string.IsNullOrEmpty(sunOrbit) ? null : sunOrbit;
                         // Les mondes d'avant le 16/11 : un compagnon à période tournait déjà autour du premier soleil, sans le dire.

@@ -315,6 +315,11 @@ namespace Marabook.App
                             "…prérempli : 40 075 km, quatre saisons (le printemps le jour 79), un soleil, une lune (" + worldDialog.CircumferenceForProbe + ")");
                         Check(worldDialog.SolarYearForProbe == "" && !worldDialog.FixDriftShownForProbe && worldDialog.DriftForProbe.StartsWith("Aucun glissement"), "…sauf la durée réelle de l'année, laissée vide : un monde neuf ne glisse pas (16/11)");
                         Check(worldDialog.NoCalendarNoticeForProbe && !worldDialog.FactorOpenForProbe, "sans calendrier, un bandeau prévient que ce ciel ne s'affichera nulle part ; le calculateur de circonférence est replié (16/11)");
+                        // Lot 16 (17/11) : la fenêtre du monde fait peau neuve.
+                        Check(worldDialog.ColumnTabsForProbe && worldDialog.Width >= 940, "la fenêtre du monde : ses onglets en colonne, à gauche, comme les Préférences — et elle s'est élargie (" + worldDialog.Width + " px)");
+                        Check(worldDialog.ToolSectionsForProbe == 3, "trois sections « outil », teintées de bleu : le Calculateur de circonférence et les deux « Ce que ce ciel déclenche » (" + worldDialog.ToolSectionsForProbe + ")");
+                        Check(worldDialog.SeasonBlocksForProbe && worldDialog.BodyBlocksHoverForProbe, "chaque saison, chaque soleil, chaque satellite est un bloc arrondi qui se teinte au survol");
+                        Check(worldDialog.LookButtonsHaveIconForProbe && !worldDialog.HasSunSizeFieldForProbe, "« Personnaliser… » porte l'icône des Cartes ; la taille d'un soleil a quitté sa ligne pour cette fenêtre");
                         Shot(worldDialog, "astrolabe-5-monde-prerempli.png");
                         // — 15/11 : les calendriers en puces — la liste, « Ajouter », la puce.
                         Check(worldDialog.AvailableCountForProbe == 2 && worldDialog.ChipCountForProbe == 0 && !worldDialog.AddButtonShownForProbe, "les calendriers : une liste déroulante de deux, aucune puce, pas encore de bouton « Ajouter »");
@@ -697,6 +702,9 @@ namespace Marabook.App
                     // Lot 3 (14/11) : la date d'exemple, le testeur encadré, l'an 0 des segments, les jours en pastilles.
                     Check(systemDialog.DateExampleForProbe.StartsWith("→ 12 ") && systemDialog.DateExampleForProbe.Contains("E2.880"), "sous la notation d'une date, une date d'exemple mise en forme (" + systemDialog.DateExampleForProbe + ")");
                     Check(systemDialog.TryBoxFramedForProbe, "le testeur de dates est dans un cadre aux bords arrondis");
+                    // Lot 16 (17/11) : les onglets en colonne à gauche, les sections « outil » à l'icône du calculateur.
+                    Check(systemDialog.ColumnTabsForProbe && systemDialog.Width >= 860, "la fenêtre d'une temporalité : ses onglets en colonne, à gauche, comme les Préférences — et elle s'est élargie (" + systemDialog.Width + " px)");
+                    Check(systemDialog.ToolSectionsForProbe == 3 && !systemDialog.DialOpenForProbe, "trois sections « outil », teintées de bleu : Essayer une date, le Répartiteur, le Dessin du cadran — ce dernier devenu un accordéon, replié (" + systemDialog.ToolSectionsForProbe + ")");
                     Check(systemDialog.FoundationNoticeForProbe, "un système qui porte des frises : le bandeau « fondation » prévient que ses dates seront relues (16/11)");
                     Check(systemDialog.SegmentYearZeroEnabledForProbe, "découpé et chaque segment repart de zéro : la case « an 0 de chaque segment » est active");
                     systemDialog.SetSegmentYearZeroForProbe(true);
@@ -764,6 +772,7 @@ namespace Marabook.App
                     systemDialog.DistributeForProbe("5"); // la suite repart des mois de 35 jours
                     await Settle();
                     systemDialog.ShowTabForProbe(2);
+                    systemDialog.DialOpenForProbe = true;
                     await Settle();
                     Shot(systemDialog, "frises-19-semaine-liste.png");
                     // — 16/11 : le cadran de l'horloge et les secondes.

@@ -590,22 +590,21 @@ namespace Marabook.App
             public bool Rings;
             public Color RingColor;
             public double RingSize = 1, Tilt;    // Tilt : degrés
+            public BodyLook Look;                // lot 16 : l'écart, l'épaisseur, l'angle et le grain des anneaux
             public bool Satellite;               // il tourne autour du globe, à portée de vue
             public double Orbit = 2;             // le rayon de son orbite, en rayons du globe
             public SkyDot Parent;                // un satellite de satellite : il tourne autour de celui-ci
             public double Angle;                 // …à cet angle
         }
 
-        /// <summary>Les anneaux d'un astre du ciel : une ellipse penchée de son inclinaison, derrière puis devant lui.</summary>
-        private static void DotRings(DrawingContext context, SkyDot body, Point at, bool front)
+        /// <summary>Les anneaux d'un astre du ciel (lot 16 : RingArt) : un disque vu un peu de dessus, penché de
+        /// l'inclinaison de l'astre et de l'angle de ses anneaux — entier derrière lui, puis sa part de devant.</summary>
+        private void DotRings(DrawingContext context, SkyDot body, Point at, bool front)
         {
-            if (!body.Rings) return;
-            var rx = body.Size * 2.1 * body.RingSize;
-            var ry = rx * 0.34;
-            var pen = new Pen(new SolidColorBrush(body.RingColor, 0.85), Math.Max(1.2, body.Size * 0.28));
-            using (context.PushTransform(Matrix.CreateTranslation(-at.X, -at.Y) * Matrix.CreateRotation(-body.Tilt * Math.PI / 180) * Matrix.CreateTranslation(at.X, at.Y)))
-            using (context.PushClip(front ? new Rect(at.X - rx - 4, at.Y, rx * 2 + 8, ry + 4) : new Rect(at.X - rx - 4, at.Y - ry - 4, rx * 2 + 8, ry * 2 + 8)))
-                context.DrawEllipse(null, pen, at, rx, ry);
+            if (!body.Rings || body.Look == null) return;
+            double nx, ny, nz;
+            RingArt.DotNormal(body.Tilt + body.Look.RingAngle, out nx, out ny, out nz);
+            RingArt.Draw(context, at, body.Size, nx, ny, nz, body.Look, body.RingColor, _owner.RingSpin, front, 256);
         }
 
         private int _satellitesDrawn;
@@ -678,19 +677,17 @@ namespace Marabook.App
                 context.DrawEllipse(halo, null, centre, radius * 1.19, radius * 1.19);
             }
             if (!look.Rings) return;
+            // LOT 16 : le disque des anneaux, posé dans l'espace (RingArt). Sa normale est l'axe du monde,
+            // penché de l'angle des anneaux vers le méridien d'origine — dans le repère du MONDE, donc
+            // elle tourne à l'écran avec le globe, comme lui.
             var ring = Tint(look.RingColor, Color.FromRgb(0xD9, 0xC9, 0xA6));
-            var sinP = Math.Sin(_globeLat);
-            // Vu d'en haut (sinP > 0), la moitié lointaine de l'anneau est en haut de l'écran.
-            var upper = sinP >= 0 ? !front : front;
-            var reach = radius * 2.4 * look.RingSize + 8;
-            var clip = upper ? new Rect(centre.X - reach, centre.Y - reach, reach * 2, reach) : new Rect(centre.X - reach, centre.Y, reach * 2, reach);
-            using (context.PushClip(clip))
-                foreach (var band in new[] { new[] { 1.42, 0.5, 0.10 }, new[] { 1.62, 0.85, 0.16 }, new[] { 1.88, 0.6, 0.12 }, new[] { 2.08, 0.35, 0.07 } })
-                {
-                    var rx = radius * band[0] * look.RingSize;
-                    var ry = Math.Max(0.6, rx * Math.Abs(sinP));
-                    context.DrawEllipse(null, new Pen(new SolidColorBrush(ring, band[1]), Math.Max(1.2, radius * band[2] * look.RingSize * Math.Max(0.12, Math.Abs(sinP)))), centre, rx, ry);
-                }
+            var lean = look.RingAngle * Math.PI / 180;
+            double sinLat = Math.Cos(lean), cosLat = Math.Sin(lean), l = -_globeLon;
+            double sinP = Math.Sin(_globeLat), cosP = Math.Cos(_globeLat);
+            var nx = cosLat * Math.Sin(l);
+            var ny = cosP * sinLat - sinP * cosLat * Math.Cos(l);
+            var nz = sinP * sinLat + cosP * cosLat * Math.Cos(l);
+            RingArt.Draw(context, centre, radius, nx, ny, nz, look, ring, _owner.RingSpin, front, 1024);
         }
 
         private sealed class Star

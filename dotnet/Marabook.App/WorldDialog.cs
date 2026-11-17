@@ -76,7 +76,7 @@ namespace Marabook.App
             _project = project;
             _world = world;
             TimelineUi.Dress(this, owner, creating ? "Nouveau monde" : "Monde — " + world.Name);
-            Width = 720;
+            Width = 960; // 720 avant le lot 16 : les onglets sont passés en colonne, à gauche (Rémi, 17/11)
             SizeToContent = SizeToContent.Height;
             CanResize = false;
 
@@ -124,7 +124,7 @@ namespace Marabook.App
             _noCalendar.IsVisible = false;
             root.Children.Add(_noCalendar);
 
-            var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0), Height = 480 };
+            var tabs = AstrolabeUi.ColumnTabs(480);
 
             // ------------------------------------------------------------- taille
             var size = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
@@ -152,7 +152,7 @@ namespace Marabook.App
             var factorBody = new StackPanel();
             factorBody.Children.Add(new TextBlock { Text = "Combien de fois la Terre ? Le résultat se reporte dans la circonférence, au-dessus.", Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
             factorBody.Children.Add(factorRow);
-            _factorAccordion = new Accordion("Calculateur de circonférence", "en nombre de fois la Terre", factorBody, false, "world-factor-accordion");
+            _factorAccordion = new Accordion("Calculateur de circonférence", "en nombre de fois la Terre", factorBody, false, "world-factor-accordion", "calculator-fill", true);
             size.Children.Add(_factorAccordion);
             // CE QUE LA TAILLE PERMET DE DIRE (16/11, Rémi : « un unique bloc de texte massif ») :
             // des groupes titrés, et dans chacun des tuiles — un libellé, une valeur en grand, une précision.
@@ -187,7 +187,7 @@ namespace Marabook.App
             _seasonEven.Margin = new Thickness(0, 0, 0, 2);
             _seasonEven.Tag = "world-season-even";
             seasonBody.Children.Add(_seasonEven);
-            _seasons = new StackPanel { Spacing = 6, Margin = new Thickness(0, 6, 0, 0) };
+            _seasons = new StackPanel { Spacing = 0, Margin = new Thickness(-8, 4, -6, 0) }; // chaque saison porte sa marge : le bloc survolé (lot 16)
             seasonBody.Children.Add(_seasons); // l'onglet défile déjà : pas de second ascenseur
             var seasonButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
             var addSeason = Buttons.IconText("plus-bold", "Ajouter une saison", null, Buttons.Compact, Buttons.Look.Outline);
@@ -243,7 +243,7 @@ namespace Marabook.App
             sunSky.Children.Add(_sunBehaviors);
             _sunEcho = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap, Tag = "world-suns-echo" };
             sunSky.Children.Add(_sunEcho);
-            suns.Children.Add(AstrolabeUi.Section("Ce que ce ciel déclenche", "Ce que le nombre et l'agencement des soleils changent dans le monde.", sunSky, "world-section-sun-sky"));
+            suns.Children.Add(AstrolabeUi.Section("Ce que ce ciel déclenche", "Ce que le nombre et l'agencement des soleils changent dans le monde.", sunSky, "world-section-sun-sky", "info-bold", true));
             tabs.Items.Add(new TabItem { Header = "Soleils", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = suns } });
 
             // -------------------------------------------------------------- lunes
@@ -272,7 +272,7 @@ namespace Marabook.App
             moonSky.Children.Add(_moonBehaviors);
             _moonEcho = new TextBlock { Foreground = Chrome.Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap, Tag = "world-moons-echo" };
             moonSky.Children.Add(_moonEcho);
-            moons.Children.Add(AstrolabeUi.Section("Ce que ce ciel déclenche", "Éclipses, lunes rousses, lunes bleues, lunes pleines ensemble : ce que vos lunes provoquent, et quand.", moonSky, "world-section-moon-sky"));
+            moons.Children.Add(AstrolabeUi.Section("Ce que ce ciel déclenche", "Éclipses, lunes rousses, lunes bleues, lunes pleines ensemble : ce que vos lunes provoquent, et quand.", moonSky, "world-section-moon-sky", "info-bold", true));
             tabs.Items.Add(new TabItem { Header = "Satellites", Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = moons } });
 
             // --------------------------------------------------------- phénomènes
@@ -576,7 +576,8 @@ namespace Marabook.App
                 Grid.SetColumn(detail, 2);
                 Grid.SetColumnSpan(detail, 7);
                 row.Children.Add(detail);
-                _seasons.Children.Add(row);
+                // Lot 16 : chaque saison dans son bloc, qui se teinte au survol — un repère pour l'œil.
+                _seasons.Children.Add(AstrolabeUi.HoverTint(new Border { Child = row, Padding = new Thickness(8, 5, 6, 5), Background = Brushes.Transparent, Tag = "world-season-row" }));
             }
             if (_world.Seasons.Count == 0) _seasons.Children.Add(new TextBlock { Text = "Aucune saison.", Foreground = Chrome.SoftText, FontSize = 12 });
             _building = was;
@@ -589,11 +590,19 @@ namespace Marabook.App
 
         private static Border Card(Control child, object[] cells, string tag)
         {
-            return new Border
+            // Lot 16 : le bloc d'un astre se teinte d'accent au survol.
+            return AstrolabeUi.HoverTint(new Border
             {
                 Child = child, Padding = new Thickness(12, 9, 8, 10), CornerRadius = new CornerRadius(8), Background = Chrome.FieldBg,
                 BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Tag = cells
-            };
+            });
+        }
+
+        /// <summary>La grille d'une saison : depuis le lot 16, elle est dans un bloc (qui se teinte au survol).</summary>
+        private static Grid SeasonGrid(object child)
+        {
+            var block = child as Border;
+            return block != null ? block.Child as Grid : child as Grid;
         }
 
         /// <summary>Les cellules d'une ligne (ce que sa carte porte en Tag) ; null pour ce qui n'en est pas une.</summary>
@@ -666,11 +675,11 @@ namespace Marabook.App
 
         /// <summary>PERSONNALISER L'ASTRE (lot 14, Rémi : « bouton à côté du nom ») : le champ du nom, et à sa
         /// droite le bouton qui ouvre l'allure de l'astre — accent, anneaux, inclinaison, distance d'un satellite.</summary>
-        private Control WithLook(TextBox name, Func<BodyLook> current, Action<BodyLook> apply, int kind, Func<string> title)
+        private Control WithLook(TextBox name, Func<BodyLook> current, Action<BodyLook> apply, int kind, Func<string> title, Func<string> tint = null)
         {
-            var button = Buttons.Text("Personnaliser…", kind == BodyLookDialog.WorldKind ? "L'allure du monde sur le globe : la teinte de son atmosphère, ses anneaux"
-                : kind == BodyLookDialog.SunKind ? "L'allure de ce soleil : la couleur de son halo, ses anneaux, l'inclinaison de son axe"
-                : "L'allure de ce satellite : sa distance, ses anneaux, l'inclinaison de son orbite", Buttons.Compact, Buttons.Look.Outline);
+            var button = Buttons.IconText("pile-cartes", "Personnaliser…", kind == BodyLookDialog.WorldKind ? "L'allure du monde sur le globe : la teinte de son atmosphère, ses anneaux"
+                : kind == BodyLookDialog.SunKind ? "L'allure de ce soleil : son diamètre, sa distance, la couleur de son halo, ses anneaux, son inclinaison"
+                : "L'allure de ce satellite : son diamètre, sa distance, ses anneaux, l'inclinaison de son orbite", Buttons.Compact, Buttons.Look.Outline);
             button.Tag = kind == BodyLookDialog.WorldKind ? "world-look" : kind == BodyLookDialog.SunKind ? "world-sun-look" : "world-moon-look";
             button.Margin = new Thickness(6, 0, 0, 0);
             button.VerticalAlignment = VerticalAlignment.Center;
@@ -678,7 +687,7 @@ namespace Marabook.App
             {
                 var look = current();
                 if (look == null) return;
-                var edited = await BodyLookDialog.Ask(this, kind, title(), look.Clone());
+                var edited = await BodyLookDialog.Ask(this, kind, title(), look.Clone(), tint == null ? null : tint());
                 if (edited != null) apply(edited);
             };
             var row = new DockPanel();
@@ -699,17 +708,12 @@ namespace Marabook.App
                 var sun = _world.Suns[i];
                 var name = new TextBox { Text = sun.Name, Watermark = "Nom du soleil" };
                 var lookSun = sun;
-                // SA TAILLE (16/11 soir, Rémi) : en « fois notre Soleil » — ce qui décide de ses éclipses solaires pures.
-                var sizeWord = Word("Taille ×");
-                sizeWord.Margin = new Thickness(0);
-                Grid.SetColumn(sizeWord, 2);
-                var size = new TextBox { Text = Show(sun.Size), Tag = "world-sun-size" };
-                ToolTip.SetTip(size, "Sa largeur, en nombre de fois notre Soleil (1 = 1 392 700 km de diamètre). Entre deux soleils qui se croisent, le plus large cache l'autre en entier.");
-                Grid.SetColumn(size, 4);
+                // SA TAILLE (16/11 soir : en « fois notre Soleil », ce qui décide de ses éclipses solaires pures)
+                // se règle depuis le lot 16 dans « Personnaliser… », avec sa distance : son diamètre, en km.
                 var orbit = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "world-sun-orbit" };
-                Grid.SetColumn(orbit, 6);
+                Grid.SetColumn(orbit, 2);
                 var remove = Buttons.Icon("x-bold", null, Buttons.Compact, Buttons.Look.Calm);
-                Grid.SetColumn(remove, 8);
+                Grid.SetColumn(remove, 4);
                 var period = new TextBox { Text = sun.Period > 0 ? Show(sun.Period) : "", Watermark = "aucune", Width = 84, Margin = new Thickness(0, 0, 7, 0) };
                 var high = new TextBox { Text = sun.Period > 0 ? reference.Format(TimeMath.FromDayNumber(reference, (long)Math.Floor(sun.HighAt))) : "", Watermark = reference.Format(new TimePoint(0, 1, 1)), Width = 180 };
                 // Sous le nom, pour un soleil qui orbite : OÙ (en deçà ou au-delà du monde), puis son tour.
@@ -727,14 +731,26 @@ namespace Marabook.App
                 orbiting.Children.Add(placement);
                 orbiting.Children.Add(turn);
                 Grid.SetRow(orbiting, 1);
-                Grid.SetColumnSpan(orbiting, 9);
+                Grid.SetColumnSpan(orbiting, 5);
                 var role = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(1, 6, 0, 0) };
                 Grid.SetRow(role, 1);
-                Grid.SetColumnSpan(role, 9);
-                var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,10,Auto,6,62,8,240,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
-                grid.Children.Add(WithLook(name, delegate { Collect(); return _world.Suns.Contains(lookSun) ? lookSun.Look : null; }, delegate(BodyLook look) { lookSun.Look = look; Preview(); }, BodyLookDialog.SunKind, delegate { return SunName(lookSun, _world.Suns.IndexOf(lookSun)); }));
-                grid.Children.Add(sizeWord);
-                grid.Children.Add(size);
+                Grid.SetColumnSpan(role, 5);
+                var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,280,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
+                // La fenêtre de l'allure reçoit le diamètre du soleil (sa taille × celui du nôtre) et le rend.
+                grid.Children.Add(WithLook(name, delegate
+                {
+                    Collect();
+                    if (!_world.Suns.Contains(lookSun)) return null;
+                    var shown = lookSun.Look.Clone();
+                    shown.Diameter = lookSun.Size * Astro.SunDiameter;
+                    return shown;
+                }, delegate(BodyLook look)
+                {
+                    lookSun.Size = look.Diameter > 0 ? look.Diameter / Astro.SunDiameter : 1;
+                    look.Diameter = 0; // un soleil garde sa taille dans Sun.Size : une seule vérité
+                    lookSun.Look = look;
+                    Preview();
+                }, BodyLookDialog.SunKind, delegate { return SunName(lookSun, _world.Suns.IndexOf(lookSun)); }, delegate { return Astro.ColorOf(lookSun, _world.Suns.IndexOf(lookSun)); }));
                 grid.Children.Add(orbit);
                 grid.Children.Add(remove);
                 grid.Children.Add(orbiting);
@@ -752,10 +768,9 @@ namespace Marabook.App
                 // Sans regarnir la liste des orbites depuis son propre SelectionChanged (Avalonia lève).
                 orbit.SelectionChanged += delegate { if (_building) return; Collect(); RebuildBodies(); Preview(); };
                 placement.SelectionChanged += delegate { if (_building) return; Collect(); RebuildBodies(); Preview(); };
-                size.TextChanged += delegate { Preview(); };
                 period.TextChanged += delegate { Preview(); };
                 high.TextChanged += delegate { Preview(); };
-                _suns.Children.Add(Card(grid, new object[] { sun, name, orbit, period, high, orbiting, role, size, placement, wordA, wordB }, "sun"));
+                _suns.Children.Add(Card(grid, new object[] { sun, name, orbit, period, high, orbiting, role, null, placement, wordA, wordB }, "sun"));
             }
             if (_world.Suns.Count == 0) _suns.Children.Add(new TextBlock { Text = "Aucun soleil renseigné.", Foreground = Chrome.SoftText, FontSize = 12 });
             _building = was;
@@ -952,7 +967,7 @@ namespace Marabook.App
                 Grid.SetRow(second, 1);
                 Grid.SetColumnSpan(second, 7);
                 var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,8,100,8,190,8,26"), RowDefinitions = new RowDefinitions("Auto,Auto") };
-                grid.Children.Add(WithLook(name, delegate { Collect(); return _world.Moons.Contains(lookMoon) ? lookMoon.Look : null; }, delegate(BodyLook look) { lookMoon.Look = look; Preview(); }, BodyLookDialog.MoonKind, delegate { return MoonName(lookMoon, _world.Moons.IndexOf(lookMoon)); }));
+                grid.Children.Add(WithLook(name, delegate { Collect(); return _world.Moons.Contains(lookMoon) ? lookMoon.Look : null; }, delegate(BodyLook look) { lookMoon.Look = look; Preview(); }, BodyLookDialog.MoonKind, delegate { return MoonName(lookMoon, _world.Moons.IndexOf(lookMoon)); }, delegate { return Astro.ColorOf(lookMoon, _world.Moons.IndexOf(lookMoon)); }));
                 grid.Children.Add(period);
                 grid.Children.Add(full);
                 grid.Children.Add(remove);
@@ -1078,7 +1093,7 @@ namespace Marabook.App
             var yearDays = reference.BaseDays;
             for (var i = 0; i < _seasons.Children.Count && i < _world.Seasons.Count; i++)
             {
-                var row = _seasons.Children[i] as Grid;
+                var row = SeasonGrid(_seasons.Children[i]);
                 if (row == null) continue;
                 var season = _world.Seasons[i];
                 season.Name = (((TextBox)row.Children[1]).Text ?? "").Trim();
@@ -1099,10 +1114,6 @@ namespace Marabook.App
                 var others = OtherSuns(sun);
                 var orbit = ((ComboBox)cells[2]).SelectedIndex;
                 if (orbit >= 0) sun.OrbitId = orbit >= 1 && orbit - 1 < others.Count ? others[orbit - 1].Id : null;
-                var sizeText = (((TextBox)cells[7]).Text ?? "").Trim();
-                if (sizeText.Length == 0) sun.Size = 1;
-                else if (ReadNumber(sizeText, out value) && value >= 0.001 && value <= 100000) sun.Size = value;
-                else _fieldProblem = "La taille d'un soleil se donne en « fois notre Soleil » : 1, 0,5, 12…";
                 if (sun.OrbitId == null) { sun.Period = 0; sun.HighAt = 0; continue; } // centrique : ni période ni date
                 var placed = ((ComboBox)cells[8]).SelectedIndex;
                 if (placed >= 0) Astro.SetInner(_world, sun, placed == 0);
@@ -1261,7 +1272,7 @@ namespace Marabook.App
             var lengths = Astro.SeasonLengths(_world, seasonYear);
             for (var i = 0; i < _seasons.Children.Count && i < lengths.Length; i++)
             {
-                var row = _seasons.Children[i] as Grid;
+                var row = SeasonGrid(_seasons.Children[i]);
                 if (row != null && row.Children.Count > 6) ((TextBlock)row.Children[6]).Text = "Dure " + Astro.SeasonShare(lengths[i], seasonYear);
             }
             _seasonEven.Text = Astro.EvenSeasons(_world.Seasons.Count, seasonYear);
@@ -1363,7 +1374,7 @@ namespace Marabook.App
         internal bool NoticeShownForProbe { get { return _notice != null && _notice.IsVisible; } }
         internal string SolarYearForProbe { get { return _solarYear.Text ?? ""; } }
         internal string SeasonEvenForProbe { get { return _seasonEven.IsVisible ? _seasonEven.Text ?? "" : ""; } }
-        internal string SeasonDetailForProbe(int index) { return ((TextBlock)((Grid)_seasons.Children[index]).Children[6]).Text ?? ""; }
+        internal string SeasonDetailForProbe(int index) { return ((TextBlock)SeasonGrid(_seasons.Children[index]).Children[6]).Text ?? ""; }
         internal bool FixDriftShownForProbe { get { return _fixDrift.IsVisible; } }
         internal void FixDriftForProbe() { _solarYear.Text = ""; }
         internal int ChipCountForProbe { get { var n = 0; foreach (var child in _chips.Children) if (child is Border) n++; return n; } }
@@ -1382,7 +1393,7 @@ namespace Marabook.App
         internal int MoonRowsForProbe { get { var n = 0; foreach (var child in _moons.Children) if (Cells(child) != null) n++; return n; } }
         internal int SunRowsForProbe { get { var n = 0; foreach (var child in _suns.Children) if (Cells(child) != null) n++; return n; } }
         internal string SunsEchoForProbe { get { return _sunEcho.Text ?? ""; } }
-        internal string SeasonDayForProbe(int index) { return ((TextBox)((Grid)_seasons.Children[index]).Children[3]).Text; }
+        internal string SeasonDayForProbe(int index) { return ((TextBox)SeasonGrid(_seasons.Children[index]).Children[3]).Text; }
         internal string MoonFullForProbe(int index) { return ((TextBox)Cells(_moons.Children[index])[3]).Text; }
         internal void ClearSkyForProbe() { Collect(); _world.Seasons.Clear(); _world.Moons.Clear(); RebuildSeasons(); RebuildMoons(); Preview(); }
         internal void AddSunForProbe(string name, string period, string high)
@@ -1433,7 +1444,28 @@ namespace Marabook.App
         internal string MoonBehaviorsForProbe { get { return BehaviorsText(_moonBehaviors); } }
         internal void SetSunPlacementForProbe(int index, bool inner) { ((ComboBox)Cells(_suns.Children[index])[8]).SelectedIndex = inner ? 0 : 1; }
         internal int SunPlacementForProbe(int index) { return ((ComboBox)Cells(_suns.Children[index])[8]).SelectedIndex; }
-        internal void SetSunSizeForProbe(int index, string size) { ((TextBox)Cells(_suns.Children[index])[7]).Text = size; }
+        internal void SetSunSizeForProbe(int index, string size) { double value; if (ReadNumber(size, out value) && value > 0) ((Sun)Cells(_suns.Children[index])[0]).Size = value; Preview(); }
+        internal bool ColumnTabsForProbe { get { foreach (var tabs in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this)) if (tabs is TabControl) return ((TabControl)tabs).TabStripPlacement == Dock.Left && ((TabControl)tabs).Classes.Contains("column"); return false; } }
+        internal int ToolSectionsForProbe { get { return AstrolabeUi.CountTools(this); } }
+        internal bool SeasonBlocksForProbe { get { foreach (var child in _seasons.Children) { var block = child as Border; if (block == null || !block.Classes.Contains("hover-tint") || block.CornerRadius.TopLeft <= 0) return false; } return _seasons.Children.Count > 0; } }
+        internal bool BodyBlocksHoverForProbe { get { foreach (var child in _suns.Children) if (Cells(child) != null && !((Border)child).Classes.Contains("hover-tint")) return false; foreach (var child in _moons.Children) if (Cells(child) != null && !((Border)child).Classes.Contains("hover-tint")) return false; return true; } }
+        internal bool LookButtonsHaveIconForProbe
+        {
+            get
+            {
+                var seen = 0;
+                foreach (var control in Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(this))
+                {
+                    var button = control as Button;
+                    var tag = button == null ? null : button.Tag as string;
+                    if (tag != "world-look" && tag != "world-sun-look" && tag != "world-moon-look") continue;
+                    seen++;
+                    if (!(button.Content is StackPanel)) return false; // icône + libellé
+                }
+                return seen > 0;
+            }
+        }
+        internal bool HasSunSizeFieldForProbe { get { foreach (var control in Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(this)) { var c = control as Control; if (c != null && Equals(c.Tag, "world-sun-size")) return true; } return false; } }
         internal string SunWordsForProbe(int index) { var cells = Cells(_suns.Children[index]); return ((TextBlock)cells[9]).Text + " … " + ((TextBlock)cells[10]).Text; }
         internal List<string> BodiesForProbe()
         {
@@ -1478,8 +1510,8 @@ namespace Marabook.App
         internal string MoonsEchoForProbe { get { return _moonEcho.Text ?? ""; } }
         internal string ProblemForProbe { get { return _problem.IsVisible ? _problem.Text : null; } }
         internal void FourSeasonsForProbe() { FourSeasons(); }
-        internal int SeasonRowsForProbe { get { var n = 0; foreach (var child in _seasons.Children) if (child is Grid) n++; return n; } }
-        internal string SeasonEchoForProbe(int index) { return ((TextBlock)((Grid)_seasons.Children[index]).Children[4]).Text; }
+        internal int SeasonRowsForProbe { get { var n = 0; foreach (var child in _seasons.Children) if (SeasonGrid(child) != null) n++; return n; } }
+        internal string SeasonEchoForProbe(int index) { return ((TextBlock)SeasonGrid(_seasons.Children[index]).Children[4]).Text; }
         internal void AddMoonForProbe(string name, string period, string full)
         {
             Collect();

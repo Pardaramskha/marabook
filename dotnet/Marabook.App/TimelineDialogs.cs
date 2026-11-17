@@ -663,6 +663,10 @@ namespace Marabook.App
         internal bool FoundationNoticeForProbe { get { return _foundation != null; } }
         internal bool NoticeShownForProbe { get { return _notice != null && _notice.IsVisible; } }
         internal bool SpreadOpenForProbe { get { return _spreadAccordion.IsOpen; } set { _spreadAccordion.IsOpen = value; } }
+        private Accordion _dialAccordion;
+        internal bool DialOpenForProbe { get { return _dialAccordion.IsOpen; } set { _dialAccordion.IsOpen = value; } }
+        internal bool ColumnTabsForProbe { get { foreach (var tabs in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this)) if (tabs is TabControl) return ((TabControl)tabs).TabStripPlacement == Dock.Left && ((TabControl)tabs).Classes.Contains("column"); return false; } }
+        internal int ToolSectionsForProbe { get { return AstrolabeUi.CountTools(this); } }
         internal void SpreadForProbe(int mode, string days) { _spreadMode.SelectedIndex = mode; _spreadDays.Text = days; Distribute(); }
         internal void SpreadGapForProbe(string gap, string days) { _spreadMode.SelectedIndex = SpreadAlternate; _spreadGap.Text = gap; _spreadDays.Text = days; Distribute(); }
         internal void SpreadRatiosForProbe(string days) { _spreadMode.SelectedIndex = SpreadRatios; _spreadDays.Text = days; Distribute(); }
@@ -738,7 +742,7 @@ namespace Marabook.App
             _system = system;
             _building = true;
             TimelineUi.Dress(this, owner, "Temporalité par segments" + (creating ? " — nouveau système" : " — " + system.Name));
-            Width = 640;
+            Width = 880; // 640 avant le lot 16 : les onglets sont passés en colonne, à gauche (Rémi, 17/11)
             SizeToContent = SizeToContent.Height;
             CanResize = false;
 
@@ -772,7 +776,7 @@ namespace Marabook.App
             _name = new TextBox { Text = system.Name };
             root.Children.Add(_name);
 
-            var tabs = new TabControl { Margin = new Thickness(0, 12, 0, 0), Height = 600 }; // 430 avant le 14/11 : la date d'exemple, la case des segments et le testeur encadré tiennent sans défiler
+            var tabs = AstrolabeUi.ColumnTabs(600); // 430 avant le 14/11 : la date d'exemple, la case des segments et le testeur encadré tiennent sans défiler ; en colonne à gauche depuis le lot 16
 
             // ---------------------------------------------- segments et notation
             var first = new StackPanel { Margin = new Thickness(4, 10, 4, 4) };
@@ -846,19 +850,14 @@ namespace Marabook.App
             first.Children.Add(AstrolabeUi.Section("Notation", "Comment une année et une date s'écrivent — et se relisent — dans ce système.", notationBody, "system-section-notation"));
             // Le testeur dans son cadre arrondi : ce n'est pas un champ de configuration.
             var tryBody = new StackPanel();
-            var tryRow = new Grid { ColumnDefinitions = new ColumnDefinitions("180,8,*") };
-            tryRow.Children.Add(new TextBlock { Text = "Essayer une date :", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center });
             _try = new TextBox { Watermark = "écrivez une date pour la vérifier" };
-            Grid.SetColumn(_try, 2);
-            tryRow.Children.Add(_try);
-            tryBody.Children.Add(tryRow);
-            _tryEcho = new TextBlock { FontSize = 11.5, Margin = new Thickness(188, 3, 0, 0), TextWrapping = TextWrapping.Wrap, IsVisible = false };
+            tryBody.Children.Add(_try);
+            _tryEcho = new TextBlock { FontSize = 11.5, Margin = new Thickness(2, 4, 0, 0), TextWrapping = TextWrapping.Wrap, IsVisible = false };
             tryBody.Children.Add(_tryEcho);
-            first.Children.Add(new Border
-            {
-                Child = tryBody, Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 2), CornerRadius = new CornerRadius(10),
-                BorderBrush = Chrome.BorderStrong, BorderThickness = new Thickness(1), Background = Chrome.FieldBg, Tag = "system-try-box"
-            });
+            // Lot 16 : une section « outil » — l'icône du calculateur, une teinte bleue.
+            var tryBox = AstrolabeUi.Section("Essayer une date", "Écrivez une date comme vous l'écririez dans un texte : le système dit ce qu'il en comprend.", tryBody, "system-try-box", "calculator-fill", true);
+            tryBox.Margin = new Thickness(0, 0, 0, 2);
+            first.Children.Add(tryBox);
             tabs.Items.Add(new TabItem { Header = "Segments et notation", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = first } });
 
             // ----------------------------------------------------------- calendrier
@@ -911,7 +910,7 @@ namespace Marabook.App
             _distribute.Tag = "system-distribute";
             _distribute.Click += delegate { Distribute(); };
             spread.Children.Add(_distribute);
-            _spreadAccordion = new Accordion("Répartiteur", "partager les jours de l'année entre les mois", spread, false, "system-spread");
+            _spreadAccordion = new Accordion("Répartiteur", "partager les jours de l'année entre les mois", spread, false, "system-spread", "calculator-fill", true);
             second.Children.Add(_spreadAccordion);
 
             var leapBody = new StackPanel();
@@ -983,7 +982,10 @@ namespace Marabook.App
             clockBody.Children.Add(clockLeft);
             clockBody.Children.Add(_dial);
             third.Children.Add(AstrolabeUi.Section("L'horloge", "Ce que dure un jour. Sur le cadran : les heures au bord, les minutes au milieu, les secondes au centre.", clockBody, "system-section-clock"));
-            third.Children.Add(AstrolabeUi.Section("Le dessin du cadran", "Rien ici ne change le compte du temps : seulement l'allure de l'horloge. Les pas proposés sont les diviseurs de vos nombres — ceux qui donnent des repères à intervalles égaux.", designBody, "system-section-dial"));
+            // Lot 16 : le dessin du cadran devient un accordéon — un outil, à l'icône du calculateur.
+            designBody.Children.Insert(0, new TextBlock { Text = "Rien ici ne change le compte du temps : seulement l'allure de l'horloge. Les pas proposés sont les diviseurs de vos nombres — ceux qui donnent des repères à intervalles égaux.", Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) });
+            _dialAccordion = new Accordion("Dessin du cadran", "tours par jour, pas des chiffres, style des repères", designBody, false, "system-section-dial", "calculator-fill", true);
+            third.Children.Add(_dialAccordion);
             tabs.Items.Add(new TabItem { Header = "Semaine et horloge", Content = new ScrollViewer { VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto, Content = third } });
 
             root.Children.Add(tabs);
@@ -1596,7 +1598,14 @@ namespace Marabook.App
         internal string PendingDayForProbe { get { return _weekDays.Text ?? ""; } }
         internal bool TryBoxFramedForProbe
         {
-            get { var box = _try.Parent == null ? null : _try.Parent.Parent == null ? null : _try.Parent.Parent.Parent as Border; return box != null && box.CornerRadius.TopLeft > 0 && box.BorderThickness.Left > 0; }
+            get
+            {
+                // Le premier cadre au-dessus du champ : la section « Essayer une date ».
+                StyledElement parent = _try;
+                Border box = null;
+                while (parent != null && box == null) { parent = parent.Parent; box = parent as Border; }
+                return box != null && box.CornerRadius.TopLeft > 0 && box.BorderThickness.Left > 0 && box.Classes.Contains("tool");
+            }
         }
         internal void TryForProbe(string text) { _try.Text = text; }
         internal string TryEchoForProbe { get { return _tryEcho.Text ?? ""; } }

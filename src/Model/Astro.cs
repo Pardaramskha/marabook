@@ -29,23 +29,68 @@ namespace Marabook.Model
     /// monde) et, pour un satellite, la distance qui le sépare de l'astre autour duquel il tourne.</summary>
     public class BodyLook
     {
-        public const double MoonDistance = 384400;   // km : de la Terre à la Lune, la séparation par défaut
+        public const double MoonDistance = 384400;   // km : de la Terre à la Lune, la séparation par défaut d'un satellite
+        // Les valeurs de NOTRE système (lot 16, 17/11 : le calculateur orbital part d'elles).
+        public const double SunDistance = 149597870.7; // km : de la Terre au Soleil, la séparation par défaut d'un soleil
+        public const double MoonDiameter = 3474.8;     // km
+        public const double MoonTilt = 5.145;          // degrés : l'orbite de la Lune sur celle de la Terre
+        public const double SunTilt = 7.25;            // degrés : l'axe du Soleil sur l'orbite de la Terre
 
         public string Accent;                 // "#RRGGBB", null = la teinte de l'astre
-        public double Distance = MoonDistance; // km (satellites)
+        public double Distance = MoonDistance; // km, à l'astre autour duquel il tourne
+        public double DefaultDistance = MoonDistance; // ce que vaut « d'office » pour cet astre (un soleil : SunDistance)
+        public double Diameter;               // km (satellites) ; 0 = celui de notre Lune. Un soleil garde Sun.Size.
         public bool Rings;
         public string RingColor;              // null = la teinte de l'astre, pâlie
-        public double RingSize = 1;           // 1 = des anneaux comme ceux de Saturne, à l'échelle de l'astre
+        public double RingSize = 1;           // l'ampleur : 1 = des anneaux comme ceux de Saturne, à l'échelle de l'astre
+        public double RingGap = 1;            // l'écart entre l'astre et le bord intérieur (0 = au ras de l'astre)
+        public double RingThickness = 1;      // la largeur de la bande, du bord intérieur au bord extérieur
+        public double RingAngle;              // degrés : le plan des anneaux, penché sur l'équateur de l'astre
+        public bool RingTexture = true;       // le grain (texture) ; faux = des bandes lisses
+        public double RingGrain = 1;          // l'échelle du grain : plus grand = un détail plus gros
         public double Tilt;                   // degrés
+
+        /// <summary>L'allure d'office d'un soleil : la même, à la distance de la Terre au Soleil.</summary>
+        public static BodyLook ForSun()
+        {
+            return new BodyLook { Distance = SunDistance, DefaultDistance = SunDistance };
+        }
 
         public bool IsDefault
         {
-            get { return string.IsNullOrEmpty(Accent) && Math.Abs(Distance - MoonDistance) < 1e-6 && !Rings && string.IsNullOrEmpty(RingColor) && Math.Abs(RingSize - 1) < 1e-9 && Math.Abs(Tilt) < 1e-9; }
+            get
+            {
+                return string.IsNullOrEmpty(Accent) && Math.Abs(Distance - DefaultDistance) < 1e-6 && Diameter <= 0 && !Rings && string.IsNullOrEmpty(RingColor) && Math.Abs(RingSize - 1) < 1e-9
+                    && Math.Abs(RingGap - 1) < 1e-9 && Math.Abs(RingThickness - 1) < 1e-9 && Math.Abs(RingAngle) < 1e-9 && RingTexture && Math.Abs(RingGrain - 1) < 1e-9 && Math.Abs(Tilt) < 1e-9;
+            }
+        }
+
+        /// <summary>Le diamètre d'un satellite, en km : celui qu'on lui a donné, sinon celui de notre Lune.</summary>
+        public double DiameterKm { get { return Diameter > 0 ? Diameter : MoonDiameter; } }
+
+        /// <summary>D'où à où vont les anneaux, en RAYONS de l'astre (1 = sa surface) : l'écart les éloigne,
+        /// l'épaisseur les élargit, l'ampleur grandit le tout. D'office : de 1,35 à 2,1 — à peu près Saturne.</summary>
+        public void RingSpan(out double inner, out double outer)
+        {
+            var size = Math.Max(0.2, Math.Min(4, RingSize));
+            inner = 1 + 0.35 * Math.Max(0, Math.Min(3, RingGap)) * size;
+            outer = inner + 0.75 * Math.Max(0.1, Math.Min(3, RingThickness)) * size;
         }
 
         public BodyLook Clone()
         {
-            return new BodyLook { Accent = Accent, Distance = Distance, Rings = Rings, RingColor = RingColor, RingSize = RingSize, Tilt = Tilt };
+            return new BodyLook
+            {
+                Accent = Accent, Distance = Distance, DefaultDistance = DefaultDistance, Diameter = Diameter, Rings = Rings, RingColor = RingColor, RingSize = RingSize,
+                RingGap = RingGap, RingThickness = RingThickness, RingAngle = RingAngle, RingTexture = RingTexture, RingGrain = RingGrain, Tilt = Tilt
+            };
+        }
+
+        /// <summary>« 1,2 × notre Lune » : une grandeur dite en fois celle de référence.</summary>
+        public static string TimesLabel(double value, double reference, string what)
+        {
+            var fr = CultureInfo.GetCultureInfo("fr-FR");
+            return (value / reference).ToString("0.##", fr) + " × " + what;
         }
 
         /// <summary>« 1,5 × la distance de la Terre à la Lune ».</summary>
@@ -87,7 +132,7 @@ namespace Marabook.Model
         // Sa taille, en « fois notre Soleil » (son diamètre ; 16/11 soir) : ce qui décide, quand deux
         // soleils passent l'un devant l'autre, si l'éclipse est totale ou annulaire.
         public double Size = 1;
-        public BodyLook Look = new BodyLook(); // lot 14 : accent du halo, anneaux, inclinaison de l'axe
+        public BodyLook Look = BodyLook.ForSun(); // lot 14 : accent du halo, anneaux, inclinaison de l'axe ; lot 16 : sa distance
     }
 
     /// <summary>UNE PLANÈTE VOISINE (16/11 soir, Rémi : le Planétarium) : un astre du

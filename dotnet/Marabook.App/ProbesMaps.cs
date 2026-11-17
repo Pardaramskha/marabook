@@ -393,6 +393,14 @@ namespace Marabook.App
                 await Settle();
                 Check(item.Map.View == Maps.ViewGlobe && !mapView.ToolEnabledForProbe(MapCanvas.Tool.Zone) && mapView.ToolEnabledForProbe(MapCanvas.Tool.Pan) && mapView.HintForProbe.Contains("tourner le globe"),
                     "le rendu « Globe » : les outils de tracé se grisent, le mode d'emploi change");
+                // Lot 16 : la bascule « Vue planétaire » à gauche du zoom, la barre des outils qui s'efface.
+                var globeToggle = mapView.GlobeToggleForProbe;
+                Check(globeToggle.IsEffectivelyVisible && globeToggle.IsChecked == true && (ToolTip.GetTip(globeToggle) as string) == "Vue planétaire" && !(globeToggle.Content is TextBlock)
+                    && !mapView.GetVisualDescendants().OfType<ToggleButton>().Any(delegate(ToggleButton b) { return Equals(b.Tag, "map-view-flat"); }),
+                    "la vue planétaire : une bascule à icône, « Vue planétaire » en infobulle — plus de « Planisphère / Globe » dans la barre");
+                var zoomLabel = mapView.GetVisualDescendants().OfType<TextBlock>().First(delegate(TextBlock t) { return Equals(t.Tag, "map-zoom"); });
+                Check(globeToggle.Parent == zoomLabel.Parent && ((Panel)zoomLabel.Parent).Children.IndexOf(globeToggle) == ((Panel)zoomLabel.Parent).Children.IndexOf(zoomLabel) - 1, "…placée juste à gauche de l'indicateur de zoom");
+                Check(!mapView.ToolBarShownForProbe, "en vue planétaire, la barre des outils disparaît");
                 canvas.PaintGlobeForProbe();
                 var globeSide = (int)Math.Max(64, Math.Min(640, Math.Min(canvas.Bounds.Width, canvas.Bounds.Height)));
                 var centre = canvas.GlobePixelForProbe(globeSide / 2, globeSide / 2);
@@ -494,7 +502,7 @@ namespace Marabook.App
 
                 // ---- Lot 14 : personnaliser l'astre.
                 var lookDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.MoonKind, "Lune", earth.Moons[0].Look.Clone());
-                Check(lookDialog.Has("look-distance") && lookDialog.Has("look-tilt") && lookDialog.Has("look-rings") && lookDialog.Has("look-accents") && plain(lookDialog.DistanceEchoForProbe).Contains("1 × la distance de la Terre à la Lune"),
+                Check(lookDialog.Has("look-distance") && lookDialog.Has("look-tilt") && lookDialog.Has("look-rings") && lookDialog.Has("look-accents") && plain(lookDialog.DistanceEchoForProbe).Contains("1 × Terre–Lune"),
                     "« Personnaliser » un satellite : accent, distance (d'office : celle de la Terre à la Lune), inclinaison de l'orbite, anneaux");
                 lookDialog.SetForProbe("abc", "5", true, "1,5");
                 Check(lookDialog.AcceptForProbe() == null && (lookDialog.ProblemForProbe ?? "").Contains("kilomètres"), "une distance illisible est refusée, et dite");
@@ -502,14 +510,74 @@ namespace Marabook.App
                 lookDialog.SetColorsForProbe(null, "#E7E3D8");
                 var moonLook = lookDialog.AcceptForProbe();
                 Check(moonLook != null && moonLook.Distance == 768800 && moonLook.Tilt == 25 && moonLook.Rings && moonLook.RingSize == 1.5 && moonLook.RingColor == "#E7E3D8", "validée : deux fois plus loin, orbite inclinée de 25°, des anneaux");
-                var sunDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.SunKind, "Soleil", new BodyLook());
+                var sunSeed = BodyLook.ForSun();
+                sunSeed.Diameter = Astro.SunDiameter;
+                var sunDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.SunKind, "Soleil", sunSeed);
                 var worldDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.WorldKind, "Terre d'essai", new BodyLook());
-                Check(!sunDialog.Has("look-distance") && sunDialog.Has("look-tilt") && sunDialog.Has("look-accents") && !worldDialog.Has("look-distance") && !worldDialog.Has("look-tilt") && worldDialog.Has("look-rings"),
-                    "un soleil : accent du halo, anneaux, inclinaison de l'axe ; le monde : accent et anneaux (son axe reste dans « Taille du monde »)");
+                Check(sunDialog.Has("look-distance") && sunDialog.Has("look-diameter") && sunDialog.Has("look-tilt") && sunDialog.Has("look-accents") && !worldDialog.Has("look-distance") && !worldDialog.Has("look-diameter") && !worldDialog.Has("look-tilt") && worldDialog.Has("look-rings"),
+                    "un soleil : accent du halo, diamètre, distance, inclinaison, anneaux ; le monde : accent et anneaux (son axe reste dans « Taille du monde »)");
+
+                // ---- Lot 16 (17/11) : taille et orbite, calculateur orbital, anneaux réglables, aperçu.
+                var ringDialog = BodyLookDialog.ForProbe(shell, BodyLookDialog.MoonKind, "Lune", new BodyLook());
+                ringDialog.Show(shell);
+                await Settle();
+                Check(ringDialog.Has("look-orbit-section") && ringDialog.FramedForProbe("look-orbit-section") && ringDialog.FramedForProbe("look-ring-section") && ringDialog.Has("look-diameter") && plain(ringDialog.DiameterEchoForProbe).Contains("1 × notre Lune"),
+                    "un satellite : diamètre, distance et inclinaison dans une section encadrée ; les anneaux dans la leur (" + plain(ringDialog.DiameterEchoForProbe) + ")");
+                Check(ringDialog.Has("look-calculator") && !ringDialog.CalculatorOpenForProbe && !ringDialog.UseCalculatorShownForProbe && !worldDialog.Has("look-calculator"), "sous elle, le Calculateur orbital, replié ; le monde n'en a pas");
+                ringDialog.CalculatorOpenForProbe = true;
+                ringDialog.SetQuotientsForProbe("1,2", "2", "");
+                await Settle();
+                Check(plain(ringDialog.CalculatorResultsForProbe).Contains("4 170 km") && plain(ringDialog.CalculatorResultsForProbe).Contains("768 800 km") && ringDialog.UseCalculatorShownForProbe,
+                    "1,2 fois le diamètre de notre Lune : 4 170 km ; deux fois sa distance : 768 800 km (" + plain(ringDialog.CalculatorResultsForProbe) + ")");
+                ringDialog.UseCalculatorForProbe();
+                Check(plain(ringDialog.FieldsForProbe).StartsWith("4169,76 | 768800 | 0"), "« Reporter ces valeurs » remplit le diamètre et la distance, sans toucher à l'inclinaison laissée vide (" + ringDialog.FieldsForProbe + ")");
+                ringDialog.SetQuotientsForProbe("zéro", "", "");
+                await Settle();
+                Check(!ringDialog.UseCalculatorShownForProbe && ringDialog.ProblemForProbe == null, "un quotient illisible : pas de bouton, et la fenêtre n'en fait pas une erreur");
+                Check(!ringDialog.PreviewShownForProbe && ringDialog.RingSizeIsSliderForProbe, "sans anneaux, pas d'aperçu ; l'ampleur est un curseur");
+                ringDialog.SetForProbe(null, null, true, "1,5");
+                ringDialog.SetRingsForProbe(2, 0.5, 30, true, 2);
+                await Settle();
+                var previewRenders = ringDialog.PreviewForProbe.RendersForProbe;
+                Check(ringDialog.PreviewShownForProbe && ringDialog.GrainRowShownForProbe && previewRenders > 0 && ringDialog.Has("look-ring-gap") && ringDialog.Has("look-ring-thickness") && ringDialog.Has("look-ring-angle") && ringDialog.Has("look-ring-texture") && ringDialog.Has("look-ring-grain"),
+                    "des anneaux : la fenêtre s'étend d'un aperçu à droite ; écart, épaisseur, angle, texture et échelle du grain se règlent");
+                Shot(ringDialog, "cartes-23-personnaliser-anneaux.png");
+                ringDialog.PreviewForProbe.RotateForProbe(1.4, -0.5);
+                await Settle();
+                Check(ringDialog.PreviewForProbe.RendersForProbe > previewRenders, "l'aperçu tourne autour de l'astre");
+                Shot(ringDialog, "cartes-24-personnaliser-apercu-tourne.png");
+                ringDialog.SetRingsForProbe(2, 0.5, 30, false, 2);
+                await Settle();
+                Check(!ringDialog.GrainRowShownForProbe, "texture décochée : plus d'échelle du grain");
+                ringDialog.SetRingsForProbe(2, 0.5, 30, true, 2);
+                ringDialog.SetDiameterForProbe("gros");
+                Check(ringDialog.AcceptForProbe() == null && (ringDialog.ProblemForProbe ?? "").Contains("diamètre"), "un diamètre illisible est refusé, et dit");
+                ringDialog.SetDiameterForProbe("4169,76");
+                var ringLook = ringDialog.AcceptForProbe();
+                Check(ringLook != null && Math.Abs(ringLook.Diameter - 4169.76) < 1e-6 && ringLook.Distance == 768800 && ringLook.RingGap == 2 && ringLook.RingThickness == 0.5 && ringLook.RingAngle == 30 && ringLook.RingTexture && ringLook.RingGrain == 2 && ringLook.RingSize == 1.5,
+                    "validée : diamètre, distance, écart, épaisseur, angle et grain des anneaux");
+                ringDialog.Close();
+                double spanInner, spanOuter, thinInner, thinOuter;
+                new BodyLook().RingSpan(out spanInner, out spanOuter);
+                ringLook.RingSpan(out thinInner, out thinOuter);
+                Check(Math.Abs(spanInner - 1.35) < 1e-9 && Math.Abs(spanOuter - 2.1) < 1e-9 && thinInner > spanInner && thinOuter - thinInner < spanOuter - spanInner, "les anneaux d'office vont de 1,35 à 2,1 rayons ; écartés et amincis, ils commencent plus loin et sont moins larges");
+                var faces = RingArt.FacesBuiltForProbe;
+                var face = RingArt.FaceOf(ringLook, Color.Parse("#E7E3D8"), 256);
+                var again = RingArt.FaceOf(ringLook, Color.Parse("#E7E3D8"), 256);
+                Check(face != null && ReferenceEquals(face, again) && RingArt.FacesBuiltForProbe == faces + 1, "le disque des anneaux est peint une fois, puis gardé tant que rien ne change");
+                Check(RingArt.Band(-0.1) == 0 && RingArt.Band(1.1) == 0 && RingArt.Band(0.35) > 0.7 && RingArt.Band(0.595) < 0.2 && RingArt.Band(0.75) > 0.4, "ses bandes : le grand anneau, une division sombre, l'anneau moyen");
+                Check(Math.Abs(MapView.MoonScale(BodyLook.MoonDiameter) - 1) < 1e-9 && MapView.MoonScale(4169.76) > 1 && MapView.MoonScale(1000) < 1, "sur le globe, un satellite plus large se dessine plus gros");
+                var farSun = new Sun { Size = 1 };
+                var nearSize = MapView.SunSize(farSun);
+                farSun.Look.Distance = BodyLook.SunDistance * 2;
+                Check(MapView.SunSize(farSun) < nearSize, "…et un soleil deux fois plus loin, plus petit dans le ciel");
                 var lookBefore = new[] { earth.Look, earth.Suns[0].Look, earth.Moons[0].Look };
                 earth.Moons[0].Look = moonLook;
                 earth.Look = new BodyLook { Accent = "#6FC3C0", Rings = true, RingSize = 1.2 };
-                earth.Suns[0].Look = new BodyLook { Accent = "#D9503A", Rings = true, Tilt = 20 };
+                earth.Suns[0].Look = BodyLook.ForSun();
+                earth.Suns[0].Look.Accent = "#D9503A";
+                earth.Suns[0].Look.Rings = true;
+                earth.Suns[0].Look.Tilt = 20;
                 mapView.SetNightForProbe(true, 200, 0.5);
                 canvas.RotateGlobeForProbe(Math.PI + 0.45, 0.35);
                 canvas.SetSkyTimeForProbe(3.2);
@@ -521,6 +589,17 @@ namespace Marabook.App
                     "le globe suit : le satellite plus loin et annelé, le soleil à l'accent rouge et aux anneaux penchés");
                 Check(canvas.SatellitesDrawnForProbe >= 0, "le monde annelé et son halo se dessinent sans heurt");
                 Shot(mapView, "cartes-21-astres-personnalises.png");
+                // Lot 16 : de plus loin, les anneaux entiers — puis penchés de 18° sur l'équateur.
+                canvas.ZoomBy(0.62, new Point(0, 0));
+                await Settle();
+                Shot(mapView, "cartes-22-anneaux-entiers.png");
+                earth.Look.RingAngle = 18;
+                earth.Look.RingGap = 0.6;
+                canvas.InvalidateVisual();
+                await Settle();
+                Shot(mapView, "cartes-22-anneaux-penches.png");
+                canvas.ZoomBy(1 / 0.62, new Point(0, 0));
+                await Settle();
                 earth.Look = lookBefore[0];
                 earth.Suns[0].Look = lookBefore[1];
                 earth.Moons[0].Look = lookBefore[2];
@@ -528,6 +607,7 @@ namespace Marabook.App
 
                 // ---- Lot 14 : « Animer », au globe seulement.
                 Check(mapView.AnimateShownForProbe && mapView.AnimationPossible && !mapView.Animating, "au globe, le bouton « Animer » paraît");
+                Check(mapView.AnimateFloatsForProbe && mapView.AnimationNoteForProbe == "", "…flottant, en haut à gauche du globe (lot 16) ; au repos, sans légende");
                 mapView.SetNightForProbe(false, 100, 0.25);
                 mapView.SetAnimation(true);
                 await Settle();
@@ -536,6 +616,24 @@ namespace Marabook.App
                 mapView.AdvanceAnimation(3);
                 Check(Math.Abs(mapView.DayFraction - 0.75) < 1e-9 && mapView.DayOfYear > 100 + 8 && mapView.DayOfYear < 100 + 10 && mapView.HintForProbe.StartsWith("Animation : jour 109"),
                     "trois secondes d'animation : une demi-journée a tourné, neuf jours ont passé (un jour en 6 s, une année en 2 min)");
+                Check(mapView.AnimationNoteForProbe.StartsWith("Animation : jour 109") && Math.Abs(mapView.RingSpin - 3 * 2 * Math.PI / MapView.RingTurnSeconds) < 1e-9, "à côté du bouton flottant, le jour qui passe ; les anneaux ont tourné d'un trentième de tour (un tour en 90 s)");
+                // Lot 16, bug « la lune saute à intervalles réguliers » : image par image sur deux jours
+                // d'animation (l'heure repasse deux fois par zéro), aucun satellite ne recule ni ne bondit.
+                Func<double> moonAngle = delegate { return mapView.SkyBodies().Find(delegate(MapCanvas.SkyDot d) { return d.Satellite; }).Angle; };
+                var lastAngle = moonAngle();
+                var worstJump = 0.0;
+                for (var frame = 0; frame < 360; frame++)
+                {
+                    mapView.AdvanceAnimation(1.0 / 30);
+                    var angle = moonAngle();
+                    var step = angle - lastAngle;
+                    step -= 2 * Math.PI * Math.Round(step / (2 * Math.PI));
+                    worstJump = Math.Max(worstJump, Math.Abs(step));
+                    if (step < -1e-9) worstJump = 99; // elle a reculé
+                    lastAngle = angle;
+                }
+                Check(worstJump < 0.05, "douze secondes d'animation, image par image : la lune avance sans jamais sauter (au pire " + worstJump.ToString("0.0000") + " rad d'une image à l'autre)");
+                mapView.AdvanceAnimation(-12);
                 // Lot 15 : une image d'animation ne recalcule pas la sphère — seulement sa lumière.
                 canvas.PaintGlobeForProbe();
                 var builds = canvas.GeometryBuildsForProbe;
@@ -558,7 +656,7 @@ namespace Marabook.App
                 mapView.SetAnimation(true);
                 mapView.SetViewForProbe(Maps.ViewFlat);
                 await Settle();
-                Check(!mapView.Animating && !mapView.AnimateShownForProbe && mapView.SkyPanel.IsEnabled, "revenir au planisphère arrête l'animation, et le bouton s'en va");
+                Check(!mapView.Animating && !mapView.AnimateShownForProbe && mapView.SkyPanel.IsEnabled && mapView.ToolBarShownForProbe && mapView.GlobeToggleForProbe.IsChecked != true, "revenir au planisphère arrête l'animation, et le bouton s'en va ; la barre des outils revient");
                 mapView.SetViewForProbe(Maps.ViewGlobe);
                 await Settle();
                 canvas.SetSkyTimeForProbe(-1);
