@@ -18,6 +18,37 @@ namespace Marabook.Exchange
     /// l'import quand un projet est fourni (word/media via les relations,
     /// dessins inline ou ancrés, et les vieux w:pict) ; l'export ne les
     /// écrit pas encore.</summary>
+    /// <summary>Une section d'un document Word exporté : à partir de ce
+    /// paragraphe, cette mise en page (18/11).</summary>
+    public class DocxSection
+    {
+        public int StartParagraph;
+        public PageSetup Setup;
+    }
+
+    /// <summary>Ce que le gestionnaire d'export ajoute à un export Word.</summary>
+    public class DocxExtras
+    {
+        public List<DocxSection> Sections = new List<DocxSection>();
+        public string Title = "", Author = "";
+        public bool Comments = true;
+        public bool HasCore { get { return !string.IsNullOrEmpty(Title) || !string.IsNullOrEmpty(Author); } }
+
+        /// <summary>Les sections utiles, dans l'ordre : la première part du
+        /// paragraphe 0, aucune n'est vide.</summary>
+        internal List<DocxSection> Ordered(int paragraphCount)
+        {
+            var list = new List<DocxSection>();
+            foreach (var section in Sections)
+                if (section != null && section.Setup != null && section.StartParagraph >= 0 && section.StartParagraph < paragraphCount) list.Add(section);
+            list.Sort(delegate(DocxSection a, DocxSection b) { return a.StartParagraph.CompareTo(b.StartParagraph); });
+            for (var i = list.Count - 1; i > 0; i--)
+                if (list[i].StartParagraph == list[i - 1].StartParagraph) list.RemoveAt(i - 1);
+            if (list.Count > 0) list[0] = new DocxSection { StartParagraph = 0, Setup = list[0].Setup };
+            return list;
+        }
+    }
+
     public static class Docx
     {
         public const string Filter = "Document Word (*.docx)|*.docx";
@@ -41,40 +72,57 @@ namespace Marabook.Exchange
         public static void Export(TextDocument document, StyleSheet styles, string path,
             PageSetup setup = null, string commentsAuthor = null, Project project = null)
         {
+            Export(document, styles, path, setup, commentsAuthor, project, null);
+        }
+
+        /// <summary>extras (gestionnaire d'export, 18/11) : les SECTIONS (une
+        /// mise en page par suite d'écrits), le titre et l'auteur du fichier,
+        /// les commentaires à laisser de côté.</summary>
+        public static void Export(TextDocument document, StyleSheet styles, string path,
+            PageSetup setup, string commentsAuthor, Project project, DocxExtras extras)
+        {
+            extras = extras ?? new DocxExtras();
+            var sections = extras.Ordered(document.Paragraphs.Count);
+            if (sections.Count > 0) setup = sections[sections.Count - 1].Setup ?? setup; // la dernière section clôt le corps
             var hasLists = false;
             foreach (var paragraph in document.Paragraphs)
                 if (paragraph.ListKind != null) { hasLists = true; break; }
             var hasFooter = setup != null && setup.FooterPageNumbers;
+            var footerSetup = hasFooter ? setup : null;
+            foreach (var section in sections)
+                if (section.Setup.FooterPageNumbers) { hasFooter = true; if (footerSetup == null) footerSetup = section.Setup; }
             var hasSettings = styles != null && styles.Body != null && styles.Body.HyphenationEnabled; // la césure par style (09/10)
-            var comments = CollectComments(document);
+            var comments = extras.Comments ? CollectComments(document) : new List<ExportComment>();
             var images = CollectImages(document, project);
 
             using (var stream = new FileStream(path, FileMode.Create))
             using (var zip = new ZipArchive(stream, ZipArchiveMode.Create))
             {
                 WriteEntry(zip, "[Content_Types].xml",
-                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0, images));
+                    ContentTypes(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0, images, extras.HasCore));
                 WriteEntry(zip, "_rels/.rels",
                     "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
                     "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
                     "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>" +
+                    (extras.HasCore ? "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties\" Target=\"docProps/core.xml\"/>" : "") +
                     "</Relationships>");
+                if (extras.HasCore) WriteEntry(zip, "docProps/core.xml", CoreXml(extras));
                 WriteEntry(zip, "word/_rels/document.xml.rels",
                     DocumentRels(document.Footnotes.Count > 0, hasLists, hasFooter, hasSettings, comments.Count > 0, images));
-                WriteEntry(zip, "word/styles.xml", StylesXml(styles));
+                WriteEntry(zip, "word/styles.xml", StylesXml(styles, document));
                 if (comments.Count > 0)
                     WriteEntry(zip, "word/comments.xml", CommentsXml(comments, commentsAuthor));
                 if (document.Footnotes.Count > 0)
                     WriteEntry(zip, "word/footnotes.xml", FootnotesXml(document));
                 if (hasLists) WriteEntry(zip, "word/numbering.xml", NumberingXml());
-                if (hasFooter) WriteEntry(zip, "word/footer1.xml", FooterXml(setup));
+                if (hasFooter) WriteEntry(zip, "word/footer1.xml", FooterXml(footerSetup));
                 if (hasSettings) WriteEntry(zip, "word/settings.xml", SettingsXml(styles));
                 foreach (var image in images.Values)
                 {
                     var entry = zip.CreateEntry("word/media/" + image.FileName, CompressionLevel.NoCompression);
                     using (var mediaStream = entry.Open()) mediaStream.Write(image.Bytes, 0, image.Bytes.Length);
                 }
-                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter, comments, images, project));
+                WriteEntry(zip, "word/document.xml", DocumentXml(document, styles, setup, hasFooter, comments, images, project, sections));
             }
         }
 
@@ -326,7 +374,7 @@ namespace Marabook.Exchange
         }
 
         private static string ContentTypes(bool footnotes, bool lists, bool footer, bool settings, bool comments = false,
-            Dictionary<string, ExportImage> images = null)
+            Dictionary<string, ExportImage> images = null, bool core = false)
         {
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
@@ -354,6 +402,8 @@ namespace Marabook.Exchange
                 sb.Append("<Override PartName=\"/word/settings.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml\"/>");
             if (comments)
                 sb.Append("<Override PartName=\"/word/comments.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml\"/>");
+            if (core)
+                sb.Append("<Override PartName=\"/docProps/core.xml\" ContentType=\"application/vnd.openxmlformats-package.core-properties+xml\"/>");
             sb.Append("</Types>");
             return sb.ToString();
         }
@@ -450,9 +500,47 @@ namespace Marabook.Exchange
             return sb.ToString();
         }
 
-        private static string StylesXml(StyleSheet styles)
+        /// <summary>Le nom Word de chaque style écrit (18/11). Word FUSIONNE deux
+        /// styles de même nom — un « Titre 1 » global et le « Titre 1 » d'un
+        /// livre, ou celui qu'un import a ajouté — et l'un des deux y perd sa
+        /// police : les styles employés par le document gardent leur nom (le
+        /// second du nom prend un rang), un style inemployé de même nom n'est
+        /// pas écrit.</summary>
+        internal static Dictionary<string, string> StyleNames(StyleSheet styles, TextDocument document)
+        {
+            var used = new HashSet<string>();
+            used.Add(styles.Body.Id);
+            if (document != null)
+            {
+                foreach (var paragraph in document.Paragraphs) used.Add(styles.Find(paragraph.StyleId).Id);
+                if (document.Footnotes.Count > 0) used.Add(StyleSheet.FootnoteId);
+            }
+            var names = new Dictionary<string, string>();
+            var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var style in styles.Styles)
+            {
+                if (!used.Contains(style.Id) || names.ContainsKey(style.Id)) continue;
+                var name = string.IsNullOrEmpty(style.Name) ? "Style" : style.Name;
+                var unique = name;
+                for (var n = 2; taken.Contains(unique); n++) unique = name + " (" + n + ")";
+                taken.Add(unique);
+                names[style.Id] = unique;
+            }
+            foreach (var style in styles.Styles)
+            {
+                if (names.ContainsKey(style.Id)) continue;
+                var name = string.IsNullOrEmpty(style.Name) ? "Style" : style.Name;
+                if (taken.Contains(name)) continue;
+                taken.Add(name);
+                names[style.Id] = name;
+            }
+            return names;
+        }
+
+        private static string StylesXml(StyleSheet styles, TextDocument document = null)
         {
             var body = styles.Body;
+            var names = StyleNames(styles, document);
             var sb = new StringBuilder();
             sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
               .Append("<w:styles ").Append(W).Append(">")
@@ -463,8 +551,10 @@ namespace Marabook.Exchange
               .Append("</w:rPr></w:rPrDefault></w:docDefaults>");
             foreach (var style in styles.Styles)
             {
+                string styleName;
+                if (!names.TryGetValue(style.Id, out styleName)) continue; // un homonyme inemployé
                 sb.Append("<w:style w:type=\"paragraph\" w:styleId=\"").Append(Esc(style.Id)).Append("\">")
-                  .Append("<w:name w:val=\"").Append(Esc(style.Name)).Append("\"/>")
+                  .Append("<w:name w:val=\"").Append(Esc(styleName)).Append("\"/>")
                   .Append("<w:pPr>");
                 if (style.SpaceBefore > 0 || style.SpaceAfter > 0 || style.LineHeight > 1)
                 {
@@ -524,8 +614,15 @@ namespace Marabook.Exchange
 
         private static string DocumentXml(TextDocument document, StyleSheet styles,
             PageSetup setup, bool footer, List<ExportComment> comments,
-            Dictionary<string, ExportImage> images = null, Project project = null)
+            Dictionary<string, ExportImage> images = null, Project project = null, List<DocxSection> sections = null)
         {
+            // La fin d'une section (18/11) : ses propriétés voyagent dans le
+            // DERNIER paragraphe qu'elle couvre ; la dernière clôt le corps.
+            var sectionEnds = new Dictionary<int, PageSetup>();
+            if (sections != null)
+                for (var s = 0; s + 1 < sections.Count; s++)
+                    sectionEnds[sections[s + 1].StartParagraph - 1] = sections[s].Setup;
+
             // Footnote id by note id (docx numbers them 2+).
             var noteIds = new Dictionary<string, int>();
             for (var i = 0; i < document.Footnotes.Count; i++)
@@ -564,6 +661,8 @@ namespace Marabook.Exchange
                     else sb.Append("\" w:hanging=\"").Append(Twips(left - first));
                     sb.Append("\"/>");
                 }
+                PageSetup sectionEnd;
+                if (sectionEnds.TryGetValue(pIndex, out sectionEnd)) sb.Append(SectionXml(sectionEnd, footer));
                 sb.Append("</w:pPr>");
                 if (isRule) { sb.Append("</w:p>"); continue; } // the border IS the rule
                 for (var r = 0; r < paragraph.Runs.Count; r++)
@@ -584,9 +683,19 @@ namespace Marabook.Exchange
 
             // Section: page size, margins, columns and line numbers follow the
             // project's page setup (defaults: A4, 2.5 cm).
+            sb.Append(SectionXml(setup, footer))
+              .Append("</w:body></w:document>");
+            return sb.ToString();
+        }
+
+        /// <summary>Les propriétés d'une section : format, marges, colonnes,
+        /// numéros de ligne — et le pied à folio si sa mise en page en veut.</summary>
+        private static string SectionXml(PageSetup setup, bool footerPart)
+        {
             var page = setup ?? new PageSetup();
+            var sb = new StringBuilder();
             sb.Append("<w:sectPr>");
-            if (footer) sb.Append("<w:footerReference w:type=\"default\" r:id=\"rId4\"/>");
+            if (footerPart && (setup == null || setup.FooterPageNumbers)) sb.Append("<w:footerReference w:type=\"default\" r:id=\"rId4\"/>");
             sb.Append("<w:pgSz w:w=\"").Append(TwipsFromMm(page.PageWidthMm))
               .Append("\" w:h=\"").Append(TwipsFromMm(page.PageHeightMm)).Append("\"/>")
               .Append("<w:pgMar w:top=\"").Append(TwipsFromMm(page.MarginTopMm))
@@ -599,8 +708,19 @@ namespace Marabook.Exchange
                 sb.Append("<w:cols w:num=\"").Append(page.Columns).Append("\" w:space=\"708\"/>");
             if (page.LineNumbers)
                 sb.Append("<w:lnNumType w:countBy=\"1\" w:restart=\"continuous\"/>");
-            sb.Append("</w:sectPr>")
-              .Append("</w:body></w:document>");
+            sb.Append("</w:sectPr>");
+            return sb.ToString();
+        }
+
+        /// <summary>Titre et auteur du fichier (Fichier › Informations de Word).</summary>
+        private static string CoreXml(DocxExtras extras)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>")
+              .Append("<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">");
+            if (!string.IsNullOrEmpty(extras.Title)) sb.Append("<dc:title>").Append(Esc(extras.Title)).Append("</dc:title>");
+            if (!string.IsNullOrEmpty(extras.Author)) sb.Append("<dc:creator>").Append(Esc(extras.Author)).Append("</dc:creator>");
+            sb.Append("</cp:coreProperties>");
             return sb.ToString();
         }
 

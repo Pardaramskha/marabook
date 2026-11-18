@@ -172,6 +172,8 @@ namespace Marabook.App
             try
             {
                 await Settle();
+                // MARABOOK_PROBE_ONLY=export : la sonde de l'export seule (mise au point, 18/11).
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "export") { await ProbeExport(shell); throw new OperationCanceledException(); }
                 // — La coquille sur le projet d'exemple.
                 Check(shell.Project != null, "le projet d'exemple est ouvert");
                 var roots = shell.Project.Roots;
@@ -2698,12 +2700,17 @@ namespace Marabook.App
                 await ProbeGraph(shell);
                 await ProbeTimelines(shell); // les frises (1.2.0)
                 await ProbeMaps(shell);      // fragment, parallélisme, cartes, analyseur (2.0.0, lot 11)
+                await ProbeExport(shell);    // la refonte de l'export : menu, gestionnaire, fichiers (2.0.0, 18/11)
                 // ================================================== 1.1.0 : la passe des dialogues (29/10)
                 await ProbeDialogues(shell);
                 // ================================================== 1.1.0 : le lot de correctifs du 29/10
                 await ProbeFixes2910(shell);
                 // ================================================== 1.1.0 : le tutoriel (29/10) — en dernier : il change de projet
                 await ProbeTutorial(shell);
+            }
+            catch (OperationCanceledException)
+            {
+                // la sonde partielle s'arrête là
             }
             catch (Exception error)
             {

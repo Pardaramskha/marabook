@@ -90,7 +90,7 @@ namespace Marabook.Tests
                 var editorActions = 0;
                 foreach (var action in AppSettings.Actions) if (action.Category == AppSettings.EditorCategory) editorActions++;
                 t.Check(editorActions == 18, "dix-huit actions dans la catégorie Éditeur des Préférences (Lignes lâches 09/10, niveaux de liste 15/10) — " + editorActions);
-                t.Check(AppSettings.Definition("compile").Name == "Compiler les écrits", "« Compiler les écrits » (ex-manuscrit)");
+                t.Check(AppSettings.Definition("compile") == null, "« Compiler les écrits » a disparu (refonte de l'export, 18/11)");
                 // Le fichier VERSION (release.ps1, installeur) suit AppVersion.
                 var versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "VERSION");
                 t.Check(File.Exists(versionFile) && File.ReadAllText(versionFile).Trim() == Marabook.Model.AppInfo.Version,

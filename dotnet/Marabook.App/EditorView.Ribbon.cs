@@ -831,12 +831,12 @@ namespace Marabook.App
         public event Action PreviewRequested;  // Aperçu des pages
         public event Action PrintRequested;    // Imprimer / PDF
         public event Action ExportRequested;   // Exporter l'écrit
-        public event Action PdfRequested;      // PDF prêt à imprimer (4b-2)
+        public event Action PdfRequested;      // le gestionnaire d'export sur « PDF A4 » (18/11 ; ex-PDF prêt à imprimer, 4b-2)
 
         /// <summary>Onglet « Composition » (13/09) : l'aperçu en grand carré
-        /// dans sa section ; Imprimer et PDF prêt à imprimer superposés ;
-        /// l'export. « Compiler les écrits » a quitté le ruban (menu
-        /// Fichier, Ctrl+Maj+E).</summary>
+        /// dans sa section ; Imprimer et « Exporter en PDF » superposés ;
+        /// l'export. Les deux boutons d'export ouvrent le gestionnaire
+        /// d'export, l'écrit déjà coché (18/11).</summary>
         private Control BuildCompositionTab()
         {
             var panel = TabPanel();
@@ -846,7 +846,7 @@ namespace Marabook.App
             panel.Children.Add(VerticalRuleTall());
             var print = OneLine("printer-bold", "Imprimer", null);
             print.Click += delegate { var handler = PrintRequested; if (handler != null) handler(); };
-            var pdf = OneLine("document-file", "PDF prêt à imprimer…", null);
+            var pdf = OneLine("document-file", "Exporter en PDF…", null);
             pdf.Click += delegate { var handler = PdfRequested; if (handler != null) handler(); };
             panel.Children.Add(Stacked(print, pdf));
             panel.Children.Add(VerticalRuleTall());

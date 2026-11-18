@@ -412,10 +412,17 @@ namespace Marabook.App
             importMenu.Items.Add(Entry(null, "Les commentaires d'un document relu (.docx)…", ImportReviewedComments, TextActive)); // b49
             file.Items.Add(importMenu);
             var exportMenu = new MenuItem { Header = "Exporter" };
+            // La refonte de l'export (18/11, Rémi) : le gestionnaire en tête, puis
+            // les catégories, séparées d'un filet — « Compiler les écrits » a
+            // disparu (le gestionnaire le fait, et bien plus).
+            exportMenu.Items.Add(Entry("export-manager", "Gestionnaire d'export…", OpenExportManager, delegate { return _project != null; }));
+            exportMenu.Items.Add(new Separator());
+            exportMenu.Items.Add(Entry("export-quick-docx", "Export rapide DOCX", QuickExportDocx, TextOrSheetActive));
             exportMenu.Items.Add(Entry("export-item", "L'écrit sélectionné…", ExportCurrentItem, TextOrSheetActive));
-            exportMenu.Items.Add(Entry("compile", "Compiler les écrits…", CompileManuscript));
-            exportMenu.Items.Add(Entry("export-pdf", "PDF prêt à imprimer…", ExportPdf, TextOrSheetActive));
-            exportMenu.Items.Add(Entry("export-epub", "EPUB du livre ou de l'écrit…", ExportEpubCurrent, TextOrBookActive)); // 22/09
+            exportMenu.Items.Add(new Separator());
+            exportMenu.Items.Add(Entry("export-pdf", "Export rapide PDF", QuickExportPdf, TextOrSheetActive));
+            exportMenu.Items.Add(Entry("export-epub", "Export rapide EPUB", QuickExportEpub, TextOrBookActive)); // 22/09
+            exportMenu.Items.Add(new Separator());
             exportMenu.Items.Add(Entry(null, "Encyclopédie des fiches…", ExportEncyclopediaAll, delegate { return _project != null; })); // l'Encyclopédie HTML (31/10)
             file.Items.Add(exportMenu);
             file.Items.Add(new Separator());
@@ -4057,9 +4064,6 @@ namespace Marabook.App
 
         // ============================================================= import / export
 
-        private const string DocumentExportFilter =
-            "Document Word (*.docx)|*.docx|Document OpenDocument (*.odt)|*.odt|" +
-            "Texte enrichi (*.rtf)|*.rtf|Markdown (*.md)|*.md|Texte brut (*.txt)|*.txt";
         private const string DocumentImportFilter =
             "Documents (*.docx;*.odt;*.rtf;*.md;*.txt;*.doc;*.gdoc)|*.docx;*.odt;*.rtf;*.md;*.txt;*.doc;*.gdoc|" +
             "Tous les fichiers (*.*)|*.*";
@@ -4193,73 +4197,6 @@ namespace Marabook.App
             catch (Exception error)
             {
                 MessageDialog.Show(this, "Import Scrivener impossible :\n" + error.Message,
-                    AppName, MessageButtons.OK, MessageIcon.Error);
-            }
-        }
-
-        private void ExportCurrentItem()
-        {
-            CommitActive();
-            TextDocument document = null;
-            if (_current != null && _current.Kind == ItemKind.Text) document = _current.Document;
-            else if (_current != null && _current.Kind == ItemKind.Sheet) document = _current.Document;
-            if (document == null)
-            {
-                MessageDialog.Show(this, "Sélectionnez d'abord un écrit (ou une fiche) à exporter.",
-                    AppName, MessageButtons.OK, MessageIcon.Information);
-                return;
-            }
-            ExportDocument(document, _current.Title);
-        }
-
-        /// <summary>Export from a corkboard card's ⋮ menu.</summary>
-        private void ExportItem(BinderItem item)
-        {
-            if (item == null || (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet)) return;
-            CommitActive();
-            ExportDocument(item.Document, item.Title);
-        }
-
-        private async void CompileManuscript()
-        {
-            CommitActive();
-            var request = await CompileDialog.Show(this, _project);
-            if (request == null) return;
-            var manuscript = Exchange.Compiler.Build(_project, request.Root, request.Options);
-            ExportDocument(manuscript, _project.Name, request.Root);
-        }
-
-        /// <summary>scope : l'élément dont le séparateur de scène fait foi (la
-        /// racine compilée) — sinon l'élément ouvert (revue 22/09).</summary>
-        private async void ExportDocument(TextDocument document, string defaultName, BinderItem scope = null)
-        {
-            var dialogPath = await Ui.PickSaveFile(this, "", DocumentExportFilter, SafeFileName(defaultName));
-            if (dialogPath == null) return;
-            // Les [[liens]] restent dans l'application (18/09) : à l'export,
-            // les marques tombent, les mots restent tels quels.
-            document = Links.Strip(document);
-            var path = dialogPath;
-            try
-            {
-                var ext = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                var exportStyles = _project.Styles.EffectiveFor(scope ?? _current); // le séparateur du livre (22/09)
-                var commentsAuthor = Defaults.Or(_project.Author, Defaults.Author); // Préférences › Auteur (22/09)
-                if (ext == ".docx") Exchange.Docx.Export(document, exportStyles, path, _project.Page, commentsAuthor, _project); // annotations → commentaires Word (b49), images ancrées (0.50.0)
-                else if (ext == ".odt")
-                    Exchange.Odt.Export(Exchange.Compiler.FlattenLists(document), exportStyles, path);
-                else if (ext == ".rtf")
-                    Exchange.Rtf.Export(Exchange.Compiler.FlattenRules(document), exportStyles, path, _project);
-                else if (ext == ".md")
-                    File.WriteAllText(path, Exchange.MarkdownExchange.Export(document), new System.Text.UTF8Encoding(false));
-                else
-                    File.WriteAllText(path, Exchange.Compiler.FlattenLists(document).ToPlainText(),
-                        new System.Text.UTF8Encoding(false));
-                MessageDialog.Show(this, "Export terminé :\n" + path,
-                    AppName, MessageButtons.OK, MessageIcon.Information);
-            }
-            catch (Exception error)
-            {
-                MessageDialog.Show(this, "Export impossible :\n" + error.Message,
                     AppName, MessageButtons.OK, MessageIcon.Error);
             }
         }
@@ -4469,11 +4406,6 @@ namespace Marabook.App
             return _current != null && (_current.Kind == ItemKind.Text || _current.Kind == ItemKind.Book);
         }
 
-        private void ExportEpubCurrent()
-        {
-            if (TextOrBookActive()) ExportEpub(_current);
-        }
-
         // ---------------------------------------------------------------- l'Encyclopédie (31/10)
 
         private void ExportEncyclopediaAll()
@@ -4541,59 +4473,6 @@ namespace Marabook.App
         {
             var document = Exchange.Encyclopedia.Build(_project, Exchange.EncyclopediaSelection.All(), Exchange.Encyclopedia.DefaultOptions(_project), AppSettings.Lexicon);
             return Exchange.HtmlEncyclopedia.Write(folder, document, _project).Count;
-        }
-
-        /// <summary>« Créer un EPUB » : le plan (écrits, pages dynamiques
-        /// écartées, couverture), le dialogue (titre pré-rempli, métadonnées,
-        /// couverture), le fichier « Titre.epub », et le dossier ouvert.</summary>
-        private async void ExportEpub(BinderItem root)
-        {
-            if (root == null || _project == null) return;
-            CommitActive();
-            var plan = Exchange.Epub.Plan(_project, root);
-            if (plan.Chapters.Count == 0)
-            {
-                MessageDialog.Show(this, "Rien à mettre dans l'EPUB : le livre n'a aucun écrit.", "EPUB", MessageButtons.OK, MessageIcon.Information);
-                return;
-            }
-            var answer = await EpubExportDialog.Ask(this, plan, Exchange.Epub.DefaultOptions(_project, root));
-            if (answer == null) return;
-            var options = answer.Options;
-            var openFolder = answer.OpenFolder;
-            var title = options.Title.Length > 0 ? options.Title : root.Title;
-            var dialogPath = await Ui.PickSaveFile(this, "Créer l'EPUB", "EPUB (*.epub)|*.epub", SafeFileName(title) + ".epub");
-            if (dialogPath == null) return;
-            try
-            {
-                Exchange.Epub.Write(dialogPath, _project, plan, options);
-                UnlockAchievement(Achievements.GenZ); // « Gen Zer »
-                if (openFolder)
-                {
-                    try { AppPlatform.RevealInFolder(dialogPath); }
-                    catch { }
-                }
-            }
-            catch (Exception error)
-            {
-                MessageDialog.Show(this, "EPUB impossible : " + error.Message, "EPUB", MessageButtons.OK, MessageIcon.Warning);
-            }
-        }
-
-        private async void ExportPdf()
-        {
-            string name;
-            PageSetup setup;
-            var document = BuildPrintable(out name, out setup);
-            if (document == null) return;
-            var decor = _current != null && _current.Kind == ItemKind.Text
-                ? PageDecor.For(_current, _project) : null;
-            var offset = _current != null && _current.Kind == ItemKind.Text
-                ? ComputeFolioOffset(_current) : 0;
-            var options = await PdfExportDialog.Ask(this, name, false, 0,
-                delegate(Print.PdfExportOptions o)
-                { return PreviewPdf(document, setup, name, o, decor, offset); });
-            if (options == null) return;
-            WritePdf(document, setup, name, options, decor, offset);
         }
 
         /// <summary>Le BAT dans l'aperçu (4b-3) : produit le PDF EXACT dans un
@@ -5137,57 +5016,6 @@ namespace Marabook.App
             // La vue courante (livre) redessine ses cartes avec les pastilles.
             if (_current != null && _current.Kind == ItemKind.Book)
                 _bookView.Load(_current, _history, _project);
-        }
-
-        /// <summary>« Publier » : the whole book compiled into one PDF —
-        /// title page from its metadata, continuous pagination, its gabarit,
-        /// print-shop defaults (CMJN FOGRA39, traits de coupe, fond perdu du
-        /// livre).</summary>
-        private async void PublishBook(BinderItem book)
-        {
-            if (book == null || book.Book == null) return;
-            CommitActive();
-            // Pages dynamiques (table des matières, index, notes, glossaire) à jour avant compilation.
-            foreach (var item in _project.AllItems())
-                if (ExtraPages.IsDynamic(item) && item.EnclosingBook() == book) RegenerateDynamic(item);
-            // Pas de page de titre générée : sa personnalisation arrive — le
-            // PDF publié n'est que le contenu, chaque document sur un recto.
-            var document = CompileForPublish(book);
-            var options = await PdfExportDialog.Ask(this, book.Title, true, book.Book.BleedMm,
-                delegate(Print.PdfExportOptions o)
-                { return PreviewPdf(document, book.Book.Template, book.Title, o, null, 0, _project.Styles.EffectiveFor(book)); });
-            if (options == null) return;
-            // « Complétionniste » (12/09) : le PDF d'un livre fini à 100 %.
-            if (await WritePdf(document, book.Book.Template, book.Title, options, null, 0, _project.Styles.EffectiveFor(book)))
-            {
-                if (Achievements.IsBookComplete(_project, book)) UnlockAchievement(Achievements.Completionist);
-                if (Achievements.IsMinimalist(book)) UnlockAchievement(Achievements.Minimalist);
-            }
-        }
-
-        /// <summary>True quand le fichier a été écrit (dialogue confirmé, pas d'erreur).</summary>
-        private async Task<bool> WritePdf(TextDocument document, PageSetup setup, string name,
-            Print.PdfExportOptions options, PageDecor decor = null, int folioOffset = 0, StyleSheet styles = null)
-        {
-            var dialogPath = await Ui.PickSaveFile(this, "PDF prêt à imprimer", "PDF (*.pdf)|*.pdf", SafeFileName(name) + ".pdf");
-            if (dialogPath == null) return false;
-            try
-            {
-                var composition = Print.Composer.Compose(
-                    document, styles ?? _project.Styles.EffectiveFor(_current), setup, _project, new AvaloniaFontEngine());
-                composition.DefaultDecor = decor;
-                composition.FolioOffset = folioOffset;
-                Print.PdfWriter.Write(dialogPath, composition, options);
-                MessageDialog.Show(this, "Export terminé :\n" + dialogPath,
-                    AppName, MessageButtons.OK, MessageIcon.Information);
-                return true;
-            }
-            catch (Exception error)
-            {
-                MessageDialog.Show(this, "Export PDF impossible :\n" + error.Message,
-                    AppName, MessageButtons.OK, MessageIcon.Error);
-                return false;
-            }
         }
 
         // ============================================================= session goal

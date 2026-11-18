@@ -15,6 +15,7 @@ namespace Marabook.Exchange
         public bool PageBreakPerText = true;
         public bool RectoChapterStarts;   // books: every text opens on a recto
         public string Separator = ""; // used between texts when no page break
+        public bool Decor = true;     // en-têtes et pieds du gabarit de chaque écrit (gestionnaire d'export, 18/11)
     }
 
     /// <summary>The compiler: assembles the text items under a chosen root into
@@ -24,6 +25,14 @@ namespace Marabook.Exchange
     public static class Compiler
     {
         public static TextDocument Build(Project project, BinderItem root, CompileOptions options)
+        {
+            return Build(project, root, null, options, null);
+        }
+
+        /// <summary>Le manuscrit d'une LISTE d'écrits (gestionnaire d'export,
+        /// 18/11) : texts null = ceux de root, dans l'ordre de lecture ;
+        /// starts reçoit le rang du premier paragraphe de chaque écrit.</summary>
+        public static TextDocument Build(Project project, BinderItem root, IList<BinderItem> chosen, CompileOptions options, List<int> starts)
         {
             var output = new TextDocument();
 
@@ -59,7 +68,8 @@ namespace Marabook.Exchange
             }
 
             var texts = new List<BinderItem>();
-            CollectTexts(root, texts);
+            if (chosen != null) texts.AddRange(chosen);
+            else CollectTexts(root, texts);
 
             var chapterNumber = 0;
             var first = true;
@@ -80,7 +90,7 @@ namespace Marabook.Exchange
 
                 // Chaque page du manuscrit fusionné retrouve le décor
                 // (en-tête/pied, gabarit de pages) de SON chapitre.
-                var decor = PageDecor.For(text, project);
+                var decor = options.Decor ? PageDecor.For(text, project) : null;
                 foreach (var paragraph in text.Document.Paragraphs)
                 {
                     // Clone the paragraph shell (runs shared): footnote markers
@@ -119,6 +129,7 @@ namespace Marabook.Exchange
                         output.Paragraphs.Insert(startIndex, separator);
                     }
                 }
+                if (starts != null) starts.Add(startIndex);
                 first = false;
             }
 

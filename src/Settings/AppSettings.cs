@@ -79,9 +79,13 @@ namespace Marabook.Settings
             new ActionDefinition("templates", "Format", "Modèles de fiches", null),
             new ActionDefinition("import-docs", "Fichier", "Importer des documents", null),
             new ActionDefinition("import-scrivener", "Fichier", "Importer un projet Scrivener", null),
-            new ActionDefinition("export-item", "Fichier", "Exporter l'écrit sélectionné", "Ctrl+E"),
-            new ActionDefinition("compile", "Fichier", "Compiler les écrits", "Ctrl+Shift+E"),
-            new ActionDefinition("export-pdf", "Fichier", "Exporter en PDF prêt à imprimer", null),
+            // La refonte de l'export (2.0.0, 18/11, Rémi) : Ctrl+E ouvre le
+            // gestionnaire, Ctrl+Maj+E fait l'export rapide en Word ; « Compiler
+            // les écrits » n'existe plus.
+            new ActionDefinition("export-manager", "Fichier", "Gestionnaire d'export", "Ctrl+E"),
+            new ActionDefinition("export-quick-docx", "Fichier", "Export rapide DOCX", "Ctrl+Shift+E"),
+            new ActionDefinition("export-item", "Fichier", "Exporter l'écrit sélectionné (gestionnaire)", null),
+            new ActionDefinition("export-pdf", "Fichier", "Export rapide PDF", null),
             new ActionDefinition("styles", "Format", "Gérer les styles", null),
             new ActionDefinition("insert-footnote", "Format", "Note de bas de page", "Ctrl+Shift+N"),
             new ActionDefinition("insert-image", "Format", "Insérer une image", null),
@@ -91,7 +95,7 @@ namespace Marabook.Settings
             new ActionDefinition("preferences", "Fichier", "Préférences de l'application", "F12"), // F12 d'office (29/10, Rémi)
             new ActionDefinition("print-preview", "Prépresse", "Aperçu des pages", "Ctrl+Alt+P"), // le ruban (onglet Prépresse, ex-Composition, 29/10), plus le menu (22/09)
             new ActionDefinition("print", "Fichier", "Imprimer", "Ctrl+P"),
-            new ActionDefinition("export-epub", "Fichier", "Créer un EPUB", null),
+            new ActionDefinition("export-epub", "Fichier", "Export rapide EPUB", null),
             new ActionDefinition("session-goal", "Écriture", "Lancer un sprint", null),
             new ActionDefinition("toggle-binder", "Affichage", "Afficher la Pile", "Ctrl+D1"),
             new ActionDefinition("toggle-inspector", "Affichage", "Afficher l'inspecteur", "Ctrl+D2"),
@@ -627,8 +631,10 @@ namespace Marabook.Settings
                     Shortcuts = new Dictionary<string, string>();
                     foreach (var kv in shortcuts)
                         if (kv.Value is string) Shortcuts[kv.Key] = (string)kv.Value;
+                    // « Compiler les écrits » n'existe plus (refonte de l'export, 18/11) : son raccourci personnalisé non plus.
+                    Shortcuts.Remove("compile");
                 }
-                DarkTheme = Json.AsBool(Json.Field(root, "darkTheme"), false);
+                DarkTheme =Json.AsBool(Json.Field(root, "darkTheme"), false);
                 BinderVisible = Json.AsBool(Json.Field(root, "binderVisible"), true);
                 RailLocked = Json.AsBool(Json.Field(root, "railLocked"), false);
                 var rightPanel = Json.AsString(Json.Field(root, "rightPanel"));

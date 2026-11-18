@@ -20,6 +20,41 @@ namespace Marabook.Print
                                     // cheval, 2 pages par face, complété à un
                                     // multiple de 4 ; fond perdu/traits ignorés)
         public string Title = "";   // métadonnées du document
+        public string Author = "";
+    }
+
+    /// <summary>Un repère d'une partie de PDF (gestionnaire d'export, 18/11) :
+    /// la destination d'un lien (Name) et/ou un signet (Title, Level 0 = premier
+    /// rang), au paragraphe donné — négatif : le haut de la première page.</summary>
+    public class PdfMark
+    {
+        public int Paragraph = -1;
+        public string Name;
+        public string Title;
+        public int Level;
+    }
+
+    /// <summary>Une plage de texte cliquable : elle mène au repère Target.</summary>
+    public class PdfLink
+    {
+        public int Paragraph, Start, Length;
+        public string Target;
+    }
+
+    /// <summary>UNE PARTIE D'UN PDF : des pages composées (leur propre
+    /// format), ou UNE page-image à sa taille (un plan, une carte mentale).
+    /// Un PDF en plusieurs parties n'a donc pas toutes ses pages au même
+    /// format — le « Big Fat PDF ».</summary>
+    public class PdfPart
+    {
+        public Composition Composition;
+        // Page-image : les pixels RVB (sur blanc) et la taille de la page, en mm.
+        public byte[] ImageRgb;
+        public int ImageWidth, ImageHeight;
+        public double PageWidthMm, PageHeightMm;
+        public readonly List<PdfMark> Marks = new List<PdfMark>();
+        public readonly List<PdfLink> Links = new List<PdfLink>();
+        public bool IsImage { get { return Composition == null; } }
     }
 
     /// <summary>4b-2 : the home-grown PDF writer. Draws the pages EXACTLY as
@@ -38,6 +73,20 @@ namespace Marabook.Print
             using (var file = new FileStream(path, FileMode.Create, FileAccess.Write))
                 file.Write(bytes, 0, bytes.Length);
         }
+
+        /// <summary>Un PDF en plusieurs parties (18/11) : formats de page
+        /// mêlés, pages-images, liens internes et signets.</summary>
+        public static void Write(string path, IList<PdfPart> parts, PdfExportOptions options)
+        {
+            var bytes = Build(parts, options);
+            using (var file = new FileStream(path, FileMode.Create, FileAccess.Write))
+                file.Write(bytes, 0, bytes.Length);
+        }
+
+        public static byte[] Build(IList<PdfPart> parts, PdfExportOptions options)
+        {
+            return new PdfBuilder(parts, options ?? new PdfExportOptions()).Build();
+        }
     }
 
     internal sealed class PdfBuilder
@@ -46,13 +95,55 @@ namespace Marabook.Print
         private const double MmToPt = 72.0 / 25.4;
         private const double MarkZoneMm = 5;   // room around the bleed for marks
 
-        private readonly Composition _composition;
+        private Composition _composition;         // la partie en cours
         private readonly PdfExportOptions _options;
+        private readonly List<PdfPart> _parts = new List<PdfPart>();
 
-        // Page geometry (points).
-        private readonly double _trimW, _trimH;   // finished format
+        // Page geometry (points) — celle de la partie en cours (Enter).
+        private double _trimW, _trimH;            // finished format
         private readonly double _margin;          // bleed + mark zone
-        private readonly double _mediaW, _mediaH;
+        private double _mediaW, _mediaH;
+        private double _pageHPx;                  // hauteur de page en px (YPt)
+
+        /// <summary>Une page du fichier : son contenu, ses boîtes, ses liens.</summary>
+        private sealed class PageOut
+        {
+            public byte[] Content;
+            public string Boxes;
+            public readonly List<string> Annots = new List<string>();
+        }
+
+        /// <summary>Un lien relevé pendant le dessin : sa page, son rectangle (points), sa cible.</summary>
+        private sealed class LinkOut
+        {
+            public int Page;
+            public double X1, Y1, X2, Y2;
+            public string Target;
+        }
+
+        /// <summary>Une destination : la page du fichier et la hauteur (points) où l'on arrive.</summary>
+        private sealed class DestOut
+        {
+            public int Page;
+            public double Top;
+        }
+
+        private sealed class OutlineOut
+        {
+            public string Title;
+            public int Level;
+            public DestOut Dest;
+            public int Id;
+            public OutlineOut Parent, Prev, Next, First, Last;
+            public int Children;
+        }
+
+        private readonly List<PageOut> _pages = new List<PageOut>();
+        private readonly List<LinkOut> _links = new List<LinkOut>();
+        private readonly Dictionary<string, DestOut> _dests = new Dictionary<string, DestOut>();
+        private readonly HashSet<string> _knownTargets = new HashSet<string>();
+        private readonly List<OutlineOut> _outline = new List<OutlineOut>();
+        private static readonly Ink LinkInk = Ink.Argb(255, 0x2F, 0x5F, 0xC8);
 
         private sealed class FontEntry
         {
@@ -108,21 +199,54 @@ namespace Marabook.Print
         private readonly bool _cropMarks, _bleedGuides;
 
         public PdfBuilder(Composition composition, PdfExportOptions options)
+            : this(new[] { new PdfPart { Composition = composition } }, options)
         {
-            _composition = composition;
+        }
+
+        public PdfBuilder(IList<PdfPart> parts, PdfExportOptions options)
+        {
             _options = options;
-            if (composition.Fonts == null)
-                throw new InvalidOperationException("La composition n'a pas de moteur de polices (Composition.Fonts).");
-            _fonts = composition.Fonts;
-            _booklet = options.Booklet;
+            if (parts != null) foreach (var part in parts) if (part != null) _parts.Add(part);
+            if (_parts.Count == 0) throw new InvalidOperationException("Rien à écrire dans le PDF.");
+            foreach (var part in _parts)
+            {
+                if (part.IsImage) continue;
+                if (part.Composition.Fonts == null)
+                    throw new InvalidOperationException("La composition n'a pas de moteur de polices (Composition.Fonts).");
+                if (_fonts == null) _fonts = part.Composition.Fonts;
+            }
+            // Le cahier ne vaut que pour UN texte composé, sans liens : il replie les pages deux à deux.
+            _booklet = options.Booklet && _parts.Count == 1 && !_parts[0].IsImage && _parts[0].Links.Count == 0;
             _bleedPt = _booklet ? 0 : options.BleedMm * MmToPt;
             _cropMarks = !_booklet && options.CropMarks;
             _bleedGuides = !_booklet && options.BleedGuides;
-            _trimW = composition.PageWidthPx * PxToPt;
-            _trimH = composition.PageHeightPx * PxToPt;
             _margin = _bleedPt + (_cropMarks ? MarkZoneMm * MmToPt : 0);
+            foreach (var part in _parts)
+                foreach (var mark in part.Marks)
+                    if (mark.Name != null) _knownTargets.Add(mark.Name);
+            Enter(_parts[0]);
+        }
+
+        /// <summary>Entre dans une partie : sa géométrie devient celle du dessin.</summary>
+        private void Enter(PdfPart part)
+        {
+            _composition = part.Composition;
+            var widthPx = part.IsImage ? part.PageWidthMm * PageSetup.PxPerMm : part.Composition.PageWidthPx;
+            _pageHPx = part.IsImage ? part.PageHeightMm * PageSetup.PxPerMm : part.Composition.PageHeightPx;
+            _trimW = widthPx * PxToPt;
+            _trimH = _pageHPx * PxToPt;
             _mediaW = _trimW + 2 * _margin;
             _mediaH = _trimH + 2 * _margin;
+        }
+
+        private string Boxes()
+        {
+            var bleed = _bleedPt;
+            return " /MediaBox [0 0 " + N(_mediaW) + " " + N(_mediaH) + "]"
+                + " /BleedBox [" + N(_margin - bleed) + " " + N(_margin - bleed) + " "
+                    + N(_margin + _trimW + bleed) + " " + N(_margin + _trimH + bleed) + "]"
+                + " /TrimBox [" + N(_margin) + " " + N(_margin) + " "
+                    + N(_margin + _trimW) + " " + N(_margin + _trimH) + "]";
         }
 
         // ============================================================ build
@@ -130,31 +254,60 @@ namespace Marabook.Print
         public byte[] Build()
         {
             // Pass 1: page contents (registers fonts, used glyphs, images).
-            var composedCount = _composition.Pages.Count;
-            var pageOps = new List<string>();
-            for (var k = 0; k < composedCount; k++)
-                pageOps.Add(BuildPageContent(k));
-
-            // 4b-3 — imposition en cahier : deux pages composées par face,
-            // complété en pages blanches à un multiple de 4. Feuille s :
-            // recto = [N−2s | 2s+1], verso = [2s+2 | N−2s−1] (folios 1-based) —
-            // plié en deux, le livret se lit dans l'ordre.
-            var contents = new List<byte[]>();
             if (_booklet)
             {
+                // 4b-3 — imposition en cahier : deux pages composées par face,
+                // complété en pages blanches à un multiple de 4. Feuille s :
+                // recto = [N−2s | 2s+1], verso = [2s+2 | N−2s−1] (folios 1-based) —
+                // plié en deux, le livret se lit dans l'ordre.
+                var composedCount = _composition.Pages.Count;
+                var pageOps = new List<string>();
+                for (var k = 0; k < composedCount; k++)
+                    pageOps.Add(BuildPageContent(k, null));
+                var sheetBoxes = " /MediaBox [0 0 " + N(2 * _trimW) + " " + N(_trimH) + "]";
                 var padded = ((composedCount + 3) / 4) * 4;
                 for (var s = 0; s < padded / 4; s++)
                 {
-                    contents.Add(BookletSheet(pageOps, padded - 1 - 2 * s, 2 * s));
-                    contents.Add(BookletSheet(pageOps, 2 * s + 1, padded - 2 - 2 * s));
+                    _pages.Add(new PageOut { Content = BookletSheet(pageOps, padded - 1 - 2 * s, 2 * s), Boxes = sheetBoxes });
+                    _pages.Add(new PageOut { Content = BookletSheet(pageOps, 2 * s + 1, padded - 2 - 2 * s), Boxes = sheetBoxes });
                 }
             }
             else
-                foreach (var ops in pageOps) contents.Add(Latin1(ops));
-            var pageCount = contents.Count;
+                foreach (var part in _parts)
+                {
+                    Enter(part);
+                    var firstPage = _pages.Count;
+                    if (part.IsImage)
+                    {
+                        _fill = Sentinel; _stroke = Sentinel; _tz = 100;
+                        var ops = new StringBuilder();
+                        if (_cropMarks) EmitCropMarks(ops);
+                        var entry = AddImage(part.ImageRgb, part.ImageWidth, part.ImageHeight);
+                        if (entry != null) EmitImage(ops, entry, 0, 0, part.PageWidthMm * PageSetup.PxPerMm, _pageHPx);
+                        _pages.Add(new PageOut { Content = Latin1(ops.ToString()), Boxes = Boxes() });
+                    }
+                    else
+                        for (var k = 0; k < _composition.Pages.Count; k++)
+                        {
+                            var page = new PageOut { Boxes = Boxes() };
+                            _pages.Add(page);
+                            page.Content = Latin1(BuildPageContent(k, part));
+                        }
+                    foreach (var mark in part.Marks) PlaceMark(part, mark, firstPage);
+                }
+            var pageCount = _pages.Count;
+
+            // Les liens : une annotation par rectangle, vers la destination de la cible.
+            foreach (var link in _links)
+            {
+                DestOut dest;
+                if (!_dests.TryGetValue(link.Target, out dest)) continue;
+                _pages[link.Page].Annots.Add("<< /Type /Annot /Subtype /Link /Rect [" + N(link.X1) + " " + N(link.Y1) + " " + N(link.X2) + " " + N(link.Y2)
+                    + "] /Border [0 0 0] /Dest [" + (4 + 2 * dest.Page) + " 0 R /XYZ null " + N(dest.Top) + " null] >>");
+            }
 
             // Ids: 1 catalog, 2 pages, 3 resources, then page/content pairs,
-            // then images, fonts, info.
+            // then images, fonts, info, outline.
             var next = 4 + 2 * pageCount;
             foreach (var image in _images) image.Id = next++;
             foreach (var font in _fontList)
@@ -166,6 +319,13 @@ namespace Marabook.Print
                 font.ToUnicodeId = next++;
             }
             var infoId = next++;
+            var outlineRootId = 0;
+            if (_outline.Count > 0)
+            {
+                LinkOutline();
+                outlineRootId = next++;
+                foreach (var node in _outline) node.Id = next++;
+            }
 
             var output = new MemoryStream();
             var offsets = new long[next]; // index = id, [0] unused
@@ -182,7 +342,8 @@ namespace Marabook.Print
                     + " /OutputCondition (Coated FOGRA39 \\(ISO 12647-2:2004\\))"
                     + " /RegistryName (http://www.color.org) >>]"
                 : "";
-            WriteRaw(output, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R" + intent + " >>\nendobj\n");
+            var outlines = outlineRootId > 0 ? " /Outlines " + outlineRootId + " 0 R /PageMode /UseOutlines" : "";
+            WriteRaw(output, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R" + intent + outlines + " >>\nendobj\n");
 
             // 2 — pages tree
             offsets[2] = output.Position;
@@ -215,22 +376,15 @@ namespace Marabook.Print
             WriteRaw(output, resources.ToString());
 
             // pages + contents
-            var bleed = _bleedPt;
-            var boxes = _booklet
-                ? " /MediaBox [0 0 " + N(2 * _trimW) + " " + N(_trimH) + "]"
-                : " /MediaBox [0 0 " + N(_mediaW) + " " + N(_mediaH) + "]"
-                + " /BleedBox [" + N(_margin - bleed) + " " + N(_margin - bleed) + " "
-                    + N(_margin + _trimW + bleed) + " " + N(_margin + _trimH + bleed) + "]"
-                + " /TrimBox [" + N(_margin) + " " + N(_margin) + " "
-                    + N(_margin + _trimW) + " " + N(_margin + _trimH) + "]";
             for (var k = 0; k < pageCount; k++)
             {
                 var pageId = 4 + 2 * k;
                 offsets[pageId] = output.Position;
+                var annots = _pages[k].Annots.Count == 0 ? "" : " /Annots [" + string.Join(" ", _pages[k].Annots.ToArray()) + "]";
                 WriteRaw(output, pageId + " 0 obj\n<< /Type /Page /Parent 2 0 R"
-                    + boxes + " /Resources 3 0 R /Contents " + (pageId + 1) + " 0 R >>\nendobj\n");
+                    + _pages[k].Boxes + " /Resources 3 0 R /Contents " + (pageId + 1) + " 0 R" + annots + " >>\nendobj\n");
                 offsets[pageId + 1] = output.Position;
-                WriteStream(output, pageId + 1, "", contents[k]);
+                WriteStream(output, pageId + 1, "", _pages[k].Content);
             }
 
             foreach (var image in _images)
@@ -266,7 +420,32 @@ namespace Marabook.Print
 
             offsets[infoId] = output.Position;
             WriteRaw(output, infoId + " 0 obj\n<< /Title " + Utf16String(_options.Title ?? "")
+                + (string.IsNullOrEmpty(_options.Author) ? "" : " /Author " + Utf16String(_options.Author))
                 + " /Producer " + Utf16String("Marabook") + " >>\nendobj\n");
+
+            // Les signets : la racine, puis un objet par entrée.
+            if (outlineRootId > 0)
+            {
+                OutlineOut first = null, last = null;
+                var top = 0;
+                foreach (var node in _outline)
+                    if (node.Parent == null) { if (first == null) first = node; last = node; top++; }
+                offsets[outlineRootId] = output.Position;
+                WriteRaw(output, outlineRootId + " 0 obj\n<< /Type /Outlines /First " + first.Id + " 0 R /Last " + last.Id + " 0 R /Count " + top + " >>\nendobj\n");
+                foreach (var node in _outline)
+                {
+                    offsets[node.Id] = output.Position;
+                    var entry = new StringBuilder();
+                    entry.Append(node.Id).Append(" 0 obj\n<< /Title ").Append(Utf16String(node.Title ?? ""))
+                      .Append(" /Parent ").Append(node.Parent != null ? node.Parent.Id : outlineRootId).Append(" 0 R");
+                    if (node.Prev != null) entry.Append(" /Prev ").Append(node.Prev.Id).Append(" 0 R");
+                    if (node.Next != null) entry.Append(" /Next ").Append(node.Next.Id).Append(" 0 R");
+                    if (node.First != null)
+                        entry.Append(" /First ").Append(node.First.Id).Append(" 0 R /Last ").Append(node.Last.Id).Append(" 0 R /Count -").Append(node.Children); // replié
+                    entry.Append(" /Dest [").Append(4 + 2 * node.Dest.Page).Append(" 0 R /XYZ null ").Append(N(node.Dest.Top)).Append(" null] >>\nendobj\n");
+                    WriteRaw(output, entry.ToString());
+                }
+            }
 
             // xref + trailer
             var xref = output.Position;
@@ -299,7 +478,96 @@ namespace Marabook.Print
             return Latin1(sb.ToString());
         }
 
-        private string BuildPageContent(int index)
+        /// <summary>Pose un repère : la page du fichier où tombe son
+        /// paragraphe, et la hauteur où l'on arrive (un peu au-dessus de sa
+        /// première ligne) ; sans paragraphe, le haut de la première page.</summary>
+        private void PlaceMark(PdfPart part, PdfMark mark, int firstPage)
+        {
+            var dest = new DestOut { Page = firstPage, Top = _mediaH };
+            if (!part.IsImage && mark.Paragraph >= 0)
+            {
+                var found = false;
+                for (var k = 0; k < _composition.Pages.Count && !found; k++)
+                    foreach (var placed in _composition.Pages[k].Lines)
+                    {
+                        if (placed.ParagraphIndex < mark.Paragraph) continue;
+                        dest.Page = firstPage + k;
+                        dest.Top = Math.Min(_mediaH, YPt(placed.Y) + 12);
+                        found = true;
+                        break;
+                    }
+            }
+            if (dest.Page >= _pages.Count) dest.Page = Math.Max(0, _pages.Count - 1);
+            if (mark.Name != null && !_dests.ContainsKey(mark.Name)) _dests[mark.Name] = dest;
+            if (!string.IsNullOrEmpty(mark.Title)) _outline.Add(new OutlineOut { Title = mark.Title, Level = Math.Max(0, mark.Level), Dest = dest });
+        }
+
+        /// <summary>Chaîne les signets : le parent d'une entrée est la dernière
+        /// entrée d'un rang moindre qui la précède.</summary>
+        private void LinkOutline()
+        {
+            var open = new List<OutlineOut>();
+            foreach (var node in _outline)
+            {
+                while (open.Count > 0 && open[open.Count - 1].Level >= node.Level) open.RemoveAt(open.Count - 1);
+                node.Parent = open.Count > 0 ? open[open.Count - 1] : null;
+                open.Add(node);
+            }
+            var lastTop = (OutlineOut)null;
+            foreach (var node in _outline)
+            {
+                if (node.Parent == null)
+                {
+                    if (lastTop != null) { lastTop.Next = node; node.Prev = lastTop; }
+                    lastTop = node;
+                    continue;
+                }
+                var parent = node.Parent;
+                if (parent.First == null) parent.First = node;
+                else { parent.Last.Next = node; node.Prev = parent.Last; }
+                parent.Last = node;
+                parent.Children++;
+            }
+        }
+
+        /// <summary>Les liens d'une page composée : un rectangle par ligne
+        /// touchée (annotation), et un filet fin sous les mots pour qu'on
+        /// voie où cliquer.</summary>
+        private void EmitLinks(StringBuilder ops, PdfPart part, int index, double left)
+        {
+            var page = _composition.Pages[index];
+            var pageOut = _pages.Count - 1;
+            foreach (var link in part.Links)
+            {
+                if (link.Target == null || !_knownTargets.Contains(link.Target) || link.Length <= 0) continue;
+                foreach (var placed in page.Lines)
+                {
+                    if (placed.ParagraphIndex != link.Paragraph) continue;
+                    double minX = double.MaxValue, maxX = double.MinValue;
+                    foreach (var piece in placed.Line.Pieces)
+                    {
+                        if (piece.SourceStart < 0 || piece.IsAnchor) continue;
+                        var start = piece.SourceStart;
+                        var end = start + Math.Max(1, piece.SourceLength);
+                        if (end <= link.Start || start >= link.Start + link.Length) continue;
+                        var x = left + piece.Origin.X;
+                        minX = Math.Min(minX, x);
+                        maxX = Math.Max(maxX, x + piece.VisualWidth());
+                    }
+                    if (maxX - minX < 0.5) continue;
+                    var line = placed.Line;
+                    var under = placed.Y + line.Ascent + Math.Max(1.5, line.Height * 0.09);
+                    EmitRect(ops, minX, under, maxX - minX, 0.6, LinkInk);
+                    _links.Add(new LinkOut
+                    {
+                        Page = pageOut, Target = link.Target,
+                        X1 = XPt(minX), X2 = XPt(maxX), Y1 = YPt(placed.Y + line.Height), Y2 = YPt(placed.Y)
+                    });
+                }
+            }
+        }
+
+        private string BuildPageContent(int index, PdfPart part)
         {
             // Sentinel trackers: the first ink of the page is always written
             // out — a FOGRA39 proof must carry its 0/0/0/1 explicitly, not
@@ -326,6 +594,7 @@ namespace Marabook.Print
 
             foreach (var placed in page.Lines)
                 EmitLine(ops, placed.Line, left, placed.Y);
+            if (part != null && part.Links.Count > 0) EmitLinks(ops, part, index, left);
 
             if (page.NoteLines.Count > 0)
             {
@@ -753,7 +1022,7 @@ namespace Marabook.Print
         private double XPt(double xPx) { return _margin + xPx * PxToPt; }
         private double YPt(double yPx)
         {
-            return _margin + (_composition.PageHeightPx - yPx) * PxToPt;
+            return _margin + (_pageHPx - yPx) * PxToPt;
         }
 
         // ============================================================ fonts

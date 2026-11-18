@@ -33,6 +33,7 @@ namespace Marabook.Exchange
         public readonly List<BinderItem> Chapters = new List<BinderItem>();
         public readonly List<BinderItem> Skipped = new List<BinderItem>();
         public bool HasCover;                                     // l'image du livre (ou de l'écrit)
+        public string CoverImageId;                               // une couverture choisie au gestionnaire d'export (18/11) ; null = celle de Root
         public bool IsBook { get { return Root != null && Root.Kind == ItemKind.Book; } }
     }
 
@@ -275,7 +276,7 @@ namespace Marabook.Exchange
                 Add("OEBPS/style.css", Css());
                 if (_options.IncludeCover && _plan.HasCover)
                 {
-                    _cover = ImageFor(_plan.Root.ImageId, "cover");
+                    _cover = ImageFor(_plan.CoverImageId ?? _plan.Root.ImageId, "cover");
                     if (_cover != null) Add("OEBPS/cover.xhtml", CoverPage());
                 }
                 for (var i = 0; i < _plan.Chapters.Count; i++)

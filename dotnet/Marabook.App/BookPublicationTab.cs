@@ -54,15 +54,15 @@ namespace Marabook.App
             // NB : le gabarit de bouton du thème peint son propre fond — ne
             // jamais forcer Background/Foreground ici (bouton « tout blanc »).
             var publish = Buttons.IconText("play-fill", "Publier…",
-                "Compiler tout le livre en un PDF prêt à imprimer : pagination "
-                + "continue, gabarits appliqués, CMJN FOGRA39 par défaut", Buttons.Bar, Buttons.Look.Primary);
+                "Ouvre le gestionnaire d'export, le livre déjà coché et le préréglage « BAT Imprimeur » choisi : "
+                + "pagination continue, gabarits appliqués, CMJN FOGRA39, traits de coupe", Buttons.Bar, Buttons.Look.Primary);
             publish.Click += delegate
             {
                 var handler = PublishRequested;
                 if (handler != null && _item != null) handler(_item);
             };
             actions.Children.Add(publish);
-            var epub = Buttons.IconText("book-open-text-bold", "Créer un EPUB…", "Le livre en EPUB 3, pour les liseuses — titre, métadonnées et couverture au dialogue", Buttons.Bar, Buttons.Look.Outline);
+            var epub = Buttons.IconText("book-open-text-bold", "Créer un EPUB…", "Ouvre le gestionnaire d'export, le livre déjà coché et le préréglage « EPUB Publiable » choisi", Buttons.Bar, Buttons.Look.Outline);
             epub.Margin = new Thickness(8, 0, 0, 0);
             epub.Click += delegate
             {
