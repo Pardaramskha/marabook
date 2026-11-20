@@ -43,8 +43,8 @@ namespace Marabook.Exchange
                 else
                 {
                     if (paragraph.ListKind == "bullet") sb.Append("- ");
-                    else if (paragraph.StyleId == "title1") sb.Append("# ");
-                    else if (paragraph.StyleId == "title2") sb.Append("## ");
+                    else if (paragraph.StyleId == "title1" || (ExportLevels.IsLevelStyle(paragraph.StyleId) && paragraph.StyleId != ExportLevels.StyleSubfolder)) sb.Append("# ");
+                    else if (paragraph.StyleId == "title2" || paragraph.StyleId == ExportLevels.StyleSubfolder) sb.Append("## ");
                     else if (paragraph.StyleId == "quote") sb.Append("> ");
                 }
 

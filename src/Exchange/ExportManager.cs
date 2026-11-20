@@ -154,6 +154,10 @@ namespace Marabook.Exchange
         public bool NumberChapters;
         public bool PageBreakPerText = true;  // sinon le séparateur de scène
         public bool RectoStarts;              // chaque écrit ouvre une belle page
+        public bool DropBlankPages;           // retirer les pleines pages blanches (exclut RectoStarts) — 20/11
+        // Le rendu par niveau (20/11) : un titre à chaque changement de genre, de livre, de dossier, de sous-dossier.
+        public bool SplitTypes, SplitBooks, SplitFolders, SplitSubfolders;
+        public bool SplitOwnPage = true;      // ces titres occupent leur propre page ; sinon ils coiffent ce qui suit
 
         // --- Typographie et pages
         public bool HeadersFooters;           // les en-têtes et pieds des gabarits ; sinon un folio centré
@@ -171,11 +175,20 @@ namespace Marabook.Exchange
 
         // --- EPUB
         public bool Cover;
+        public bool DropCaps;                 // une lettrine ouvre chaque chapitre
+        public bool OpeningSmallCaps;         // ses premiers mots en petites capitales
+        public bool Kindle;                   // le profil Kindle : ce qu'Amazon demande à un EPUB
 
         // --- Contrôles
         public bool CheckConsistency;         // avertir avant d'exporter (formats mêlés, informations manquantes)
 
         public ExportPreset Clone() { return (ExportPreset)MemberwiseClone(); }
+
+        /// <summary>Les belles pages posent des pages blanches, « retirer les
+        /// pages blanches » les ôte : l'un exclut l'autre — la belle page gagne.</summary>
+        public bool Recto { get { return RectoStarts && PageBreakPerText; } }
+        public bool DropBlanks { get { return DropBlankPages && !RectoStarts; } }
+        public bool SplitsLevels { get { return SplitTypes || SplitBooks || SplitFolders || SplitSubfolders; } }
 
         /// <summary>L'empreinte des OPTIONS (ni nom, ni note) : deux préréglages
         /// de même empreinte exportent pareil — c'est ce qui dit « modifié ».</summary>
@@ -183,7 +196,8 @@ namespace Marabook.Exchange
         {
             var sb = new StringBuilder();
             sb.Append(ExportFormats.Normalize(Format)).Append('|').Append(ExportPages.Normalize(Pages));
-            foreach (var flag in new[] { TitlePage, ChapterHeadings, NumberChapters, PageBreakPerText, RectoStarts, HeadersFooters, PlainMargins, Comments, Links, Outline, BookBleed, CropMarks, BleedGuides, Cmyk, Booklet, Cover, CheckConsistency })
+            foreach (var flag in new[] { TitlePage, ChapterHeadings, NumberChapters, PageBreakPerText, RectoStarts, HeadersFooters, PlainMargins, Comments, Links, Outline, BookBleed, CropMarks, BleedGuides, Cmyk, Booklet, Cover, CheckConsistency,
+                DropBlankPages, SplitTypes, SplitBooks, SplitFolders, SplitSubfolders, SplitOwnPage, DropCaps, OpeningSmallCaps, Kindle })
                 sb.Append(flag ? '1' : '0');
             sb.Append('|').Append(MaxFontPt.ToString("0.##", CultureInfo.InvariantCulture))
               .Append('|').Append(LineSpacing.ToString("0.##", CultureInfo.InvariantCulture))
@@ -203,6 +217,9 @@ namespace Marabook.Exchange
             o["links"] = Links; o["outline"] = Outline;
             o["bleedMm"] = BleedMm; o["bookBleed"] = BookBleed; o["cropMarks"] = CropMarks; o["bleedGuides"] = BleedGuides;
             o["cmyk"] = Cmyk; o["booklet"] = Booklet; o["cover"] = Cover; o["checkConsistency"] = CheckConsistency;
+            o["dropBlankPages"] = DropBlankPages; o["splitTypes"] = SplitTypes; o["splitBooks"] = SplitBooks;
+            o["splitFolders"] = SplitFolders; o["splitSubfolders"] = SplitSubfolders; o["splitOwnPage"] = SplitOwnPage;
+            o["dropCaps"] = DropCaps; o["openingSmallCaps"] = OpeningSmallCaps; o["kindle"] = Kindle;
             return o;
         }
 
@@ -238,6 +255,15 @@ namespace Marabook.Exchange
             preset.Booklet = Json.AsBool(Json.Field(o, "booklet"), false);
             preset.Cover = Json.AsBool(Json.Field(o, "cover"), false);
             preset.CheckConsistency = Json.AsBool(Json.Field(o, "checkConsistency"), false);
+            preset.DropBlankPages = Json.AsBool(Json.Field(o, "dropBlankPages"), false) && !preset.RectoStarts;
+            preset.SplitTypes = Json.AsBool(Json.Field(o, "splitTypes"), false);
+            preset.SplitBooks = Json.AsBool(Json.Field(o, "splitBooks"), false);
+            preset.SplitFolders = Json.AsBool(Json.Field(o, "splitFolders"), false);
+            preset.SplitSubfolders = Json.AsBool(Json.Field(o, "splitSubfolders"), false);
+            preset.SplitOwnPage = Json.AsBool(Json.Field(o, "splitOwnPage"), true);
+            preset.DropCaps = Json.AsBool(Json.Field(o, "dropCaps"), false);
+            preset.OpeningSmallCaps = Json.AsBool(Json.Field(o, "openingSmallCaps"), false);
+            preset.Kindle = Json.AsBool(Json.Field(o, "kindle"), false);
             preset.Category = ExportPresets.CategoryCustom;
             preset.BuiltIn = false;
             return preset;
@@ -254,7 +280,7 @@ namespace Marabook.Exchange
         public const string CategoryCustom = "Mes préréglages";
 
         public const string WordA4 = "word-a4", WordLayout = "word-layout", PdfA4 = "pdf-a4", Epub = "epub", Bfp = "bfp",
-            Bat = "bat", EpubPublish = "epub-publish", Manuscript = "manuscript", EncyclopediaPdf = "encyclopedia-pdf";
+            Bat = "bat", EpubPublish = "epub-publish", EpubKindle = "epub-kindle", Manuscript = "manuscript", EncyclopediaPdf = "encyclopedia-pdf";
 
         /// <summary>L'ordre des catégories dans la liste.</summary>
         public static readonly string[] Categories = { CategoryTexts, CategoryMixed, CategoryBooks, CategorySheets, CategoryCustom };
@@ -290,7 +316,8 @@ namespace Marabook.Exchange
             {
                 Id = Bfp, Name = "BFP — Big Fat PDF", Category = CategoryMixed, BuiltIn = true,
                 Note = "Un seul PDF pour tout : écrits, fiches, plans, cartes mentales. Chaque élément garde sa mise en forme et son format — les pages n'ont donc pas toutes la même taille. Une archive à feuilleter, pas un fichier d'imprimeur.",
-                Format = ExportFormats.Pdf, Pages = ExportPages.Source, HeadersFooters = true, Links = true, Outline = true
+                Format = ExportFormats.Pdf, Pages = ExportPages.Source, HeadersFooters = true, Links = true, Outline = true,
+                SplitTypes = true, SplitBooks = true, SplitFolders = true, SplitSubfolders = true, SplitOwnPage = false
             });
             list.Add(new ExportPreset
             {
@@ -307,9 +334,15 @@ namespace Marabook.Exchange
             });
             list.Add(new ExportPreset
             {
+                Id = EpubKindle, Name = "EPUB pour Kindle", Category = CategoryBooks, BuiltIn = true,
+                Note = "L'EPUB du livre tel qu'Amazon le demande : la couverture déclarée sans page de couverture en double, le corps du texte qui laisse au lecteur sa police, sa taille et son interligne. Avertit si la couverture est trop petite ou s'il manque une information.",
+                Format = ExportFormats.Epub, Cover = true, CheckConsistency = true, Kindle = true
+            });
+            list.Add(new ExportPreset
+            {
                 Id = Manuscript, Name = "PDF Manuscrit papier", Category = CategoryBooks, BuiltIn = true,
-                Note = "Le manuscrit à imprimer pour pas cher et à lire sans effort : A4, marges égales sans miroir, interligne 1,25, aucune police au-dessus de 12 points, une seule pagination d'un bout à l'autre. Pour les maisons d'édition et les comités de lecture.",
-                Format = ExportFormats.Pdf, Pages = ExportPages.A4, TitlePage = true, PlainMargins = true, MaxFontPt = 12, LineSpacing = 1.25
+                Note = "Le manuscrit à imprimer pour pas cher et à lire sans effort : A4, marges égales sans miroir, interligne 1,25, aucune police au-dessus de 12 points, une seule pagination d'un bout à l'autre, aucune page blanche. Pour les maisons d'édition et les comités de lecture.",
+                Format = ExportFormats.Pdf, Pages = ExportPages.A4, TitlePage = true, PlainMargins = true, MaxFontPt = 12, LineSpacing = 1.25, DropBlankPages = true
             });
             list.Add(new ExportPreset
             {
@@ -414,6 +447,67 @@ namespace Marabook.Exchange
         }
     }
 
+    /// <summary>LE FILTRE DE L'AMPLEUR (20/11) : parmi ce qui est coché, ne
+    /// garder que les écrits d'un statut, que les éléments d'un tag, ou tout
+    /// sauf ceux d'un tag. Comme l'ampleur, il ne fait jamais partie d'un préréglage.</summary>
+    public class ExportFilter
+    {
+        public string OnlyStatus;   // une clé de TextStatus ; null = tous — ne vaut que pour les écrits
+        public string OnlyTag;      // null = tous
+        public string ExceptTag;    // null = aucun
+
+        public bool IsEmpty { get { return string.IsNullOrEmpty(OnlyStatus) && string.IsNullOrEmpty(OnlyTag) && string.IsNullOrEmpty(ExceptTag); } }
+
+        public static bool HasTag(BinderItem item, string tag)
+        {
+            if (item == null || string.IsNullOrEmpty(tag)) return false;
+            foreach (var have in item.Tags)
+                if (string.Equals((have ?? "").Trim(), tag.Trim(), StringComparison.CurrentCultureIgnoreCase)) return true;
+            return false;
+        }
+
+        public bool Keeps(BinderItem item)
+        {
+            if (item == null) return false;
+            if (!string.IsNullOrEmpty(OnlyStatus) && item.Kind == ItemKind.Text && (item.Status ?? "") != OnlyStatus) return false;
+            if (!string.IsNullOrEmpty(OnlyTag) && !HasTag(item, OnlyTag)) return false;
+            if (!string.IsNullOrEmpty(ExceptTag) && HasTag(item, ExceptTag)) return false;
+            return true;
+        }
+
+        /// <summary>« écrits au statut Terminé, sauf le tag « brouillon » ».</summary>
+        public string Describe()
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrEmpty(OnlyStatus)) parts.Add("écrits au statut « " + TextStatus.Label(OnlyStatus) + " »");
+            if (!string.IsNullOrEmpty(OnlyTag)) parts.Add("tag « " + OnlyTag + " » seulement");
+            if (!string.IsNullOrEmpty(ExceptTag)) parts.Add("sauf le tag « " + ExceptTag + " »");
+            return string.Join(", ", parts.ToArray());
+        }
+
+        /// <summary>Les tags portés par les éléments exportables du projet, triés.</summary>
+        public static List<string> TagsOf(Project project)
+        {
+            var tags = new List<string>();
+            foreach (var item in ExportPlan.ReadingOrder(project))
+            {
+                if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet && item.Kind != ItemKind.Plan && item.Kind != ItemKind.MindMap) continue;
+                var root = item.RootCategory();
+                if (root != null && root.CategoryKey == Project.KeyTrash) continue;
+                foreach (var tag in item.Tags)
+                {
+                    var name = (tag ?? "").Trim();
+                    if (name.Length == 0) continue;
+                    var known = false;
+                    foreach (var have in tags) if (string.Equals(have, name, StringComparison.CurrentCultureIgnoreCase)) { known = true; break; }
+                    if (!known) tags.Add(name);
+                }
+            }
+            tags.Sort(StringComparer.CurrentCultureIgnoreCase);
+            return tags;
+        }
+    }
+
     /// <summary>Une remarque du plan : ce qui sera écarté, ce qui cloche.</summary>
     public class ExportWarning
     {
@@ -434,6 +528,8 @@ namespace Marabook.Exchange
         public readonly List<BinderItem> MindMaps = new List<BinderItem>();
         public readonly List<BinderItem> Skipped = new List<BinderItem>();   // genre que le format ne porte pas
         public readonly List<BinderItem> Dynamic = new List<BinderItem>();   // pages dynamiques écartées (EPUB)
+        public readonly List<BinderItem> Filtered = new List<BinderItem>();  // cochés, mais écartés par le filtre de l'ampleur
+        public ExportFilter Filter;
         public readonly List<ExportWarning> Warnings = new List<ExportWarning>();
         /// <summary>Le livre qui contient TOUS les écrits du plan, sinon null.</summary>
         public BinderItem Book;
@@ -507,9 +603,10 @@ namespace Marabook.Exchange
             foreach (var child in item.Children) Walk(child, list);
         }
 
-        public static ExportPlan Build(Project project, IEnumerable<string> itemIds, ExportPreset preset, ExportMeta meta)
+        public static ExportPlan Build(Project project, IEnumerable<string> itemIds, ExportPreset preset, ExportMeta meta, ExportFilter filter = null)
         {
-            var plan = new ExportPlan();
+            var plan = new ExportPlan { Filter = filter != null && !filter.IsEmpty ? filter : null };
+            filter = plan.Filter;
             if (project == null || preset == null) return plan;
             var wanted = new HashSet<string>();
             if (itemIds != null) foreach (var id in itemIds) if (id != null) wanted.Add(id);
@@ -521,6 +618,7 @@ namespace Marabook.Exchange
                 if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet && item.Kind != ItemKind.Plan && item.Kind != ItemKind.MindMap) continue;
                 var root = item.RootCategory();
                 if (root != null && root.CategoryKey == Project.KeyTrash) continue;
+                if (filter != null && !filter.Keeps(item)) { plan.Filtered.Add(item); continue; }
                 if (!ExportFormats.Carries(format, item.Kind)) { plan.Skipped.Add(item); continue; }
                 if (item.Kind == ItemKind.Text)
                 {
@@ -564,7 +662,14 @@ namespace Marabook.Exchange
             var format = ExportFormats.Normalize(preset.Format);
             var pages = ExportPages.Normalize(preset.Pages);
 
-            if (IsEmpty) Add(ExportWarning.Warn, Skipped.Count + Dynamic.Count > 0 ? "Rien de ce qui est coché n'entre dans ce format." : "Rien n'est coché dans l'ampleur.", "Onglet « Ampleur » : cochez ce qu'il faut exporter.");
+            if (IsEmpty)
+            {
+                if (Skipped.Count + Dynamic.Count > 0) Add(ExportWarning.Warn, "Rien de ce qui est coché n'entre dans ce format.", "Onglet « Ampleur » : cochez ce qu'il faut exporter.");
+                else if (Filtered.Count > 0) Add(ExportWarning.Warn, "Le filtre écarte tout ce qui est coché.", "Onglet « Ampleur », section « Filtrer » : " + Filter.Describe() + ".");
+                else Add(ExportWarning.Warn, "Rien n'est coché dans l'ampleur.", "Onglet « Ampleur » : cochez ce qu'il faut exporter.");
+            }
+            else if (Filtered.Count > 0)
+                Add(ExportWarning.Info, Filtered.Count + (Filtered.Count > 1 ? " éléments cochés sont écartés" : " élément coché est écarté") + " par le filtre : " + Names(Filtered, 4) + ".", "Filtre de l'ampleur : " + Filter.Describe() + ".");
 
             if (Skipped.Count > 0)
             {
@@ -675,6 +780,24 @@ namespace Marabook.Exchange
                         Add(ExportWarning.Warn, "Pas de couverture.", "Posez l'image du livre dans son onglet Édition, puis choisissez-la dans l'onglet « Livre ».");
                     if (string.IsNullOrEmpty((meta.Isbn ?? "").Trim()))
                         Add(ExportWarning.Info, "Pas d'ISBN : un identifiant unique sera généré.", "Les librairies en ligne en demandent souvent un.");
+                }
+                if (preset.Kindle)
+                {
+                    // Ce qu'Amazon regarde en premier : la couverture (au moins 1 000 px de grand côté, 2 560 × 1 600 conseillés).
+                    var cover = preset.Cover && meta.CoverImageId != null ? project.FindImage(meta.CoverImageId) : null;
+                    int width, height;
+                    if (cover != null && cover.Bytes != null && ImageHeader.TryReadSize(cover.Bytes, out width, out height))
+                    {
+                        var longest = Math.Max(width, height);
+                        if (longest < 1000)
+                            Add(ExportWarning.Warn, "Couverture trop petite pour Kindle : " + width + " × " + height + " px.", "Amazon demande au moins 1 000 px sur le grand côté, et conseille 2 560 × 1 600.");
+                        else if (longest < 2560)
+                            Add(ExportWarning.Info, "Couverture de " + width + " × " + height + " px : acceptée, mais Amazon conseille 2 560 × 1 600.");
+                        if (width > height)
+                            Add(ExportWarning.Info, "La couverture est en paysage : Kindle l'attend en portrait.");
+                    }
+                    if (!preset.Cover)
+                        Add(ExportWarning.Warn, "Le profil Kindle veut une couverture.", "Onglet « Livre » : cochez « Mettre la couverture dans l'EPUB ».");
                 }
             }
             else if (preset.TitlePage && string.IsNullOrEmpty((meta.Title ?? "").Trim()))

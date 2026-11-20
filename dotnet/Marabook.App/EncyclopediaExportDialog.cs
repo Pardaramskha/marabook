@@ -23,6 +23,8 @@ namespace Marabook.App
     {
         private readonly Project _project;
         private readonly List<CheckBox> _sheetBoxes = new List<CheckBox>();
+        private readonly List<string> _exceptTags = new List<string>();
+        private ComboBox _exceptTag;
         private readonly Dictionary<string, CheckBox> _categoryBoxes = new Dictionary<string, CheckBox>();
         private readonly TextBlock _countLabel;
         private readonly TextBox _title, _subtitle, _author;
@@ -197,6 +199,27 @@ namespace Marabook.App
             right.Children.Add(encarts);
             _emptySheets = new CheckBox { Content = "Garder les fiches vides (titre seul)", IsChecked = defaults.IncludeEmptySheets, Margin = new Thickness(0, 4, 0, 0) };
             right.Children.Add(_emptySheets);
+            // « Sauf ce tag » (20/11) : parmi les fiches cochées, celles qui portent ce tag restent dehors.
+            foreach (var item in Encyclopedia.SelectSheets(_project, EncyclopediaSelection.All(), new EncyclopediaOptions()))
+                foreach (var tag in item.Tags)
+                {
+                    var name = (tag ?? "").Trim();
+                    if (name.Length == 0) continue;
+                    var known = false;
+                    foreach (var have in _exceptTags) if (string.Equals(have, name, StringComparison.CurrentCultureIgnoreCase)) { known = true; break; }
+                    if (!known) _exceptTags.Add(name);
+                }
+            _exceptTags.Sort(StringComparer.CurrentCultureIgnoreCase);
+            _exceptTag = new ComboBox { HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 220, Margin = new Thickness(0, 6, 0, 0), Tag = "encyclopedia-except-tag" };
+            _exceptTag.Items.Add("Aucun tag écarté");
+            foreach (var tag in _exceptTags) _exceptTag.Items.Add("Sauf les fiches « " + tag + " »");
+            var except = 0;
+            for (var i = 0; i < _exceptTags.Count; i++) if (string.Equals(_exceptTags[i], defaults.ExceptTag ?? "", StringComparison.CurrentCultureIgnoreCase)) except = i + 1;
+            _exceptTag.SelectedIndex = except;
+            _exceptTag.IsEnabled = _exceptTags.Count > 0;
+            ToolTip.SetShowOnDisabled(_exceptTag, true);
+            ToolTip.SetTip(_exceptTag, _exceptTags.Count > 0 ? "Parmi les fiches cochées, celles qui portent ce tag ne partent pas" : "Aucune fiche ne porte de tag dans ce projet");
+            right.Children.Add(_exceptTag);
 
             right.Children.Add(Caption("Lexique", 12));
             // Le Dictionnaire (1/11, Rémi) : celui de CE projet, les mots sans définition d'office, les prénoms et noms de famille à écarter, tous les projets en option.
@@ -507,6 +530,7 @@ namespace Marabook.App
                 LexiconExcludeNames = dialog._lexiconNoNames.IsChecked == true,
                 LexiconAllProjects = dialog._lexiconGlobal.IsChecked == true,
                 IncludeEmptySheets = dialog._emptySheets.IsChecked == true,
+                ExceptTag = dialog._exceptTag.SelectedIndex > 0 && dialog._exceptTag.SelectedIndex <= dialog._exceptTags.Count ? dialog._exceptTags[dialog._exceptTag.SelectedIndex - 1] : "",
                 CoverImageId = dialog._coverImageId,
                 OpenAfter = dialog._open.IsChecked == true
             };

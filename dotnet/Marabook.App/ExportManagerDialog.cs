@@ -22,6 +22,8 @@ namespace Marabook.App
         public ExportPreset Preset;
         public List<string> ItemIds = new List<string>();
         public ExportMeta Meta = new ExportMeta();
+        /// <summary>Le filtre de l'ampleur (statut, tag) ; null = aucun.</summary>
+        public ExportFilter Filter;
         /// <summary>Reporter les informations dans ce livre (null = non).</summary>
         public BinderItem WriteBackBook;
         public bool OpenAfter = true;
@@ -42,7 +44,10 @@ namespace Marabook.App
 
         private readonly Project _project;
         private readonly Func<ExportRequest, bool> _preview;
+        private readonly Func<ExportRequest, List<Print.PdfPart>> _compose;
         private readonly bool _mindMaps;
+        /// <summary>L'infobulle de chaque réglage quand il est modifiable ; grisé, il dit pourquoi à la place (20/11).</summary>
+        private readonly Dictionary<Control, string> _tips = new Dictionary<Control, string>();
         private bool _accepted, _building;
 
         // ---- préréglage
@@ -69,11 +74,30 @@ namespace Marabook.App
         private readonly List<ScopeNode> _roots = new List<ScopeNode>();
         private readonly StackPanel _scopePanel;
         private readonly TextBlock _scopeCount;
+        private readonly ComboBox _filterStatus, _filterOnlyTag, _filterExceptTag;
+        private readonly List<string> _tags = new List<string>();
 
         // ---- options
         private readonly ComboBox _format, _pages;
         private readonly List<string> _formatIds = new List<string>();
-        private readonly CheckBox _titlePage, _headings, _numbers, _pageBreak, _recto;
+        private readonly CheckBox _titlePage, _headings, _numbers, _pageBreak;
+        // ---- structure
+        private readonly RadioButton _seqDefault, _seqRecto, _seqNoBlank;
+        private readonly CheckBox _splitTypes, _splitBooks, _splitFolders, _splitSubfolders, _splitOwnPage;
+        // ---- livre numérique
+        private readonly CheckBox _dropCaps, _smallCaps, _kindle;
+        // ---- aperçu
+        private readonly ExportPagePreview _pageView;
+        private readonly TextBlock _pageLabel, _previewNote;
+        private readonly Button _pagePrevious, _pageNext;
+        private readonly TabItem _previewTab;
+        private readonly List<KeyValuePair<Print.PdfPart, int>> _previewPages = new List<KeyValuePair<Print.PdfPart, int>>();
+        private int _previewIndex, _previewTicket;
+        private bool _previewStale = true;
+        private int _pageCount = -1; // le nombre de pages du dernier aperçu, tant qu'il vaut encore
+        // ---- caractères absents des polices : le relevé de chaque écrit, fait une fois
+        private AvaloniaFontEngine _fonts;
+        private readonly Dictionary<string, List<MissingGlyph>> _glyphs = new Dictionary<string, List<MissingGlyph>>();
         private readonly CheckBox _headersFooters, _plainMargins, _capFont, _spacing, _comments, _links, _outline, _check;
         private readonly TextBox _maxFont, _lineSpacing;
         // ---- impression
@@ -98,10 +122,11 @@ namespace Marabook.App
         private readonly TabControl _tabs;
         private ExportPlan _plan = new ExportPlan();
 
-        private ExportManagerDialog(Window owner, Project project, IEnumerable<string> initialIds, string presetId, Func<ExportRequest, bool> preview)
+        private ExportManagerDialog(Window owner, Project project, IEnumerable<string> initialIds, string presetId, Func<ExportRequest, bool> preview, Func<ExportRequest, List<Print.PdfPart>> compose)
         {
             _project = project;
             _preview = preview;
+            _compose = compose;
             _mindMaps = MindMapModules.Provider != null;
             Title = "Gestionnaire d'export";
             Owner = owner;
@@ -177,6 +202,32 @@ namespace Marabook.App
             _scopeCount = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0), Tag = "export-scope-count" };
             quick.Children.Add(_scopeCount);
             scopePage.Children.Add(quick);
+            // Le filtre (20/11) : parmi ce qui est coché, un statut, un tag, ou tout sauf un tag.
+            var filterGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("150,8,*"), RowDefinitions = new RowDefinitions("Auto,8,Auto,8,Auto") };
+            _filterStatus = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "export-filter-status" };
+            _filterStatus.Items.Add("Tous les statuts");
+            foreach (var key in TextStatus.Keys) _filterStatus.Items.Add("Seulement « " + TextStatus.Label(key) + " »");
+            _filterOnlyTag = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "export-filter-only-tag" };
+            _filterExceptTag = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "export-filter-except-tag" };
+            _tags.AddRange(ExportFilter.TagsOf(project));
+            _filterOnlyTag.Items.Add("Tous les tags");
+            _filterExceptTag.Items.Add("Aucun tag écarté");
+            foreach (var tag in _tags) { _filterOnlyTag.Items.Add("Seulement « " + tag + " »"); _filterExceptTag.Items.Add("Sauf « " + tag + " »"); }
+            _filterStatus.SelectedIndex = 0;
+            _filterOnlyTag.SelectedIndex = 0;
+            _filterExceptTag.SelectedIndex = 0;
+            GridRow(filterGrid, 0, "Statut des écrits", _filterStatus);
+            GridRow(filterGrid, 2, "Garder un tag", _filterOnlyTag);
+            GridRow(filterGrid, 4, "Écarter un tag", _filterExceptTag);
+            Tip(_filterStatus, "Ne laisse partir que les écrits de ce statut. Les fiches, plans et cartes mentales n'ont pas de statut : ils passent.");
+            Tip(_filterOnlyTag, "Ne laisse partir que ce qui porte ce tag — écrits, fiches, plans.");
+            Tip(_filterExceptTag, "Laisse tout partir, sauf ce qui porte ce tag.");
+            if (_tags.Count == 0)
+            {
+                Avail(_filterOnlyTag, false, "Aucun tag dans ce projet : posez-en sur un écrit ou une fiche pour filtrer par tag.");
+                Avail(_filterExceptTag, false, "Aucun tag dans ce projet : posez-en sur un écrit ou une fiche pour filtrer par tag.");
+            }
+            scopePage.Children.Add(AstrolabeUi.Section("Filtrer", "Parmi ce qui est coché. Comme l'ampleur, le filtre ne fait partie d'aucun préréglage.", filterGrid, "export-section-filter"));
             _scopePanel = new StackPanel { Tag = "export-scope" };
             scopePage.Children.Add(_scopePanel);
             _tabs.Items.Add(Tab("Ampleur", scopePage, "export-tab-scope"));
@@ -200,16 +251,6 @@ namespace Marabook.App
             GridRow(formatGrid, 2, "Format des pages", _pages);
             optionsPage.Children.Add(AstrolabeUi.Section("Format", "Ce que le fichier sera, et sur quelles pages le texte se pose.", formatGrid, "export-section-format"));
 
-            var structure = new StackPanel();
-            _titlePage = Check(structure, "Page de titre", "export-title-page", "Titre, sous-titre, auteur·ice et ligne d'édition, tirés de l'onglet « Livre ».");
-            _headings = Check(structure, "Titre de chaque écrit en tête de chapitre", "export-headings", "Dès que l'export compte deux écrits ; un écrit seul sort tel quel. Dans un EPUB, toujours.");
-            _numbers = Check(structure, "Numéroter les chapitres", "export-numbers", null);
-            _numbers.Margin = new Thickness(22, 2, 0, 2);
-            _pageBreak = Check(structure, "Chaque écrit commence sur une nouvelle page", "export-page-break", "Sinon, le séparateur de scène les sépare.");
-            _recto = Check(structure, "…et en belle page (recto)", "export-recto", "Une page blanche s'intercale quand il le faut, comme dans un livre.");
-            _recto.Margin = new Thickness(22, 2, 0, 2);
-            optionsPage.Children.Add(AstrolabeUi.Section("Structure", null, structure, "export-section-structure"));
-
             var look = new StackPanel();
             _headersFooters = Check(look, "En-têtes et pieds de page des gabarits", "export-decor", "Sinon, un simple folio centré en pied.");
             _plainMargins = Check(look, "Marges de côté égales, sans miroir", "export-plain-margins", "Le petit fond et le grand fond prennent leur moyenne : à relier soi-même, ou à agrafer.");
@@ -229,12 +270,45 @@ namespace Marabook.App
             _outline = Check(navigation, "Signets (le volet de navigation du lecteur PDF)", "export-outline", null);
             optionsPage.Children.Add(AstrolabeUi.Section("Navigation dans le PDF", null, navigation, "export-section-navigation"));
 
+            var ebook = new StackPanel();
+            _dropCaps = Check(ebook, "Lettrine en ouverture de chapitre", "export-drop-caps", "La première lettre de chaque chapitre du récit, sur trois lignes. Un chapitre qui s'ouvre sur un tiret de dialogue n'en prend pas.");
+            _smallCaps = Check(ebook, "Premiers mots du chapitre en petites capitales", "export-small-caps", "Les quatre premiers mots — moins si une ponctuation forte les arrête.");
+            _kindle = Check(ebook, "Profil Kindle", "export-kindle", "Ce qu'Amazon demande à un EPUB : la couverture déclarée sans page de couverture en double, et un corps de texte qui laisse au lecteur sa police, sa taille et son interligne.");
+            optionsPage.Children.Add(AstrolabeUi.Section("Livre numérique", "La couverture se choisit dans l'onglet « Livre ».", ebook, "export-section-ebook"));
+
             var control = new StackPanel();
             _check = Check(control, "Demander confirmation s'il reste des avertissements", "export-check", "Formats de page mêlés, livre incomplet, information manquante : la liste est dans « Vérifications ».");
             _openAfter = Check(control, "Montrer le fichier une fois exporté", "export-open-after", null);
             _openAfter.IsChecked = true;
             optionsPage.Children.Add(AstrolabeUi.Section("Avant et après", null, control, "export-section-control"));
             _tabs.Items.Add(Tab("Options", optionsPage, "export-tab-options"));
+
+            // ------------------------------------------------------------ structure (20/11)
+            var structurePage = Page();
+            structurePage.Children.Add(Hint("Ce qui ouvre l'export, ce qui coiffe chaque écrit, comment les pages s'enchaînent, et les titres posés à chaque changement de niveau."));
+            var structure = new StackPanel();
+            _titlePage = Check(structure, "Page de titre", "export-title-page", "Titre, sous-titre, auteur·ice et ligne d'édition, tirés de l'onglet « Livre ».");
+            _headings = Check(structure, "Titre de chaque écrit en tête de chapitre", "export-headings", "Dès que l'export compte deux écrits ; un écrit seul sort tel quel. Dans un EPUB, toujours.");
+            _numbers = Check(structure, "Numéroter les chapitres", "export-numbers", "« 1. », « 2. »… devant le titre de chaque écrit.");
+            _numbers.Margin = new Thickness(22, 2, 0, 2);
+            _pageBreak = Check(structure, "Chaque écrit commence sur une nouvelle page", "export-page-break", "Sinon, le séparateur de scène les sépare.");
+            structurePage.Children.Add(AstrolabeUi.Section("Écrits", null, structure, "export-section-structure"));
+
+            var sequence = new StackPanel();
+            _seqDefault = Radio(sequence, "Conserver l'enchaînement par défaut", "export-seq-default", "Rien n'est ajouté ni retiré : les pages se suivent comme les écrits les donnent.");
+            _seqRecto = Radio(sequence, "Démarrer chaque écrit sur une belle page (recto)", "export-recto", "Une page blanche s'intercale quand il le faut, comme dans un livre.");
+            _seqNoBlank = Radio(sequence, "Retirer les pleines pages blanches", "export-no-blank", "Les pages qui sortiraient toutes blanches tombent. Celles qui ne porteraient qu'un titre de partie et un folio rejoignent la page suivante : le titre reste, la page s'en va.");
+            structurePage.Children.Add(AstrolabeUi.Section("Enchaînement des pages", "L'un exclut l'autre : une belle page pose des pages blanches.", sequence, "export-section-sequence"));
+
+            var levels = new StackPanel();
+            _splitTypes = Check(levels, "Séparer par genre", "export-split-types", "« Écrits », « Fiches », « Plans », « Cartes mentales » : un titre devant chaque genre, dès que l'export en mêle plusieurs.");
+            _splitBooks = Check(levels, "Séparer par livre", "export-split-books", "Le titre de chaque livre devant ses écrits.");
+            _splitFolders = Check(levels, "Séparer par dossier", "export-split-folders", "Le titre de chaque dossier de premier rang — une partie — devant ses écrits.");
+            _splitSubfolders = Check(levels, "Séparer par sous-dossier", "export-split-subfolders", "Le titre de chaque dossier rangé dans un autre devant ses écrits.");
+            _splitOwnPage = Check(levels, "Ces titres prennent une page à eux", "export-split-own-page", "Sinon, ils coiffent le premier écrit qu'ils annoncent. Avec « Retirer les pleines pages blanches », ils le coiffent toujours.");
+            _splitOwnPage.Margin = new Thickness(0, 8, 0, 2);
+            structurePage.Children.Add(AstrolabeUi.Section("Rendu par niveau", "Un titre à chaque changement, chacun dans son style : « Export — titre de genre », « de livre », « de partie », « de sous-partie », que Word garde sous ces noms. Les fiches gardent leurs catégories.", levels, "export-section-levels"));
+            _tabs.Items.Add(Tab("Structure", structurePage, "export-tab-structure"));
 
             // ------------------------------------------------------------ impression
             var printPage = Page();
@@ -253,7 +327,7 @@ namespace Marabook.App
             _imposition = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "export-imposition" };
             _imposition.Items.Add("Pages — une page par feuille");
             _imposition.Items.Add("Cahier — livret à cheval (2 pages par face)");
-            ToolTip.SetTip(_imposition, "Le cahier s'imprime recto-verso puis se plie en deux. Fond perdu et traits de coupe n'y ont pas cours ; il ne vaut que pour un texte d'un seul format.");
+            Tip(_imposition, "Le cahier s'imprime recto-verso puis se plie en deux. Fond perdu et traits de coupe n'y ont pas cours ; il ne vaut que pour un texte d'un seul format.");
             GridRow(printGrid, 0, "Profil couleur", _profile);
             GridRow(printGrid, 2, "Imposition", _imposition);
             print.Children.Add(printGrid);
@@ -286,6 +360,40 @@ namespace Marabook.App
             bookPage.Children.Add(_writeBack);
             _tabs.Items.Add(Tab("Livre", bookPage, "export-tab-book"));
 
+            // ------------------------------------------------------------ aperçu (20/11)
+            var previewPage = new DockPanel { Margin = new Thickness(4, 10, 8, 4) };
+            var previewBar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+            DockPanel.SetDock(previewBar, Dock.Top);
+            _pagePrevious = Buttons.Text("◀", null, Buttons.Compact, Buttons.Look.Outline);
+            _pagePrevious.Tag = "export-page-previous";
+            _pagePrevious.Margin = new Thickness(0, 0, 6, 0);
+            _pagePrevious.Click += delegate { ShowPreviewPage(_previewIndex - 1); };
+            _pageNext = Buttons.Text("▶", null, Buttons.Compact, Buttons.Look.Outline);
+            _pageNext.Tag = "export-page-next";
+            _pageNext.Click += delegate { ShowPreviewPage(_previewIndex + 1); };
+            _pageLabel = new TextBlock { Foreground = Chrome.Ink, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0), Tag = "export-page-label" };
+            previewBar.Children.Add(_pagePrevious);
+            previewBar.Children.Add(_pageNext);
+            previewBar.Children.Add(_pageLabel);
+            _previewNote = Hint("");
+            _previewNote.Tag = "export-preview-note";
+            DockPanel.SetDock(_previewNote, Dock.Top);
+            _pageView = new ExportPagePreview { Tag = "export-page-view", MinHeight = 240 };
+            previewPage.Children.Add(previewBar);
+            previewPage.Children.Add(_previewNote);
+            previewPage.Children.Add(_pageView);
+            _previewTab = new TabItem { Header = "Aperçu", Tag = "export-tab-preview", Content = previewPage };
+            _tabs.Items.Add(_previewTab);
+            _tabs.SelectionChanged += delegate(object sender, SelectionChangedEventArgs e)
+            {
+                if (ReferenceEquals(e.Source, _tabs) && ReferenceEquals(_tabs.SelectedItem, _previewTab)) QueuePreview();
+            };
+            _pageView.PointerWheelChanged += delegate(object sender, PointerWheelEventArgs e)
+            {
+                ShowPreviewPage(_previewIndex + (e.Delta.Y < 0 ? 1 : -1));
+                e.Handled = true;
+            };
+
             // ------------------------------------------------------------ vérifications
             var warningsPage = Page();
             _warnings = new StackPanel { Tag = "export-warnings" };
@@ -302,8 +410,20 @@ namespace Marabook.App
             _pages.SelectionChanged += selection;
             _profile.SelectionChanged += selection;
             _imposition.SelectionChanged += selection;
-            foreach (var box in new[] { _titlePage, _headings, _numbers, _pageBreak, _recto, _headersFooters, _plainMargins, _capFont, _spacing, _comments, _links, _outline, _check, _bookBleed, _marks, _guides, _coverInclude })
+            foreach (var box in new[] { _titlePage, _headings, _numbers, _pageBreak, _headersFooters, _plainMargins, _capFont, _spacing, _comments, _links, _outline, _check, _bookBleed, _marks, _guides, _coverInclude,
+                _splitTypes, _splitBooks, _splitFolders, _splitSubfolders, _splitOwnPage, _dropCaps, _smallCaps, _kindle })
                 box.IsCheckedChanged += delegate { OptionsChanged(); };
+            // L'exclusion des trois choix est tenue ici : le groupe d'Avalonia ne joue que pour des boutons à l'écran.
+            var sequence3 = new[] { _seqDefault, _seqRecto, _seqNoBlank };
+            foreach (var radio in sequence3)
+                radio.IsCheckedChanged += delegate(object sender, Avalonia.Interactivity.RoutedEventArgs e)
+                {
+                    if (((RadioButton)sender).IsChecked != true) return;
+                    foreach (var other in sequence3) if (!ReferenceEquals(other, sender) && other.IsChecked == true) other.IsChecked = false;
+                    OptionsChanged();
+                };
+            foreach (var combo in new[] { _filterStatus, _filterOnlyTag, _filterExceptTag })
+                combo.SelectionChanged += delegate { if (_building) return; Refresh(); };
             foreach (var box in new[] { _maxFont, _lineSpacing, _bleed })
                 box.TextChanged += delegate { OptionsChanged(); };
             foreach (var box in new[] { _title, _subtitle, _author, _publisher, _collection, _isbn, _year, _language })
@@ -335,12 +455,47 @@ namespace Marabook.App
             return new TextBlock { Text = text, Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10) };
         }
 
-        private static CheckBox Check(Panel panel, string label, string tag, string tip)
+        /// <summary>Une case, large comme son libellé seulement : son infobulle
+        /// ne paraît que sur elle, pas sur le vide à sa droite (20/11).</summary>
+        private CheckBox Check(Panel panel, string label, string tag, string tip)
         {
-            var box = new CheckBox { Content = label, Margin = new Thickness(0, 2, 0, 2), Tag = tag };
-            if (tip != null) ToolTip.SetTip(box, tip);
+            var box = new CheckBox { Content = label, Margin = new Thickness(0, 2, 0, 2), Tag = tag, HorizontalAlignment = HorizontalAlignment.Left };
+            Tip(box, tip);
             panel.Children.Add(box);
             return box;
+        }
+
+        private RadioButton Radio(Panel panel, string label, string tag, string tip)
+        {
+            var radio = new RadioButton { Content = label, Margin = new Thickness(0, 2, 0, 2), Tag = tag, GroupName = "export-sequence", HorizontalAlignment = HorizontalAlignment.Left };
+            Tip(radio, tip);
+            panel.Children.Add(radio);
+            return radio;
+        }
+
+        /// <summary>L'infobulle d'un réglage quand il est modifiable.</summary>
+        private void Tip(Control control, string tip)
+        {
+            _tips[control] = tip;
+            ToolTip.SetTip(control, tip);
+            ToolTip.SetShowOnDisabled(control, true);
+        }
+
+        /// <summary>Active ou grise un réglage. Grisé, son infobulle dit
+        /// POURQUOI (20/11, Rémi) ; actif, elle redit à quoi il sert.</summary>
+        private void Avail(Control control, bool enabled, string reason)
+        {
+            control.IsEnabled = enabled;
+            string tip;
+            _tips.TryGetValue(control, out tip);
+            ToolTip.SetTip(control, enabled || string.IsNullOrEmpty(reason) ? tip : reason);
+            ToolTip.SetShowOnDisabled(control, true);
+        }
+
+        internal string TipForProbe(string tag)
+        {
+            var control = ControlForProbe<Control>(tag);
+            return control == null ? null : ToolTip.GetTip(control) as string;
         }
 
         private static TextBox Number(string text, string tag)
@@ -491,7 +646,17 @@ namespace Marabook.App
             _headings.IsChecked = _preset.ChapterHeadings;
             _numbers.IsChecked = _preset.NumberChapters;
             _pageBreak.IsChecked = _preset.PageBreakPerText;
-            _recto.IsChecked = _preset.RectoStarts;
+            _seqRecto.IsChecked = _preset.RectoStarts;
+            _seqNoBlank.IsChecked = !_preset.RectoStarts && _preset.DropBlankPages;
+            _seqDefault.IsChecked = !_preset.RectoStarts && !_preset.DropBlankPages;
+            _splitTypes.IsChecked = _preset.SplitTypes;
+            _splitBooks.IsChecked = _preset.SplitBooks;
+            _splitFolders.IsChecked = _preset.SplitFolders;
+            _splitSubfolders.IsChecked = _preset.SplitSubfolders;
+            _splitOwnPage.IsChecked = _preset.SplitOwnPage;
+            _dropCaps.IsChecked = _preset.DropCaps;
+            _smallCaps.IsChecked = _preset.OpeningSmallCaps;
+            _kindle.IsChecked = _preset.Kindle;
             _headersFooters.IsChecked = _preset.HeadersFooters;
             _plainMargins.IsChecked = _preset.PlainMargins;
             _capFont.IsChecked = _preset.MaxFontPt > 0;
@@ -529,7 +694,16 @@ namespace Marabook.App
             p.ChapterHeadings = _headings.IsChecked == true;
             p.NumberChapters = _numbers.IsChecked == true;
             p.PageBreakPerText = _pageBreak.IsChecked == true;
-            p.RectoStarts = _recto.IsChecked == true;
+            p.RectoStarts = _seqRecto.IsChecked == true;
+            p.DropBlankPages = _seqNoBlank.IsChecked == true && !p.RectoStarts;
+            p.SplitTypes = _splitTypes.IsChecked == true;
+            p.SplitBooks = _splitBooks.IsChecked == true;
+            p.SplitFolders = _splitFolders.IsChecked == true;
+            p.SplitSubfolders = _splitSubfolders.IsChecked == true;
+            p.SplitOwnPage = _splitOwnPage.IsChecked == true;
+            p.DropCaps = _dropCaps.IsChecked == true;
+            p.OpeningSmallCaps = _smallCaps.IsChecked == true;
+            p.Kindle = _kindle.IsChecked == true;
             p.HeadersFooters = _headersFooters.IsChecked == true;
             p.PlainMargins = _plainMargins.IsChecked == true;
             p.MaxFontPt = _capFont.IsChecked == true ? Math.Max(6, Math.Min(72, Parse(_maxFont.Text, 12))) : 0;
@@ -562,28 +736,45 @@ namespace Marabook.App
             var epub = format == ExportFormats.Epub;
             var paged = ExportFormats.HasPages(format);
             var styled = format == ExportFormats.Docx || pdf || format == ExportFormats.Odt || format == ExportFormats.Rtf;
-            _pages.IsEnabled = paged;
-            _titlePage.IsEnabled = !epub;
-            _numbers.IsEnabled = _preset.ChapterHeadings && !epub;
-            _pageBreak.IsEnabled = !epub;
-            _recto.IsEnabled = pdf && _preset.PageBreakPerText;
-            _headersFooters.IsEnabled = pdf;
-            _plainMargins.IsEnabled = paged && _preset.Pages != ExportPages.A4;
-            _capFont.IsEnabled = styled;
-            _maxFont.IsEnabled = styled && _preset.MaxFontPt > 0;
-            _spacing.IsEnabled = styled;
-            _lineSpacing.IsEnabled = styled && _preset.LineSpacing > 0;
-            _comments.IsEnabled = format == ExportFormats.Docx;
-            _links.IsEnabled = pdf;
-            _outline.IsEnabled = pdf;
-            _printBody.IsEnabled = pdf;
+            // Chaque réglage grisé dit pourquoi dans son infobulle (20/11) : seule une incompatibilité
+            // de format grise — ou un réglage dont dépend celui-ci, qu'il suffit de cocher.
+            var name = ExportFormats.Short(format);
+            var pdfOnly = "Ne vaut que pour un PDF : le format choisi (" + name + ") ne le porte pas.";
+            var epubOnly = "Ne vaut que pour un EPUB : le format choisi (" + name + ") ne le porte pas.";
+            var noPages = epub ? "Un EPUB n'a pas de pages : le texte recoule sur l'écran du lecteur." : "Le format " + name + " n'a pas de pages.";
+            Avail(_pages, paged, "Le format des pages ne vaut que pour Word et PDF : " + (epub ? "un EPUB recoule sur l'écran du lecteur." : "le format " + name + " n'a pas de pages."));
+            Avail(_titlePage, true, null);
+            Avail(_numbers, _preset.ChapterHeadings, "Cochez d'abord « Titre de chaque écrit en tête de chapitre » : c'est ce titre qui porte le numéro.");
+            Avail(_pageBreak, !epub, "Dans un EPUB, chaque écrit est un chapitre : il ouvre toujours un nouvel écran.");
+            var breakable = pdf || format == ExportFormats.Docx || format == ExportFormats.Odt || format == ExportFormats.Rtf;
+            Avail(_seqRecto, pdf && _preset.PageBreakPerText, !pdf ? "Marabook ne pose les belles pages que dans un PDF : le format choisi (" + name + ") n'a pas de recto ni de verso." : "Cochez d'abord « Chaque écrit commence sur une nouvelle page ».");
+            Avail(_seqNoBlank, breakable, noPages);
+            Avail(_seqDefault, true, null);
+            Avail(_splitTypes, !epub, "Un EPUB ne porte que des écrits : il n'y a qu'un genre, rien à séparer.");
+            Avail(_splitOwnPage, _preset.SplitsLevels && (breakable || epub), !_preset.SplitsLevels ? "Cochez d'abord une séparation ci-dessus." : noPages);
+            Avail(_headersFooters, pdf, "Les en-têtes et pieds des gabarits ne se dessinent que dans un PDF. " + (format == ExportFormats.Docx ? "Dans Word, un folio centré les remplace." : "Le format " + name + " n'en a pas."));
+            Avail(_plainMargins, paged, "Les marges ne valent que pour Word et PDF : " + noPages.Substring(0, 1).ToLower(French) + noPages.Substring(1));
+            var noStyle = epub ? "Dans un EPUB, c'est le lecteur qui règle la taille et l'interligne sur sa liseuse." : "Le format " + name + " ne porte ni taille de police ni interligne.";
+            Avail(_capFont, styled, noStyle);
+            Avail(_maxFont, styled && _preset.MaxFontPt > 0, styled ? "Cochez d'abord « Aucune police au-dessus de »." : noStyle);
+            Avail(_spacing, styled, noStyle);
+            Avail(_lineSpacing, styled && _preset.LineSpacing > 0, styled ? "Cochez d'abord « Interligne unifié à »." : noStyle);
+            Avail(_comments, format == ExportFormats.Docx, "Les commentaires sont propres à Word : le format choisi (" + name + ") n'en a pas. Les annotations restent dans Marabook.");
+            Avail(_links, pdf, pdfOnly);
+            Avail(_outline, pdf, pdfOnly);
+            Avail(_dropCaps, epub, epubOnly);
+            Avail(_smallCaps, epub, epubOnly);
+            Avail(_kindle, epub, epubOnly);
             var booklet = _preset.Booklet;
-            _bookBleed.IsEnabled = !booklet;
-            _bleed.IsEnabled = !booklet && !(_preset.BookBleed && _plan.Book != null);
-            _marks.IsEnabled = !booklet;
-            _guides.IsEnabled = !booklet;
-            _printNote.Text = pdf ? "Ces réglages ne valent que pour un PDF remis à un imprimeur. Pour lire à l'écran, laissez-les tels quels." : "Ces réglages ne valent que pour un PDF : le format choisi (" + ExportFormats.Short(format) + ") n'en tient pas compte.";
-            _coverInclude.IsEnabled = epub;
+            var noBooklet = "L'imposition en cahier n'a ni fond perdu ni traits de coupe : revenez à « Pages » pour les régler.";
+            Avail(_bookBleed, pdf && !booklet, pdf ? noBooklet : pdfOnly);
+            Avail(_bleed, pdf && !booklet && !(_preset.BookBleed && _plan.Book != null), !pdf ? pdfOnly : booklet ? noBooklet : "« Fond perdu du livre » est coché : c'est celui du livre qui vaut. Décochez-le pour en saisir un autre.");
+            Avail(_marks, pdf && !booklet, pdf ? noBooklet : pdfOnly);
+            Avail(_guides, pdf && !booklet, pdf ? noBooklet : pdfOnly);
+            Avail(_profile, pdf, pdfOnly);
+            Avail(_imposition, pdf, pdfOnly);
+            _printNote.Text = pdf ? "Ces réglages ne valent que pour un PDF remis à un imprimeur. Pour lire à l'écran, laissez-les tels quels." : "Ces réglages ne valent que pour un PDF : le format choisi (" + name + ") n'en tient pas compte.";
+            Avail(_coverInclude, epub, "Seul un EPUB embarque une couverture : le format choisi (" + name + ") n'en porte pas.");
             _previewButton.IsVisible = pdf && _preview != null;
         }
 
@@ -806,7 +997,7 @@ namespace Marabook.App
             if (node.Box != null)
             {
                 node.Box.IsChecked = total > 0 && on == total ? true : on == 0 ? false : (bool?)null;
-                node.Box.IsEnabled = total > 0;
+                Avail(node.Box, total > 0, "Rien ici ne s'exporte : ce regroupement ne contient ni écrit, ni fiche, ni plan.");
             }
             foreach (var child in node.Nodes) SyncNode(child);
         }
@@ -926,20 +1117,22 @@ namespace Marabook.App
         private void Refresh()
         {
             if (_building || _preset == null) return;
-            _plan = ExportPlan.Build(_project, _checked, _preset, null);
+            var filter = ReadFilter();
+            _plan = ExportPlan.Build(_project, _checked, _preset, null, filter);
             SyncMeta();
-            _plan = ExportPlan.Build(_project, _checked, _preset, ReadMeta());
+            _plan = ExportPlan.Build(_project, _checked, _preset, ReadMeta(), filter);
+            RemarkGlyphs();
             SyncAvailability();
 
-            var modified = _base != null && _preset.Signature() != _base.Signature();
-            _footerPreset.Text = (_base == null ? "" : _base.Name) + (modified ? " — modifié" : "");
-            var warn = _plan.WarnCount;
-            _footerPlan.Text = _plan.Summary() + (_plan.IsEmpty ? "" : " → " + ExportFormats.Short(_preset.Format))
-                + (warn > 0 ? "  ·  " + warn + (warn > 1 ? " avertissements" : " avertissement") : "");
-            _footerPlan.Foreground = warn > 0 ? Chrome.Warn : Chrome.SoftText;
+            // L'aperçu ne vaut plus : il se refait s'il est à l'écran, sinon à sa prochaine ouverture.
+            _previewStale = true;
+            _pageCount = -1;
+            if (ReferenceEquals(_tabs.SelectedItem, _previewTab)) QueuePreview();
+
+            PaintFooter();
             _scopeCount.Text = _plan.Summary();
             _warningsTab.Header = _plan.Warnings.Count > 0 ? "Vérifications (" + _plan.Warnings.Count + ")" : "Vérifications";
-            _ok.IsEnabled = !_plan.IsEmpty;
+            Avail(_ok, !_plan.IsEmpty, _plan.Filtered.Count > 0 ? "Le filtre de l'ampleur écarte tout ce qui est coché." : _plan.Skipped.Count + _plan.Dynamic.Count > 0 ? "Rien de ce qui est coché n'entre dans le format " + ExportFormats.Short(_preset.Format) + "." : "Rien à exporter : cochez au moins un élément dans l'onglet « Ampleur ».");
 
             _warnings.Children.Clear();
             if (_plan.Warnings.Count == 0)
@@ -966,10 +1159,117 @@ namespace Marabook.App
             }
         }
 
+        private void PaintFooter()
+        {
+            var modified = _base != null && _preset.Signature() != _base.Signature();
+            _footerPreset.Text = (_base == null ? "" : _base.Name) + (modified ? " — modifié" : "");
+            var warn = _plan.WarnCount;
+            _footerPlan.Text = _plan.Summary() + (_plan.IsEmpty ? "" : " → " + ExportFormats.Short(_preset.Format))
+                + (_pageCount > 0 ? "  ·  " + _pageCount + (_pageCount > 1 ? " pages" : " page") : "")
+                + (warn > 0 ? "  ·  " + warn + (warn > 1 ? " avertissements" : " avertissement") : "");
+            _footerPlan.Foreground = warn > 0 ? Chrome.Warn : Chrome.SoftText;
+        }
+
+        private ExportFilter ReadFilter()
+        {
+            var filter = new ExportFilter();
+            var status = _filterStatus.SelectedIndex;
+            if (status > 0 && status <= TextStatus.Keys.Length) filter.OnlyStatus = TextStatus.Keys[status - 1];
+            var only = _filterOnlyTag.SelectedIndex;
+            if (only > 0 && only <= _tags.Count) filter.OnlyTag = _tags[only - 1];
+            var except = _filterExceptTag.SelectedIndex;
+            if (except > 0 && except <= _tags.Count) filter.ExceptTag = _tags[except - 1];
+            return filter.IsEmpty ? null : filter;
+        }
+
+        /// <summary>L'alerte de caractère absent (20/11) : avant un PDF, les
+        /// caractères que leur police ne sait pas dessiner rejoignent les
+        /// vérifications. Chaque écrit n'est relevé qu'une fois.</summary>
+        private void RemarkGlyphs()
+        {
+            if (_preset.Format != ExportFormats.Pdf || _plan.Texts.Count == 0) return;
+            try
+            {
+                if (_fonts == null) _fonts = new AvaloniaFontEngine();
+                var lists = new List<List<MissingGlyph>>();
+                foreach (var text in _plan.Texts)
+                {
+                    List<MissingGlyph> missing;
+                    if (!_glyphs.TryGetValue(text.Id, out missing))
+                        _glyphs[text.Id] = missing = ExportGlyphs.Missing(text, _project.Styles.EffectiveFor(text), _fonts);
+                    lists.Add(missing);
+                }
+                _plan.Warnings.AddRange(ExportGlyphs.Warnings(lists));
+            }
+            catch { }
+        }
+
+        // ================================================================ aperçu paginé
+
+        /// <summary>Demande l'aperçu : il se calcule une fois la fenêtre
+        /// redessinée, et seule la dernière demande compte.</summary>
+        private void QueuePreview()
+        {
+            if (!_previewStale) return;
+            var ticket = ++_previewTicket;
+            _previewNote.IsVisible = true;
+            _previewNote.Text = _preset.Format == ExportFormats.Pdf && !_plan.IsEmpty ? "Mise en pages…" : "";
+            Avalonia.Threading.Dispatcher.UIThread.Post(delegate { if (ticket == _previewTicket) ComputePreview(); }, Avalonia.Threading.DispatcherPriority.Background);
+        }
+
+        private void ComputePreview()
+        {
+            _previewStale = false;
+            _previewPages.Clear();
+            _pageCount = -1;
+            string note = null;
+            if (_preset.Format != ExportFormats.Pdf)
+                note = "L'aperçu paginé montre les pages d'un PDF. " + (_preset.Format == ExportFormats.Epub ? "Un EPUB n'en a pas : le texte recoule sur l'écran du lecteur." : _preset.Format == ExportFormats.Docx || _preset.Format == ExportFormats.Odt ? "Word et OpenOffice recomposent le texte à leur façon : leurs pages ne se devinent pas d'ici." : "Le format " + ExportFormats.Short(_preset.Format) + " n'a pas de pages.");
+            else if (_plan.IsEmpty) note = "Rien à montrer : cochez au moins un élément dans l'onglet « Ampleur ».";
+            else if (_compose == null) note = "Aperçu indisponible.";
+            else
+            {
+                List<Print.PdfPart> parts = null;
+                try { parts = _compose(BuildRequest()); }
+                catch { }
+                if (parts == null || parts.Count == 0) note = "La mise en pages a échoué : l'aperçu ne peut pas être dessiné.";
+                else
+                    foreach (var part in parts)
+                    {
+                        if (part.IsImage) _previewPages.Add(new KeyValuePair<Print.PdfPart, int>(part, 0));
+                        else for (var i = 0; i < part.Composition.Pages.Count; i++) _previewPages.Add(new KeyValuePair<Print.PdfPart, int>(part, i));
+                    }
+            }
+            if (_previewPages.Count > 0) _pageCount = _previewPages.Count;
+            _previewNote.Text = note ?? "";
+            _previewNote.IsVisible = note != null;
+            ShowPreviewPage(_previewIndex);
+            PaintFooter();
+        }
+
+        private void ShowPreviewPage(int index)
+        {
+            var count = _previewPages.Count;
+            _previewIndex = Math.Max(0, Math.Min(count - 1, index));
+            if (count == 0)
+            {
+                _pageView.Show(null, 0);
+                _pageLabel.Text = "";
+                Avail(_pagePrevious, false, "Aucune page à montrer.");
+                Avail(_pageNext, false, "Aucune page à montrer.");
+                return;
+            }
+            var page = _previewPages[_previewIndex];
+            _pageView.Show(page.Key, page.Value);
+            _pageLabel.Text = "Page " + (_previewIndex + 1) + " sur " + count + "  ·  " + ExportPagePreview.Describe(page.Key);
+            Avail(_pagePrevious, _previewIndex > 0, "C'est la première page.");
+            Avail(_pageNext, _previewIndex < count - 1, "C'est la dernière page.");
+        }
+
         private ExportRequest BuildRequest()
         {
             ReadOptions();
-            var request = new ExportRequest { Preset = _preset.Clone(), Meta = ReadMeta(), OpenAfter = _openAfter.IsChecked == true };
+            var request = new ExportRequest { Preset = _preset.Clone(), Meta = ReadMeta(), OpenAfter = _openAfter.IsChecked == true, Filter = ReadFilter() };
             request.Preset.Name = _base == null ? _preset.Name : _base.Name;
             request.ItemIds.AddRange(_checked);
             if (_writeBack.IsVisible && _writeBack.IsChecked == true) request.WriteBackBook = _plan.Book;
@@ -995,9 +1295,9 @@ namespace Marabook.App
 
         /// <summary>Le gestionnaire, avec cette ampleur déjà cochée et ce
         /// préréglage choisi (null = le dernier employé). Rend la demande, ou null.</summary>
-        public static async Task<ExportRequest> Ask(Window owner, Project project, IEnumerable<string> initialIds, string presetId, Func<ExportRequest, bool> preview)
+        public static async Task<ExportRequest> Ask(Window owner, Project project, IEnumerable<string> initialIds, string presetId, Func<ExportRequest, bool> preview, Func<ExportRequest, List<Print.PdfPart>> compose = null)
         {
-            var dialog = new ExportManagerDialog(owner, project, initialIds, presetId, preview);
+            var dialog = new ExportManagerDialog(owner, project, initialIds, presetId, preview, compose);
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return null;
             var request = dialog.BuildRequest();
@@ -1016,6 +1316,10 @@ namespace Marabook.App
         internal ExportMeta MetaForProbe { get { return ReadMeta(); } }
         internal bool WriteBackShownForProbe { get { return _writeBack.IsVisible; } }
         internal bool PreviewShownForProbe { get { return _previewButton.IsVisible; } }
+        internal int PreviewPagesForProbe { get { return _previewPages.Count; } }
+        internal string PreviewLabelForProbe { get { return _pageLabel.Text + " | " + _previewNote.Text; } }
+        internal void PreviewForProbe() { _previewStale = true; ComputePreview(); }
+        internal void ShowPageForProbe(int index) { ShowPreviewPage(index); }
         internal void ChooseForProbe(string presetId) { Choose(ExportPresets.Find(_presets, presetId)); }
         internal void SavePresetForProbe(string name) { ReadOptions(); SavePresetAs(name); }
         internal void RemovePresetForProbe(string presetId) { RemovePreset(ExportPresets.Find(_presets, presetId)); }

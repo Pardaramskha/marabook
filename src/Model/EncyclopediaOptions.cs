@@ -29,6 +29,7 @@ namespace Marabook.Model
         public bool LexiconExcludeNames;         // sans les prénoms ni les noms de famille (noms propres de ces sortes)
         public bool LexiconAllProjects;          // les mots du dictionnaire de tous les projets en plus
         public bool IncludeEmptySheets = true;  // une fiche sans champ ni texte : son titre seul
+        public string ExceptTag = "";           // « sauf ce tag » (20/11) : les fiches qui le portent restent dehors
         public string CoverImageId;             // null = pas de couverture
         /// <summary>Les fiches cochées au dernier export (1/11, Rémi : « ce qui
         /// est entré dans la fenêtre est gardé ») ; vide = toutes.</summary>
@@ -51,7 +52,7 @@ namespace Marabook.Model
                 Format, Title, Subtitle, Author, BodyFont, HeadingFont, BaseSize.ToString(System.Globalization.CultureInfo.InvariantCulture), Accent,
                 Dark ? "1" : "0", PortraitSide, ShowInfobox ? "1" : "0", ShowRelations ? "1" : "0", ShowPresence ? "1" : "0", ShowRadar ? "1" : "0",
                 ShowTags ? "1" : "0", ShowDates ? "1" : "0", IncludeLexicon ? "1" : "0", LexiconUndefined ? "1" : "0", LexiconExcludeNames ? "1" : "0", LexiconAllProjects ? "1" : "0",
-                IncludeEmptySheets ? "1" : "0", CoverImageId ?? "", OpenAfter ? "1" : "0", string.Join(",", (SheetIds ?? new List<string>()).ToArray())
+                IncludeEmptySheets ? "1" : "0", ExceptTag ?? "", CoverImageId ?? "", OpenAfter ? "1" : "0", string.Join(",", (SheetIds ?? new List<string>()).ToArray())
             });
         }
 

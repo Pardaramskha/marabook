@@ -916,6 +916,7 @@ namespace Marabook.Persistence
                 o["lexiconExcludeNames"] = e.LexiconExcludeNames; // 1/11
                 o["lexiconAllProjects"] = e.LexiconAllProjects;
                 o["includeEmptySheets"] = e.IncludeEmptySheets;
+                if (!string.IsNullOrEmpty(e.ExceptTag)) o["exceptTag"] = e.ExceptTag; // 20/11
                 if (!string.IsNullOrEmpty(e.CoverImageId)) o["coverImageId"] = e.CoverImageId;
                 o["openAfter"] = e.OpenAfter; // 1/11 : ce qui est entré dans la fenêtre est gardé (clés additives)
                 if (e.SheetIds != null && e.SheetIds.Count > 0) o["sheetIds"] = new List<object>(e.SheetIds.ToArray());
@@ -1544,6 +1545,7 @@ namespace Marabook.Persistence
                         LexiconExcludeNames = Json.AsBool(Json.Field(encyclopedia, "lexiconExcludeNames"), false),
                         LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), false),
                         IncludeEmptySheets = Json.AsBool(Json.Field(encyclopedia, "includeEmptySheets"), true),
+                        ExceptTag = Json.AsString(Json.Field(encyclopedia, "exceptTag")) ?? "",
                         CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId")),
                         OpenAfter = Json.AsBool(Json.Field(encyclopedia, "openAfter"), true)
                     };

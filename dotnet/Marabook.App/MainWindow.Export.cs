@@ -99,7 +99,7 @@ namespace Marabook.App
         {
             if (_project == null) return;
             CommitActive();
-            var request = await ExportManagerDialog.Ask(this, _project, ids, presetId, PreviewExport);
+            var request = await ExportManagerDialog.Ask(this, _project, ids, presetId, PreviewExport, ComposeForPreview);
             if (request == null) return;
             if (request.WriteBackBook != null && request.Meta.ApplyTo(request.WriteBackBook, _project))
             {
@@ -178,10 +178,10 @@ namespace Marabook.App
         private async Task<bool> RunExport(ExportRequest request)
         {
             if (_project == null || request == null || request.Preset == null) return false;
-            var plan = ExportPlan.Build(_project, request.ItemIds, request.Preset, request.Meta);
+            var plan = ExportPlan.Build(_project, request.ItemIds, request.Preset, request.Meta, request.Filter);
             if (plan.IsEmpty)
             {
-                await MessageDialog.Show(this, "Rien à exporter : " + (plan.Skipped.Count > 0 ? "le format " + ExportFormats.Short(request.Preset.Format) + " ne porte pas ce qui est sélectionné." : "aucun élément n'est sélectionné."),
+                await MessageDialog.Show(this, "Rien à exporter : " + (plan.Filtered.Count > 0 ? "le filtre de l'ampleur écarte tout ce qui est sélectionné." : plan.Skipped.Count > 0 ? "le format " + ExportFormats.Short(request.Preset.Format) + " ne porte pas ce qui est sélectionné." : "aucun élément n'est sélectionné."),
                     AppName, MessageButtons.OK, MessageIcon.Information);
                 return false;
             }
@@ -192,6 +192,9 @@ namespace Marabook.App
             try
             {
                 var notes = WriteExport(request, plan, path);
+                // Le contrôle de l'EPUB écrit (20/11) : ce que les librairies en ligne refuseraient.
+                var problems = format == ExportFormats.Epub ? EpubCheck.Verify(path) : new List<string>();
+                if (format == ExportFormats.Epub && problems.Count == 0) notes.Add("Structure de l'EPUB vérifiée.");
                 if (format == ExportFormats.Epub) UnlockAchievement(Achievements.GenZ); // « Gen Zer »
                 // « Complétionniste », « Minimaliste » (12/09) : le PDF d'un livre entier, à son gabarit.
                 if (format == ExportFormats.Pdf && plan.Book != null && request.Preset.Pages == ExportPages.Book && IsWholeBook(plan))
@@ -201,6 +204,14 @@ namespace Marabook.App
                 }
                 ShowToast(null, "Export terminé", System.IO.Path.GetFileName(path),
                     plan.Summary() + " → " + ExportFormats.Short(format) + (notes.Count > 0 ? " — " + string.Join(" ", notes.ToArray()) : "") + " — " + System.IO.Path.GetDirectoryName(path), 6);
+                if (problems.Count > 0)
+                {
+                    var lines = new List<string>();
+                    for (var i = 0; i < problems.Count && i < 8; i++) lines.Add("— " + problems[i]);
+                    if (problems.Count > 8) lines.Add("… et " + (problems.Count - 8) + " de plus.");
+                    await MessageDialog.Show(this, "L'EPUB est écrit, mais son contrôle relève " + (problems.Count > 1 ? problems.Count + " défauts" : "un défaut") + " qu'une librairie en ligne pourrait refuser :\n\n" + string.Join("\n", lines.ToArray()),
+                        AppName, MessageButtons.OK, MessageIcon.Warning);
+                }
                 if (request.OpenAfter)
                 {
                     try { AppPlatform.RevealInFolder(path); }
@@ -229,7 +240,7 @@ namespace Marabook.App
             try
             {
                 if (request == null || request.Preset == null || request.Preset.Format != ExportFormats.Pdf) return false;
-                var plan = ExportPlan.Build(_project, request.ItemIds, request.Preset, request.Meta);
+                var plan = ExportPlan.Build(_project, request.ItemIds, request.Preset, request.Meta, request.Filter);
                 if (plan.IsEmpty) return false;
                 var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "marabook-apercu-" + SafeFileName(plan.DefaultName(_project, request.Meta)) + ".pdf");
                 WriteExport(request, plan, path);
@@ -239,6 +250,27 @@ namespace Marabook.App
             catch
             {
                 return false;
+            }
+        }
+
+        /// <summary>L'onglet « Aperçu » du gestionnaire (20/11) : les pages
+        /// du PDF, composées comme pour l'export, sans rien écrire. Null si
+        /// rien ne peut être mis en pages.</summary>
+        private List<Print.PdfPart> ComposeForPreview(ExportRequest request)
+        {
+            try
+            {
+                if (_project == null || request == null || request.Preset == null || request.Preset.Format != ExportFormats.Pdf) return null;
+                var plan = ExportPlan.Build(_project, request.ItemIds, request.Preset, request.Meta, request.Filter);
+                if (plan.IsEmpty) return null;
+                foreach (var text in plan.Texts)
+                    if (ExtraPages.IsDynamic(text)) RegenerateDynamic(text);
+                var segments = ExportFlow.Build(_project, plan, request.Preset, request.Meta ?? new ExportMeta());
+                return ComposeParts(request, segments, new List<string>());
+            }
+            catch
+            {
+                return null;
             }
         }
 
@@ -267,19 +299,8 @@ namespace Marabook.App
         private void WriteEpubExport(ExportPlan plan, ExportPreset preset, ExportMeta meta, string path)
         {
             if (plan.Texts.Count == 0) throw new InvalidOperationException("un EPUB ne porte que des écrits, et aucun n'est sélectionné.");
-            var epub = new EpubPlan { Root = plan.Book ?? plan.Texts[0] };
-            epub.Chapters.AddRange(plan.Texts);
-            epub.Skipped.AddRange(plan.Dynamic);
-            var cover = preset.Cover && meta.CoverImageId != null && _project.FindImage(meta.CoverImageId) != null ? meta.CoverImageId : null;
-            epub.CoverImageId = cover;
-            epub.HasCover = cover != null;
-            var options = new EpubOptions
-            {
-                Title = (meta.Title ?? "").Trim(), Subtitle = (meta.Subtitle ?? "").Trim(), Author = (meta.Author ?? "").Trim(),
-                Publisher = (meta.Publisher ?? "").Trim(), Identifier = (meta.Isbn ?? "").Trim(), Year = (meta.Year ?? "").Trim(),
-                Language = string.IsNullOrEmpty((meta.Language ?? "").Trim()) ? "fr" : meta.Language.Trim(),
-                IncludeCover = cover != null, ChapterHeadings = preset.ChapterHeadings
-            };
+            EpubOptions options;
+            var epub = ExportFlow.EpubFor(_project, plan, preset, meta, out options);
             Epub.Write(path, _project, epub, options);
         }
 
@@ -354,6 +375,25 @@ namespace Marabook.App
         {
             var preset = request.Preset;
             var meta = request.Meta ?? new ExportMeta();
+            var parts = ComposeParts(request, segments, notes);
+            if (parts.Count == 0) throw new InvalidOperationException("rien n'a pu être mis en pages.");
+
+            var bleed = preset.BleedMm;
+            if (preset.BookBleed && plan.Book != null && plan.Book.Book != null) bleed = plan.Book.Book.BleedMm;
+            var title = (meta.Title ?? "").Trim();
+            Print.PdfWriter.Write(path, parts, new Print.PdfExportOptions
+            {
+                BleedMm = Math.Max(0, Math.Min(20, bleed)), CropMarks = preset.CropMarks, BleedGuides = preset.BleedGuides, Cmyk = preset.Cmyk, Booklet = preset.Booklet,
+                Title = title.Length > 0 ? title : plan.DefaultName(_project, meta), Author = (meta.Author ?? "").Trim()
+            });
+        }
+
+        /// <summary>Les parties du PDF, composées : chaque flux sur sa mise
+        /// en page, chaque plan ou carte mentale en page-image, avec leurs
+        /// liens et leurs signets. Sert l'export comme l'aperçu.</summary>
+        private List<Print.PdfPart> ComposeParts(ExportRequest request, List<ExportSegment> segments, List<string> notes)
+        {
+            var preset = request.Preset;
             var fonts = new AvaloniaFontEngine();
             var parts = new List<Print.PdfPart>();
             var folio = request.FolioOffset;
@@ -380,32 +420,24 @@ namespace Marabook.App
                     part.Marks.Add(new Print.PdfMark { Paragraph = mark.Paragraph, Name = preset.Links ? mark.Name : null, Title = preset.Outline ? mark.Title : null, Level = mark.Level });
                 parts.Add(part);
             }
-            if (parts.Count == 0) throw new InvalidOperationException("rien n'a pu être mis en pages.");
             if (failed.Count > 0) notes.Add("Non dessiné : " + string.Join(", ", failed.ToArray()) + ".");
             // Un seul signet n'aide personne : le volet reste fermé.
             var marks = 0;
             foreach (var part in parts) foreach (var mark in part.Marks) if (mark.Title != null) marks++;
             if (marks < 2) foreach (var part in parts) foreach (var mark in part.Marks) mark.Title = null;
-
-            var bleed = preset.BleedMm;
-            if (preset.BookBleed && plan.Book != null && plan.Book.Book != null) bleed = plan.Book.Book.BleedMm;
-            var title = (meta.Title ?? "").Trim();
-            Print.PdfWriter.Write(path, parts, new Print.PdfExportOptions
-            {
-                BleedMm = Math.Max(0, Math.Min(20, bleed)), CropMarks = preset.CropMarks, BleedGuides = preset.BleedGuides, Cmyk = preset.Cmyk, Booklet = preset.Booklet,
-                Title = title.Length > 0 ? title : plan.DefaultName(_project, meta), Author = (meta.Author ?? "").Trim()
-            });
+            return parts;
         }
 
         // ============================================================= sonde
 
         /// <summary>Sonde : un export complet, sans dialogue — ce préréglage
         /// (de la maison ou réglé), ces éléments, dans ce fichier.</summary>
-        internal ExportPlan ExportForProbe(ExportPreset preset, IEnumerable<string> ids, string path, ExportMeta meta = null)
+        internal List<Print.PdfPart> ComposeForProbe(ExportRequest request) { return ComposeForPreview(request); }
+        internal ExportPlan ExportForProbe(ExportPreset preset, IEnumerable<string> ids, string path, ExportMeta meta = null, ExportFilter filter = null)
         {
-            var request = new ExportRequest { Preset = preset, Meta = meta ?? new ExportMeta() };
+            var request = new ExportRequest { Preset = preset, Meta = meta ?? new ExportMeta(), Filter = filter };
             request.ItemIds.AddRange(ids);
-            var plan = ExportPlan.Build(_project, request.ItemIds, preset, request.Meta);
+            var plan = ExportPlan.Build(_project, request.ItemIds, preset, request.Meta, filter);
             WriteExport(request, plan, path);
             return plan;
         }

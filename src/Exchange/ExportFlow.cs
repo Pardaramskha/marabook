@@ -71,6 +71,14 @@ namespace Marabook.Exchange
             }
             var headings = preset.ChapterHeadings && plan.Texts.Count > 1;
             var number = 0;
+            // Le rendu par niveau (20/11) : ce qui précède chaque écrit — genre, livre, dossier, sous-dossier.
+            var splitTypes = preset.SplitTypes && mixed;
+            int[] ranks;
+            var before = ExportLevels.Before(plan.Texts, preset, splitTypes && plan.Texts.Count > 0 ? ExportLevels.TitleTexts : null, out ranks);
+            var leveled = preset.SplitsLevels;
+            var ownPage = preset.SplitOwnPage;
+            var recto = preset.RectoStarts && preset.PageBreakPerText;
+            var seen = 0; // les écrits des segments d'avant
             for (var g = 0; g < groups.Count; g++)
             {
                 var texts = groups[g];
@@ -90,6 +98,7 @@ namespace Marabook.Exchange
                 };
                 var starts = new List<int>();
                 var compiled = Compiler.Build(project, plan.Book, texts, options, starts);
+                var head = options.TitlePage && starts.Count > 0 ? starts[0] : 0; // la page de titre : intouchable
                 // Les annotations des écrits suivent (Word en fait des commentaires).
                 foreach (var text in texts)
                     if (text.Document != null) compiled.Annotations.AddRange(text.Document.Annotations);
@@ -97,57 +106,101 @@ namespace Marabook.Exchange
                 if (!preset.HeadersFooters) segment.Setup.FooterPageNumbers = true; // sans gabarit : un folio centré
                 segment.Items.AddRange(texts);
 
-                // Les titres de chapitres : insérés de la fin vers le début, les rangs d'avant ne bougent pas.
+                // Les titres de niveau et de chapitre : insérés de la fin vers le début, les rangs d'avant ne bougent pas.
                 var titles = new string[texts.Count];
                 for (var i = 0; i < texts.Count; i++)
                 {
                     number++;
                     titles[i] = (preset.NumberChapters ? number + ". " : "") + texts[i].Title;
                 }
-                if (headings)
-                    for (var i = texts.Count - 1; i >= 0; i--)
+                for (var i = texts.Count - 1; i >= 0; i--)
+                {
+                    var levels = before[seen + i];
+                    if (!headings && levels.Count == 0) continue;
+                    var at = Math.Min(starts[i], compiled.Paragraphs.Count);
+                    // Un écrit VIDE n'a posé aucun paragraphe : son rang est celui de l'écrit suivant, dont il ne doit rien prendre.
+                    var empty = texts[i].Document == null || texts[i].Document.Paragraphs.Count == 0;
+                    // Un séparateur de scène ouvre l'écrit : les titres viennent après lui — sauf s'ils prennent
+                    // leur propre page, qui sépare mieux que lui : il tombe.
+                    if (!empty && at < compiled.Paragraphs.Count && compiled.Paragraphs[at].StyleId == StyleSheet.SeparatorId && !options.PageBreakPerText)
                     {
-                        var at = Math.Min(starts[i], compiled.Paragraphs.Count);
-                        // Un écrit VIDE n'a posé aucun paragraphe : son rang est celui de l'écrit suivant, dont il ne doit rien prendre.
-                        var empty = texts[i].Document == null || texts[i].Document.Paragraphs.Count == 0;
-                        // Un séparateur de scène ouvre l'écrit : le titre vient après lui.
-                        if (!empty && at < compiled.Paragraphs.Count && compiled.Paragraphs[at].StyleId == StyleSheet.SeparatorId && !options.PageBreakPerText) at++;
-                        var heading = new TextParagraph { StyleId = "title2" };
-                        heading.Runs.Add(new TextRun { Text = titles[i] });
-                        if (empty)
+                        if (levels.Count > 0 && ownPage)
                         {
-                            heading.PageBreakBefore = options.PageBreakPerText && (i > 0 || options.TitlePage);
-                            heading.StartOnRecto = heading.PageBreakBefore && options.RectoChapterStarts;
-                            if (options.Decor) heading.Decor = PageDecor.For(texts[i], project);
+                            compiled.Paragraphs.RemoveAt(at);
+                            for (var j = i + 1; j < texts.Count; j++) starts[j]--;
                         }
-                        else if (at < compiled.Paragraphs.Count)
+                        else at++;
+                    }
+                    var inserted = new List<TextParagraph>();
+                    foreach (var level in levels) inserted.Add(ExportLevels.Paragraph(level));
+                    TextParagraph heading = null;
+                    if (headings)
+                    {
+                        heading = new TextParagraph { StyleId = "title2" };
+                        heading.Runs.Add(new TextRun { Text = titles[i] });
+                        inserted.Add(heading);
+                    }
+                    var first = inserted[0];
+                    var next = !empty && at < compiled.Paragraphs.Count ? compiled.Paragraphs[at] : null;
+                    if (next == null)
+                    {
+                        first.PageBreakBefore = options.PageBreakPerText && (i > 0 || options.TitlePage);
+                        first.StartOnRecto = first.PageBreakBefore && options.RectoChapterStarts;
+                        if (options.Decor) foreach (var paragraph in inserted) paragraph.Decor = PageDecor.For(texts[i], project);
+                    }
+                    else
+                    {
+                        first.PageBreakBefore = next.PageBreakBefore;
+                        first.StartOnRecto = next.StartOnRecto;
+                        foreach (var paragraph in inserted) paragraph.Decor = next.Decor;
+                        if (next.PageBreakBefore || next.StartOnRecto)
                         {
-                            var next = compiled.Paragraphs[at];
-                            heading.PageBreakBefore = next.PageBreakBefore;
-                            heading.StartOnRecto = next.StartOnRecto;
-                            heading.Decor = next.Decor;
-                            if (next.PageBreakBefore || next.StartOnRecto)
+                            var shell = PivotEdit.CloneParagraphShell(next);
+                            shell.PageBreakBefore = false;
+                            shell.StartOnRecto = false;
+                            shell.Runs.AddRange(next.Runs);
+                            compiled.Paragraphs[at] = next = shell;
+                        }
+                    }
+                    // Des titres de niveau sur leur propre page : un saut avant eux, un saut après.
+                    if (levels.Count > 0 && ownPage)
+                    {
+                        if (at > 0) { first.PageBreakBefore = true; first.StartOnRecto = recto; } // en tête de flux, la page est déjà neuve
+                        var after = heading ?? next;
+                        if (after != null)
+                        {
+                            if (after == next)
                             {
                                 var shell = PivotEdit.CloneParagraphShell(next);
-                                shell.PageBreakBefore = false;
-                                shell.StartOnRecto = false;
                                 shell.Runs.AddRange(next.Runs);
-                                compiled.Paragraphs[at] = shell;
+                                compiled.Paragraphs[at] = after = shell;
                             }
+                            after.PageBreakBefore = true;
+                            after.StartOnRecto = recto;
                         }
-                        compiled.Paragraphs.Insert(at, heading);
-                        for (var j = i + 1; j < texts.Count; j++) starts[j]++;
-                        starts[i] = at;
                     }
+                    compiled.Paragraphs.InsertRange(at, inserted);
+                    for (var j = i + 1; j < texts.Count; j++) starts[j] += inserted.Count;
+                    starts[i] = at + levels.Count; // le repère de l'écrit : son titre, ou son premier paragraphe
+                }
                 // L'interligne du document, quand tous les écrits du segment le partagent.
                 var spacing = texts[0].Document == null ? 1 : texts[0].Document.LineSpacing;
                 foreach (var text in texts) if (text.Document == null || Math.Abs(text.Document.LineSpacing - spacing) > 0.001) spacing = 1;
                 compiled.LineSpacing = spacing;
 
+                var lastParagraph = Math.Max(0, compiled.Paragraphs.Count - 1);
                 for (var i = 0; i < texts.Count; i++)
-                    segment.Marks.Add(new ExportMark { Paragraph = Math.Max(0, Math.Min(starts[i], compiled.Paragraphs.Count - 1)), Name = texts[i].Id, Title = titles[i], Level = 0 });
-                segment.Styles = ExportTypography.Styles(project.Styles.EffectiveFor(scope), preset);
+                {
+                    var levels = before[seen + i];
+                    for (var k = 0; k < levels.Count; k++)
+                        segment.Marks.Add(new ExportMark { Paragraph = Math.Max(0, Math.Min(starts[i] - levels.Count + k, lastParagraph)), Title = levels[k].Title, Level = levels[k].Level });
+                    segment.Marks.Add(new ExportMark { Paragraph = Math.Max(0, Math.Min(starts[i], lastParagraph)), Name = texts[i].Id, Title = titles[i], Level = ranks[seen + i] });
+                }
+                seen += texts.Count;
+                var sheet = project.Styles.EffectiveFor(scope);
+                segment.Styles = ExportTypography.Styles(leveled ? ExportLevels.WithStyles(sheet) : sheet, preset);
                 segment.Document = ExportTypography.Document(StripLinks(compiled, targets, preset.Links ? segment.Links : null), preset);
+                if (preset.DropBlanks) ExportBlankPages.Apply(segment, g == 0 ? head : 0);
                 segments.Add(segment);
             }
 
@@ -155,21 +208,78 @@ namespace Marabook.Exchange
             if (plan.Sheets.Count > 0)
             {
                 var segment = Sheets(project, plan.Sheets, targets, preset, mixed);
-                if (segment != null) segments.Add(segment);
+                if (segment != null)
+                {
+                    if (preset.DropBlanks) ExportBlankPages.Apply(segment, 0);
+                    segments.Add(segment);
+                }
             }
 
             // ---- les plans et les cartes mentales : une image, une page à sa taille
-            foreach (var item in plan.Plans) segments.Add(Image(item));
-            foreach (var item in plan.MindMaps) segments.Add(Image(item));
+            Images(project, plan.Plans, ExportLevels.TitlePlans, preset, splitTypes, segments);
+            Images(project, plan.MindMaps, ExportLevels.TitleMindMaps, preset, splitTypes, segments);
             return segments;
         }
 
-        private static ExportSegment Image(BinderItem item)
+        /// <summary>L'EPUB d'un plan (20/11) : ses chapitres, ses titres de
+        /// niveau (livre, dossier, sous-dossier — un EPUB ne porte que des
+        /// écrits, donc jamais de titre de genre), sa couverture, et les
+        /// options tirées du préréglage et des informations du livre.</summary>
+        public static EpubPlan EpubFor(Project project, ExportPlan plan, ExportPreset preset, ExportMeta meta, out EpubOptions options)
         {
-            var segment = new ExportSegment { Kind = ExportSegment.KindImage };
-            segment.Items.Add(item);
-            segment.Marks.Add(new ExportMark { Paragraph = -1, Name = item.Id, Title = item.Title, Level = 0 });
-            return segment;
+            meta = meta ?? new ExportMeta();
+            var epub = new EpubPlan { Root = plan.Book ?? (plan.Texts.Count > 0 ? plan.Texts[0] : null) };
+            epub.Chapters.AddRange(plan.Texts);
+            epub.Skipped.AddRange(plan.Dynamic);
+            int[] ranks;
+            var before = ExportLevels.Before(plan.Texts, preset, null, out ranks);
+            for (var i = 0; i < before.Count; i++)
+            {
+                foreach (var level in before[i])
+                    epub.Parts.Add(new EpubPart { BeforeChapter = i, Title = level.Title, Level = level.Level, OwnPage = preset.SplitOwnPage });
+                epub.ChapterLevels.Add(ranks[i]);
+            }
+            var cover = preset.Cover && meta.CoverImageId != null && project.FindImage(meta.CoverImageId) != null ? meta.CoverImageId : null;
+            epub.CoverImageId = cover;
+            epub.HasCover = cover != null;
+            options = new EpubOptions
+            {
+                Title = (meta.Title ?? "").Trim(), Subtitle = (meta.Subtitle ?? "").Trim(), Author = (meta.Author ?? "").Trim(),
+                Publisher = (meta.Publisher ?? "").Trim(), Identifier = (meta.Isbn ?? "").Trim(), Year = (meta.Year ?? "").Trim(),
+                Language = string.IsNullOrEmpty((meta.Language ?? "").Trim()) ? "fr" : meta.Language.Trim(),
+                IncludeCover = cover != null, ChapterHeadings = preset.ChapterHeadings, NumberChapters = preset.NumberChapters && preset.ChapterHeadings,
+                TitlePage = preset.TitlePage, Colophon = meta.Colophon(),
+                DropCaps = preset.DropCaps, OpeningSmallCaps = preset.OpeningSmallCaps, Kindle = preset.Kindle
+            };
+            return epub;
+        }
+
+        /// <summary>Les pages-images d'un genre. Avec « séparer par genre » :
+        /// une page de titre les précède (si les titres prennent leur page et
+        /// qu'on ne retire pas les pages blanches), et elles se rangent sous
+        /// un signet à leur nom.</summary>
+        private static void Images(Project project, List<BinderItem> items, string title, ExportPreset preset, bool splitTypes, List<ExportSegment> segments)
+        {
+            if (items.Count == 0) return;
+            var page = splitTypes && preset.SplitOwnPage && !preset.DropBlanks;
+            if (page)
+            {
+                var setup = ExportPages.Normalize(preset.Pages) == ExportPages.A4 ? ExportPages.A4Setup() : (project.Page ?? new PageSetup()).Clone();
+                if (preset.PlainMargins) setup = ExportPages.Symmetric(setup);
+                setup.FooterPageNumbers = true;
+                var heading = new ExportSegment { Setup = setup, Styles = ExportTypography.Styles(ExportLevels.WithStyles(project.Styles), preset), Document = new TextDocument() };
+                heading.Document.Paragraphs.Add(ExportLevels.Paragraph(new ExportLevelTitle { Title = title, StyleId = ExportLevels.StyleType }));
+                heading.Marks.Add(new ExportMark { Paragraph = 0, Title = title, Level = 0 });
+                segments.Add(heading);
+            }
+            for (var i = 0; i < items.Count; i++)
+            {
+                var segment = new ExportSegment { Kind = ExportSegment.KindImage };
+                segment.Items.Add(items[i]);
+                if (splitTypes && !page && i == 0) segment.Marks.Add(new ExportMark { Paragraph = -1, Title = title, Level = 0 });
+                segment.Marks.Add(new ExportMark { Paragraph = -1, Name = items[i].Id, Title = items[i].Title, Level = splitTypes ? 1 : 0 });
+                segments.Add(segment);
+            }
         }
 
         /// <summary>Deux mises en page qui peuvent partager un flux : même
@@ -272,6 +382,15 @@ namespace Marabook.Exchange
             public ExportSegment Segment;
             public List<KeyValuePair<string, string>> Targets;
             public bool Links;
+            /// <summary>Le titre de genre « Fiches » quand il coiffe la suite sans prendre sa page : ce qui le suit ne saute pas de page.</summary>
+            public TextParagraph FlowHead;
+
+            /// <summary>Vrai si le paragraphe qu'on vient d'ajouter doit ouvrir une page.</summary>
+            public bool BreaksHere()
+            {
+                var count = Document.Paragraphs.Count;
+                return count > 1 && !ReferenceEquals(Document.Paragraphs[count - 2], FlowHead);
+            }
 
             public TextParagraph Line(string styleId)
             {
@@ -303,6 +422,7 @@ namespace Marabook.Exchange
             foreach (var sheet in sheets) selection.Ids.Add(sheet.Id);
             var options = Encyclopedia.DefaultOptions(project);
             options.IncludeEmptySheets = true; // cochée à la main : elle part, même vide
+            options.ExceptTag = "";            // ici, c'est le filtre de l'ampleur qui écarte un tag
             options.IncludeLexicon = false;
             options.CoverImageId = null;
             var encyclopedia = Encyclopedia.Build(project, selection, options);
@@ -312,13 +432,22 @@ namespace Marabook.Exchange
             var setup = pages == ExportPages.A4 ? ExportPages.A4Setup() : (project.Page ?? new PageSetup()).Clone();
             if (preset.PlainMargins) setup = ExportPages.Symmetric(setup);
             setup.FooterPageNumbers = true;
-            var segment = new ExportSegment { Setup = setup, IsSheets = true, Styles = ExportTypography.Styles(SheetStyles(project.Styles), preset) };
+            var splitTypes = preset.SplitTypes && mixed;
+            var sheetStyles = SheetStyles(project.Styles);
+            var segment = new ExportSegment { Setup = setup, IsSheets = true, Styles = ExportTypography.Styles(splitTypes ? ExportLevels.WithStyles(sheetStyles) : sheetStyles, preset) };
             var writer = new SheetWriter { Segment = segment, Targets = targets, Links = preset.Links };
             var level = 0;
             if (mixed)
             {
-                segment.Marks.Add(new ExportMark { Paragraph = 0, Title = "Fiches", Level = 0 });
+                segment.Marks.Add(new ExportMark { Paragraph = 0, Title = ExportLevels.TitleSheets, Level = 0 });
                 level = 1;
+            }
+            if (splitTypes)
+            {
+                // « Séparer par genre » (20/11) : le titre « Fiches », sur sa page ou en tête de la première.
+                var head = ExportLevels.Paragraph(new ExportLevelTitle { Title = ExportLevels.TitleSheets, StyleId = ExportLevels.StyleType });
+                writer.Document.Paragraphs.Add(head);
+                if (!preset.SplitOwnPage) writer.FlowHead = head;
             }
             var several = encyclopedia.Sections.Count > 1 || (encyclopedia.Sections.Count == 1 && encyclopedia.Sections[0].Subsections.Count > 0);
             foreach (var section in encyclopedia.Sections) WriteSection(writer, section, project, level, several);
@@ -337,7 +466,7 @@ namespace Marabook.Exchange
             if (titled)
             {
                 var heading = writer.Line(StyleSection);
-                heading.PageBreakBefore = writer.Document.Paragraphs.Count > 1;
+                heading.PageBreakBefore = writer.BreaksHere();
                 writer.Text(heading, section.Title);
                 writer.Segment.Marks.Add(new ExportMark { Paragraph = writer.Document.Paragraphs.Count - 1, Title = section.Title, Level = level });
                 sheetLevel = level + 1;
@@ -351,7 +480,7 @@ namespace Marabook.Exchange
             var title = writer.Line(StyleSheetTitle);
             // Une fiche par page — sauf la première d'une catégorie, qui suit son titre.
             var count = writer.Document.Paragraphs.Count;
-            title.PageBreakBefore = count > 1 && writer.Document.Paragraphs[count - 2].StyleId != StyleSection;
+            title.PageBreakBefore = writer.BreaksHere() && writer.Document.Paragraphs[count - 2].StyleId != StyleSection;
             writer.Text(title, sheet.Title);
             writer.Segment.Marks.Add(new ExportMark { Paragraph = writer.Document.Paragraphs.Count - 1, Name = sheet.Id, Title = sheet.Title, Level = level });
 

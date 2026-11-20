@@ -275,6 +275,7 @@ namespace Marabook.Exchange
                 if (root != null && root.CategoryKey == Project.KeyTrash) continue;
                 if (selection.Scope == EncyclopediaSelection.ScopeSheets && !wantedSheets.Contains(item.Id)) continue;
                 if (selection.Scope == EncyclopediaSelection.ScopeCategory && (item.CategoryId == null || !wantedCategories.Contains(item.CategoryId))) continue;
+                if (options != null && !string.IsNullOrEmpty(options.ExceptTag) && ExportFilter.HasTag(item, options.ExceptTag)) continue; // « sauf ce tag » (20/11)
                 list.Add(item);
             }
             return list;

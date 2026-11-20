@@ -102,7 +102,7 @@ namespace Marabook.App
             // ================================================== la fenêtre
             ExportPresetStore.Reset();
             var customBefore = ExportPresetStore.Custom.Count;
-            var task = ExportManagerDialog.Ask(shell, project, bookScope, ExportPresets.Bat, delegate(ExportRequest r) { return true; });
+            var task = ExportManagerDialog.Ask(shell, project, bookScope, ExportPresets.Bat, delegate(ExportRequest r) { return true; }, shell.ComposeForProbe);
             await Settle();
             var dialog = OpenWindow<ExportManagerDialog>();
             Check(dialog != null, "« Publier » : le gestionnaire d'export s'ouvre");
@@ -111,10 +111,49 @@ namespace Marabook.App
                 var tabs = dialog.TabsForProbe;
                 var headers = new List<string>();
                 foreach (var tab in tabs.Items.OfType<TabItem>()) headers.Add(tab.Header as string);
-                Check(string.Join(" | ", headers.ToArray()) == "Préréglage | Ampleur | Options | Impression | Livre | Vérifications" || string.Join(" | ", headers.ToArray()).StartsWith("Préréglage | Ampleur | Options | Impression | Livre | Vérifications"),
-                    "six onglets : Préréglage, Ampleur, Options, Impression, Livre, Vérifications (" + string.Join(" | ", headers.ToArray()) + ")");
+                Check(string.Join(" | ", headers.ToArray()).StartsWith("Préréglage | Ampleur | Options | Structure | Impression | Livre | Aperçu | Vérifications"),
+                    "huit onglets : Préréglage, Ampleur, Options, Structure, Impression, Livre, Aperçu, Vérifications (" + string.Join(" | ", headers.ToArray()) + ")");
                 Check(tabs.TabStripPlacement == Dock.Left && tabs.Classes.Contains("column"), "les onglets tiennent en colonne, à gauche");
-                Check(dialog.PresetCardsForProbe == 9 + customBefore, "les neuf préréglages de la maison sont proposés");
+                Check(dialog.PresetCardsForProbe == 10 + customBefore, "les dix préréglages de la maison sont proposés");
+
+                // L'onglet Structure (20/11) : les réglages de structure y ont déménagé, l'enchaînement est un choix exclusif.
+                var structureTab = dialog.ControlForProbe<TabItem>("export-tab-structure");
+                var inStructure = structureTab != null && structureTab.GetLogicalDescendants().OfType<CheckBox>().Any(delegate(CheckBox box) { return (box.Tag as string) == "export-title-page"; });
+                var optionsTab = dialog.ControlForProbe<TabItem>("export-tab-options");
+                var inOptions = optionsTab != null && optionsTab.GetLogicalDescendants().OfType<CheckBox>().Any(delegate(CheckBox box) { return (box.Tag as string) == "export-title-page" || (box.Tag as string) == "export-headings"; });
+                Check(inStructure && !inOptions, "onglet Structure : la page de titre et les titres de chapitres y sont, plus dans Options");
+                var seqDefault = dialog.ControlForProbe<RadioButton>("export-seq-default");
+                var seqRecto = dialog.ControlForProbe<RadioButton>("export-recto");
+                var seqNoBlank = dialog.ControlForProbe<RadioButton>("export-no-blank");
+                Check(seqDefault != null && seqRecto != null && seqNoBlank != null && seqRecto.IsChecked == true && seqNoBlank.IsChecked != true && seqDefault.IsChecked != true,
+                    "enchaînement des pages : trois choix exclusifs — le BAT est en belle page");
+                Check(dialog.ControlForProbe<CheckBox>("export-split-types") != null && dialog.ControlForProbe<CheckBox>("export-split-books") != null && dialog.ControlForProbe<CheckBox>("export-split-folders") != null
+                    && dialog.ControlForProbe<CheckBox>("export-split-subfolders") != null && dialog.ControlForProbe<CheckBox>("export-split-own-page") != null, "rendu par niveau : genre, livre, dossier, sous-dossier, et la page à eux");
+                seqNoBlank.IsChecked = true;
+                await Settle();
+                Check(dialog.PresetForProbe.DropBlankPages && !dialog.PresetForProbe.RectoStarts && seqRecto.IsChecked != true, "« Retirer les pleines pages blanches » décoche la belle page");
+                seqRecto.IsChecked = true;
+                await Settle();
+                Check(dialog.PresetForProbe.RectoStarts && !dialog.PresetForProbe.DropBlankPages && !dialog.FooterForProbe.Contains("modifié"), "…et revenir à la belle page rend le BAT tel quel");
+
+                // Les infobulles (20/11) : une option grisée dit pourquoi ; une case n'est pas plus large que son libellé.
+                var comments = dialog.ControlForProbe<CheckBox>("export-comments");
+                Check(!comments.IsEnabled && ToolTip.GetShowOnDisabled(comments) && (dialog.TipForProbe("export-comments") ?? "").Contains("propres à Word"), "option grisée : son infobulle dit pourquoi (« " + dialog.TipForProbe("export-comments") + " »)");
+                Check((dialog.TipForProbe("export-drop-caps") ?? "").StartsWith("Ne vaut que pour un EPUB") && !dialog.ControlForProbe<CheckBox>("export-drop-caps").IsEnabled, "la lettrine, hors EPUB : grisée, et elle le dit");
+                var decor = dialog.ControlForProbe<CheckBox>("export-decor");
+                Check(decor.IsEnabled && (dialog.TipForProbe("export-decor") ?? "").StartsWith("Sinon, un simple folio"), "option modifiable : son infobulle dit à quoi elle sert");
+                var grey = 0;
+                var mute = new List<string>();
+                foreach (var control in dialog.GetLogicalDescendants().OfType<Control>())
+                {
+                    var tag = control.Tag as string;
+                    if (tag == null || !tag.StartsWith("export-") || control.IsEnabled) continue;
+                    if (!(control is CheckBox) && !(control is RadioButton) && !(control is ComboBox) && !(control is TextBox) && !(control is Button)) continue;
+                    grey++;
+                    if (string.IsNullOrEmpty(ToolTip.GetTip(control) as string) || !ToolTip.GetShowOnDisabled(control)) mute.Add(tag);
+                }
+                Check(grey > 0 && mute.Count == 0, "tout réglage grisé porte son explication (" + grey + " grisés" + (mute.Count > 0 ? ", muets : " + string.Join(", ", mute.ToArray()) : "") + ")");
+                Check(decor.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left && seqRecto.HorizontalAlignment == Avalonia.Layout.HorizontalAlignment.Left, "une case ne s'étire pas sur la ligne : son infobulle ne paraît que sur elle");
                 Check(dialog.BaseForProbe.Id == ExportPresets.Bat, "ouvert par « Publier » : le préréglage « BAT Imprimeur » est choisi");
                 Check(dialog.PlanForProbe.Book == book && dialog.PlanForProbe.Texts.Count == bookScope.Count, "…et le livre est déjà coché dans l'ampleur");
                 Check(dialog.MetaForProbe.Title == BookInfo.TitleOf(book), "onglet Livre : le titre est pré-rempli depuis le livre (« " + dialog.MetaForProbe.Title + " »)");
@@ -137,7 +176,7 @@ namespace Marabook.App
                 // Enregistrer la configuration : un préréglage personnalisé, sans l'ampleur.
                 dialog.SavePresetForProbe("Sonde — BAT sans traits");
                 await Settle();
-                Check(ExportPresetStore.Custom.Count == customBefore + 1 && dialog.PresetCardsForProbe == 10 + customBefore, "enregistré : un dixième préréglage, dans « Mes préréglages »");
+                Check(ExportPresetStore.Custom.Count == customBefore + 1 && dialog.PresetCardsForProbe == 11 + customBefore, "enregistré : un onzième préréglage, dans « Mes préréglages »");
                 var saved = ExportPresetStore.Custom[ExportPresetStore.Custom.Count - 1];
                 Check(dialog.BaseForProbe.Id == saved.Id && !saved.CropMarks && saved.Cmyk && !saved.BuiltIn, "…choisi d'office, avec les options réglées");
                 Check(!File.ReadAllText(ExportPresetStore.FilePath()).Contains(book.Id), "…et l'ampleur n'y est pas gardée");
@@ -152,10 +191,62 @@ namespace Marabook.App
                 Check(cap.IsChecked == true && spacing.Text == "1,25" && pages.SelectedIndex == 0 && dialog.ControlForProbe<TextBox>("export-max-font").Text == "12",
                     "PDF Manuscrit papier : A4, 12 points au plus, interligne 1,25 — branchés d'office");
                 Check(dialog.PlanForProbe.Texts.Count == bookScope.Count, "changer de préréglage ne touche pas l'ampleur");
+                Check(dialog.ControlForProbe<RadioButton>("export-no-blank").IsChecked == true && dialog.PresetForProbe.DropBlankPages, "PDF Manuscrit papier : « Retirer les pleines pages blanches » est cochée d'office");
                 Shot(dialog, "export-2-manuscrit.png");
                 tabs.SelectedIndex = 2;
                 await Settle();
                 Shot(dialog, "export-3-options.png");
+                tabs.SelectedIndex = 3;
+                await Settle();
+                Shot(dialog, "export-3b-structure.png");
+
+                // L'aperçu paginé (20/11) : les pages du PDF dans la fenêtre, et leur nombre au pied.
+                tabs.SelectedIndex = 6;
+                await Settle();
+                dialog.PreviewForProbe();
+                await Settle();
+                var previewPages = dialog.PreviewPagesForProbe;
+                Check(previewPages > 0 && dialog.PreviewLabelForProbe.StartsWith("Page 1 sur " + previewPages + "  ·  A4"), "onglet Aperçu : le manuscrit mis en pages (" + dialog.PreviewLabelForProbe + ")");
+                Check(dialog.FooterForProbe.Contains("  ·  " + previewPages + " page"), "…et le nombre de pages au pied (" + dialog.FooterForProbe + ")");
+                Check(!dialog.ControlForProbe<Button>("export-page-previous").IsEnabled && (dialog.TipForProbe("export-page-previous") ?? "") == "C'est la première page.", "à la première page, « précédente » se grise et dit pourquoi");
+                Shot(dialog, "export-3c-apercu.png");
+                if (previewPages > 1)
+                {
+                    dialog.ShowPageForProbe(1);
+                    await Settle();
+                    Check(dialog.PreviewLabelForProbe.StartsWith("Page 2 sur "), "la page suivante se montre");
+                    Shot(dialog, "export-3d-apercu-page-2.png");
+                }
+                dialog.ControlForProbe<CheckBox>("export-title-page").IsChecked = false;
+                await Settle();
+                dialog.PreviewForProbe();
+                Check(dialog.PreviewPagesForProbe == previewPages - 1, "sans page de titre : une page de moins dans l'aperçu (" + dialog.PreviewPagesForProbe + ")");
+
+                // Le filtre de l'ampleur (20/11).
+                var statusFilter = dialog.ControlForProbe<ComboBox>("export-filter-status");
+                var before = dialog.PlanForProbe.Texts.Count;
+                var doneTexts = 0;
+                foreach (var text in dialog.PlanForProbe.Texts) if (text.Status == "done") doneTexts++;
+                statusFilter.SelectedIndex = TextStatus.Keys.Length; // « Terminé »
+                await Settle();
+                Check(dialog.PlanForProbe.Texts.Count == doneTexts && dialog.PlanForProbe.Filtered.Count == before - doneTexts && dialog.RequestForProbe().Filter != null,
+                    "filtre « Seulement Terminé » : " + doneTexts + " écrits sur " + before + " restent, et la demande porte le filtre");
+                statusFilter.SelectedIndex = 0;
+                await Settle();
+                Check(dialog.PlanForProbe.Texts.Count == before && dialog.RequestForProbe().Filter == null, "filtre retiré : tout revient");
+
+                // Un EPUB : la page de titre et la numérotation s'y règlent désormais ; l'aperçu dit qu'il n'a pas de pages.
+                dialog.ChooseForProbe(ExportPresets.EpubKindle);
+                await Settle();
+                Check(dialog.ControlForProbe<CheckBox>("export-title-page").IsEnabled && dialog.ControlForProbe<CheckBox>("export-drop-caps").IsEnabled && dialog.ControlForProbe<CheckBox>("export-kindle").IsChecked == true,
+                    "EPUB pour Kindle : page de titre et lettrine se règlent, le profil Kindle est coché");
+                Check(!dialog.ControlForProbe<RadioButton>("export-no-blank").IsEnabled && (dialog.TipForProbe("export-no-blank") ?? "").StartsWith("Un EPUB n'a pas de pages"), "…et ce qui touche aux pages se grise en le disant");
+                dialog.PreviewForProbe();
+                Check(dialog.PreviewPagesForProbe == 0 && dialog.PreviewLabelForProbe.Contains("Un EPUB n'en a pas"), "aperçu d'un EPUB : pas de pages, et il le dit");
+                dialog.ChooseForProbe(ExportPresets.Manuscript);
+                await Settle();
+                tabs.SelectedIndex = 2;
+                await Settle();
                 var formats = new List<string>();
                 foreach (var entry in dialog.ControlForProbe<ComboBox>("export-format").Items) formats.Add(entry as string);
                 Check(formats.Count >= 6 && formats[0].StartsWith("Document Word") && formats[1].StartsWith("PDF") && formats[2].StartsWith("EPUB") && (Rtf.Exporter != null || !formats.Exists(delegate(string f) { return f.Contains(".rtf"); })),
@@ -185,17 +276,17 @@ namespace Marabook.App
                 await Settle();
                 Shot(dialog, "export-4-ampleur.png");
                 Check(dialog.ToggleForProbe(sheets[0].Id) && dialog.PlanForProbe.Sheets.Count == sheets.Count - 1, "décocher une fiche la retire du plan");
-                tabs.SelectedIndex = 4;
+                tabs.SelectedIndex = 5;
                 await Settle();
                 Shot(dialog, "export-5-livre.png");
-                tabs.SelectedIndex = 5;
+                tabs.SelectedIndex = 7;
                 await Settle();
                 Shot(dialog, "export-6-verifications.png");
 
                 // Supprimer le préréglage de la sonde.
                 dialog.RemovePresetForProbe(saved.Id);
                 await Settle();
-                Check(ExportPresetStore.Custom.Count == customBefore && dialog.PresetCardsForProbe == 9 + customBefore, "le préréglage personnalisé se supprime");
+                Check(ExportPresetStore.Custom.Count == customBefore && dialog.PresetCardsForProbe == 10 + customBefore, "le préréglage personnalisé se supprime");
                 var request = dialog.RequestForProbe();
                 Check(request.Preset.Format == ExportFormats.Pdf && request.ItemIds.Count > 0 && request.WriteBackBook == null, "la demande rendue : le préréglage réglé, l'ampleur cochée");
                 dialog.Close();
@@ -309,6 +400,47 @@ namespace Marabook.App
                     Check((meta.CoverImageId != null) == (zip.GetEntry("OEBPS/cover.xhtml") != null), "…avec la couverture du livre quand il en a une");
                 }
                 Check(ZipText(path, "OEBPS/content.opf").Contains(Epub.Esc(meta.Title)), "…et le titre du livre dans ses métadonnées");
+                var epubProblems = EpubCheck.Verify(path);
+                Check(epubProblems.Count == 0, "…et il passe le contrôle de structure" + (epubProblems.Count > 0 ? " — " + string.Join(" / ", epubProblems.ToArray()) : ""));
+
+                // EPUB pour Kindle, tout coché : lettrine, petites capitales, page de titre, titres de partie.
+                path = Path.Combine(folder, "livre-kindle.epub");
+                var kindle = HousePreset(ExportPresets.EpubKindle);
+                kindle.DropCaps = true; kindle.OpeningSmallCaps = true; kindle.TitlePage = true; kindle.SplitFolders = true; kindle.SplitSubfolders = true;
+                shell.ExportForProbe(kindle, bookScope, path, meta);
+                epubProblems = EpubCheck.Verify(path);
+                Check(epubProblems.Count == 0, "EPUB pour Kindle : il passe le contrôle de structure" + (epubProblems.Count > 0 ? " — " + string.Join(" / ", epubProblems.ToArray()) : ""));
+                using (var zip = ZipFile.OpenRead(path))
+                {
+                    Check(zip.GetEntry("OEBPS/cover.xhtml") == null && zip.GetEntry("OEBPS/title.xhtml") != null, "…sans page de couverture en double, avec sa page de titre");
+                    var lettrines = 0;
+                    foreach (var entry in zip.Entries)
+                        if (entry.FullName.StartsWith("OEBPS/chapter-")) lettrines += Occurrences(ZipText(path, entry.FullName), "class=\"lettrine\"");
+                    Check(lettrines > 0, "…et des lettrines en ouverture de chapitre (" + lettrines + ")");
+                }
+                Check((meta.CoverImageId != null) == ZipText(path, "OEBPS/content.opf").Contains("properties=\"cover-image\""), "…la couverture reste déclarée dans le paquet quand le livre en a une");
+
+                // Le rendu par niveau dans un PDF et dans Word ; les pages blanches retirées.
+                path = Path.Combine(folder, "niveaux.docx");
+                var leveled = HousePreset(ExportPresets.WordA4);
+                leveled.SplitBooks = true; leveled.SplitFolders = true; leveled.SplitSubfolders = true;
+                shell.ExportForProbe(leveled, bookScope, path, meta);
+                Check(ZipText(path, "word/styles.xml").Contains("Export — titre de livre") && ZipText(path, "word/document.xml").Contains(Epub.Esc(BookInfo.TitleOf(book))),
+                    "Word, séparé par niveau : le titre du livre y est, dans son style « Export — titre de livre »");
+                var recto = HousePreset(ExportPresets.Bat);
+                var rectoPages = shell.ComposeForProbe(new ExportRequest { Preset = recto, Meta = meta, ItemIds = new List<string>(bookScope) });
+                var flat = HousePreset(ExportPresets.Bat);
+                flat.RectoStarts = false; flat.DropBlankPages = true;
+                var flatPages = shell.ComposeForProbe(new ExportRequest { Preset = flat, Meta = meta, ItemIds = new List<string>(bookScope) });
+                int rectoCount = 0, flatCount = 0, blankLeft = 0;
+                foreach (var part in rectoPages ?? new List<Print.PdfPart>()) if (!part.IsImage) rectoCount += part.Composition.Pages.Count;
+                foreach (var part in flatPages ?? new List<Print.PdfPart>())
+                {
+                    if (part.IsImage) continue;
+                    flatCount += part.Composition.Pages.Count;
+                    foreach (var page in part.Composition.Pages) if (page.Lines.Count == 0 && page.Images.Count == 0) blankLeft++;
+                }
+                Check(flatCount > 0 && flatCount <= rectoCount && blankLeft == 0, "le livre sans pages blanches : " + flatCount + " pages au lieu de " + rectoCount + " en belle page, aucune vide");
 
                 // Les autres formats, par un préréglage réglé à la main.
                 foreach (var format in new[] { ExportFormats.Odt, ExportFormats.Markdown, ExportFormats.Text })

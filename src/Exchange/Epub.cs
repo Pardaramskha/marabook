@@ -21,6 +21,24 @@ namespace Marabook.Exchange
         public string Language = "fr";
         public bool IncludeCover = true;
         public bool ChapterHeadings = true; // le titre de l'écrit en tête de chaque chapitre
+        // --- gestionnaire d'export, 20/11
+        public bool NumberChapters;         // « 1. », « 2. »… devant les chapitres du récit
+        public bool TitlePage;              // une page de titre : titre, sous-titre, auteur·ice, ligne d'édition
+        public string Colophon = "";
+        public bool DropCaps;               // une lettrine ouvre chaque chapitre du récit
+        public bool OpeningSmallCaps;       // ses premiers mots en petites capitales
+        public bool Kindle;                 // ce qu'Amazon demande : pas de page de couverture en double, le corps laissé au lecteur
+    }
+
+    /// <summary>Un titre de niveau dans un EPUB (20/11) : posé avant un
+    /// chapitre, sur son propre écran ou en tête de ce chapitre ; il range
+    /// sous lui les chapitres de rang plus profond dans la table.</summary>
+    public class EpubPart
+    {
+        public int BeforeChapter;
+        public string Title = "";
+        public int Level;
+        public bool OwnPage = true;
     }
 
     /// <summary>Ce que l'EPUB contiendra, décidé AVANT le dialogue : les
@@ -34,6 +52,8 @@ namespace Marabook.Exchange
         public readonly List<BinderItem> Skipped = new List<BinderItem>();
         public bool HasCover;                                     // l'image du livre (ou de l'écrit)
         public string CoverImageId;                               // une couverture choisie au gestionnaire d'export (18/11) ; null = celle de Root
+        public readonly List<EpubPart> Parts = new List<EpubPart>(); // les titres de niveau (20/11), dans l'ordre
+        public readonly List<int> ChapterLevels = new List<int>();   // le rang de chaque chapitre dans la table (absent = 0)
         public bool IsBook { get { return Root != null && Root.Kind == ItemKind.Book; } }
     }
 
@@ -255,6 +275,10 @@ namespace Marabook.Exchange
             private readonly List<ImageFile> _images = new List<ImageFile>();
             private readonly Dictionary<string, ImageFile> _imageByProjectId = new Dictionary<string, ImageFile>();
             private ImageFile _cover;
+            private bool _coverPage;
+            private sealed class NavEntry { public string Href, Title; public int Level; }
+            private readonly List<KeyValuePair<string, string>> _spine = new List<KeyValuePair<string, string>>(); // id du manifeste → fichier
+            private readonly List<NavEntry> _nav = new List<NavEntry>();
             private readonly List<string> _chapterFiles = new List<string>();
             private readonly string _uid;
             private readonly string _lang;
@@ -277,14 +301,55 @@ namespace Marabook.Exchange
                 if (_options.IncludeCover && _plan.HasCover)
                 {
                     _cover = ImageFor(_plan.CoverImageId ?? _plan.Root.ImageId, "cover");
-                    if (_cover != null) Add("OEBPS/cover.xhtml", CoverPage());
+                    // Kindle montre lui-même la couverture déclarée : une page en plus la ferait paraître deux fois.
+                    if (_cover != null && !_options.Kindle)
+                    {
+                        Add("OEBPS/cover.xhtml", CoverPage());
+                        _spine.Add(new KeyValuePair<string, string>("cover-page", "cover.xhtml"));
+                        _coverPage = true;
+                    }
                 }
+                if (_options.TitlePage)
+                {
+                    Add("OEBPS/title.xhtml", TitlePageXhtml());
+                    _spine.Add(new KeyValuePair<string, string>("title-page", "title.xhtml"));
+                }
+                var number = 0;
+                var parts = 0;
                 for (var i = 0; i < _plan.Chapters.Count; i++)
                 {
+                    var item = _plan.Chapters[i];
                     var name = "chapter-" + (i + 1).ToString("000", CultureInfo.InvariantCulture) + ".xhtml";
+                    // Les titres de niveau : sur leur écran (un fichier), ou en tête du chapitre.
+                    var heads = new List<string>();
+                    foreach (var part in _plan.Parts)
+                    {
+                        if (part.BeforeChapter != i) continue;
+                        if (part.OwnPage)
+                        {
+                            parts++;
+                            var file = "part-" + parts.ToString("000", CultureInfo.InvariantCulture) + ".xhtml";
+                            Add("OEBPS/" + file, PartPage(part.Title));
+                            _spine.Add(new KeyValuePair<string, string>("part" + parts, file));
+                            _nav.Add(new NavEntry { Href = file, Title = part.Title, Level = part.Level });
+                        }
+                        else
+                        {
+                            heads.Add(part.Title);
+                            _nav.Add(new NavEntry { Href = name, Title = part.Title, Level = part.Level });
+                        }
+                    }
+                    var narrative = !(_plan.IsBook && (item.IsExtraPage || item.IsToc));
+                    var title = narrative && _options.NumberChapters ? (++number) + ". " + item.Title : item.Title;
                     _chapterFiles.Add(name);
-                    Add("OEBPS/" + name, Chapter(_plan.Chapters[i], i + 1));
+                    Add("OEBPS/" + name, Chapter(item, i + 1, title, heads, narrative));
+                    _spine.Add(new KeyValuePair<string, string>("ch" + (i + 1), name));
+                    // La table : le récit seul (liminaires, pages de fin et annexes hors table, comme au papier — 21/09).
+                    if (narrative) _nav.Add(new NavEntry { Href = name, Title = title, Level = i < _plan.ChapterLevels.Count ? _plan.ChapterLevels[i] : 0 });
                 }
+                var chapters = 0;
+                foreach (var entry in _nav) if (entry.Href.StartsWith("chapter-", StringComparison.Ordinal)) chapters++;
+                if (chapters == 0 && _chapterFiles.Count > 0) _nav.Add(new NavEntry { Href = _chapterFiles[0], Title = _plan.Chapters[0].Title });
                 foreach (var image in _images) Files.Add(new KeyValuePair<string, byte[]>("OEBPS/" + image.Name, image.Bytes));
                 Add("OEBPS/nav.xhtml", Nav());
                 Add("OEBPS/toc.ncx", Ncx());
@@ -343,9 +408,8 @@ namespace Marabook.Exchange
                 sb.Append("<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>\n");
                 sb.Append("<item id=\"ncx\" href=\"toc.ncx\" media-type=\"application/x-dtbncx+xml\"/>\n");
                 sb.Append("<item id=\"css\" href=\"style.css\" media-type=\"text/css\"/>\n");
-                if (_cover != null) sb.Append("<item id=\"cover-page\" href=\"cover.xhtml\" media-type=\"application/xhtml+xml\"/>\n");
-                for (var i = 0; i < _chapterFiles.Count; i++)
-                    sb.Append("<item id=\"ch").Append(i + 1).Append("\" href=\"").Append(_chapterFiles[i]).Append("\" media-type=\"application/xhtml+xml\"/>\n");
+                foreach (var page in _spine)
+                    sb.Append("<item id=\"").Append(page.Key).Append("\" href=\"").Append(page.Value).Append("\" media-type=\"application/xhtml+xml\"/>\n");
                 foreach (var image in _images)
                 {
                     sb.Append("<item id=\"").Append(image.Id).Append("\" href=\"").Append(image.Name).Append("\" media-type=\"").Append(image.MediaType).Append("\"");
@@ -355,8 +419,7 @@ namespace Marabook.Exchange
                 sb.Append("</manifest>\n");
 
                 sb.Append("<spine toc=\"ncx\">\n");
-                if (_cover != null) sb.Append("<itemref idref=\"cover-page\"/>\n");
-                for (var i = 0; i < _chapterFiles.Count; i++) sb.Append("<itemref idref=\"ch").Append(i + 1).Append("\"/>\n");
+                foreach (var page in _spine) sb.Append("<itemref idref=\"").Append(page.Key).Append("\"/>\n");
                 sb.Append("</spine>\n");
                 sb.Append("</package>\n");
                 return sb.ToString();
@@ -364,33 +427,34 @@ namespace Marabook.Exchange
 
             // ---------------------------------------------------------- navigation
 
-            /// <summary>Les entrées de navigation : le récit seul (les
-            /// liminaires, pages de fin et annexes sont hors table, comme au
-            /// papier — décision du 21/09) ; un écrit seul est sa propre entrée.</summary>
-            private List<KeyValuePair<string, string>> NavEntries()
-            {
-                var entries = new List<KeyValuePair<string, string>>();
-                for (var i = 0; i < _plan.Chapters.Count; i++)
-                {
-                    var chapter = _plan.Chapters[i];
-                    if (_plan.IsBook && (chapter.IsExtraPage || chapter.IsToc)) continue;
-                    entries.Add(new KeyValuePair<string, string>(_chapterFiles[i], chapter.Title));
-                }
-                if (entries.Count == 0 && _chapterFiles.Count > 0)
-                    entries.Add(new KeyValuePair<string, string>(_chapterFiles[0], _plan.Chapters[0].Title));
-                return entries;
-            }
-
+            /// <summary>La table, emboîtée : une entrée de rang plus profond
+            /// se range sous celle qui la précède (un titre de partie, ses
+            /// chapitres). Les rangs sont ramenés à un pas à la fois.</summary>
             private string Nav()
             {
                 var sb = new StringBuilder();
                 Head(sb, "Table des matières");
                 sb.Append("<nav epub:type=\"toc\" id=\"toc\"><h1>Table des matières</h1><ol>\n");
-                foreach (var entry in NavEntries())
-                    sb.Append("<li><a href=\"").Append(entry.Key).Append("\">").Append(Esc(entry.Value)).Append("</a></li>\n");
+                var depth = 0;
+                var open = false;
+                foreach (var entry in _nav)
+                {
+                    var level = Math.Max(0, Math.Min(entry.Level, depth + (open ? 1 : 0)));
+                    if (level > depth) { sb.Append("<ol>\n"); depth++; }
+                    else
+                    {
+                        if (open) sb.Append("</li>\n");
+                        while (depth > level) { sb.Append("</ol></li>\n"); depth--; }
+                    }
+                    sb.Append("<li><a href=\"").Append(entry.Href).Append("\">").Append(Esc(entry.Title)).Append("</a>");
+                    open = true;
+                }
+                if (open) sb.Append("</li>\n");
+                while (depth > 0) { sb.Append("</ol></li>\n"); depth--; }
                 sb.Append("</ol></nav>\n");
                 sb.Append("<nav epub:type=\"landmarks\" hidden=\"hidden\"><ol>\n");
-                if (_cover != null) sb.Append("<li><a epub:type=\"cover\" href=\"cover.xhtml\">Couverture</a></li>\n");
+                if (_coverPage) sb.Append("<li><a epub:type=\"cover\" href=\"cover.xhtml\">Couverture</a></li>\n");
+                if (_options.TitlePage) sb.Append("<li><a epub:type=\"titlepage\" href=\"title.xhtml\">Page de titre</a></li>\n");
                 sb.Append("<li><a epub:type=\"toc\" href=\"nav.xhtml\">Table des matières</a></li>\n");
                 var body = BodyStart();
                 if (body != null) sb.Append("<li><a epub:type=\"bodymatter\" href=\"").Append(body).Append("\">Début du texte</a></li>\n");
@@ -412,18 +476,34 @@ namespace Marabook.Exchange
                 var sb = new StringBuilder();
                 sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n");
                 sb.Append("<ncx xmlns=\"http://www.daisy.org/z3986/2005/ncx/\" version=\"2005-1\">\n");
+                // Les points emboîtés comme la table ; la profondeur déclarée est celle qu'on atteint.
+                var points = new StringBuilder();
+                var order = 1;
+                int depth = 0, deepest = 0;
+                var open = false;
+                foreach (var entry in _nav)
+                {
+                    var level = Math.Max(0, Math.Min(entry.Level, depth + (open ? 1 : 0)));
+                    if (level > depth) depth++;
+                    else
+                    {
+                        if (open) points.Append("</navPoint>\n");
+                        while (depth > level) { points.Append("</navPoint>\n"); depth--; }
+                    }
+                    deepest = Math.Max(deepest, depth);
+                    points.Append("<navPoint id=\"np").Append(order).Append("\" playOrder=\"").Append(order).Append("\"><navLabel><text>")
+                      .Append(Esc(entry.Title)).Append("</text></navLabel><content src=\"").Append(entry.Href).Append("\"/>");
+                    open = true;
+                    order++;
+                }
+                if (open) points.Append("</navPoint>\n");
+                while (depth > 0) { points.Append("</navPoint>\n"); depth--; }
                 sb.Append("<head><meta name=\"dtb:uid\" content=\"").Append(Esc(_uid)).Append("\"/>")
-                  .Append("<meta name=\"dtb:depth\" content=\"1\"/><meta name=\"dtb:totalPageCount\" content=\"0\"/><meta name=\"dtb:maxPageNumber\" content=\"0\"/></head>\n");
+                  .Append("<meta name=\"dtb:depth\" content=\"").Append(deepest + 1).Append("\"/><meta name=\"dtb:totalPageCount\" content=\"0\"/><meta name=\"dtb:maxPageNumber\" content=\"0\"/></head>\n");
                 var title = (_options.Title ?? "").Trim();
                 if (title.Length == 0) title = _plan.Root.Title;
                 sb.Append("<docTitle><text>").Append(Esc(title)).Append("</text></docTitle>\n<navMap>\n");
-                var order = 1;
-                foreach (var entry in NavEntries())
-                {
-                    sb.Append("<navPoint id=\"np").Append(order).Append("\" playOrder=\"").Append(order).Append("\"><navLabel><text>")
-                      .Append(Esc(entry.Value)).Append("</text></navLabel><content src=\"").Append(entry.Key).Append("\"/></navPoint>\n");
-                    order++;
-                }
+                sb.Append(points);
                 sb.Append("</navMap>\n</ncx>\n");
                 return sb.ToString();
             }
@@ -436,22 +516,29 @@ namespace Marabook.Exchange
                 var body = _styles.Body;
                 sb.Append("body { margin: 0; padding: 0 1em; }\n");
                 sb.Append("p { margin: 0; }\n");
+                // Le profil Kindle (20/11) : le corps du texte laisse au lecteur sa police, sa taille et son
+                // interligne, les tailles se disent en proportion du corps, et le noir n'est jamais imposé
+                // (il disparaîtrait en mode nuit) — ce qu'Amazon demande à un EPUB.
+                var kindle = _options.Kindle;
+                var bodySize = Math.Max(1, body.FontSize);
                 foreach (var style in _styles.Styles)
                 {
+                    var isBody = style.Id == body.Id;
                     sb.Append(".").Append(ClassOf(style.Id)).Append(" { ");
-                    sb.Append("font-family: ").Append(FontFamilyCss(style.FontFamily)).Append("; ");
-                    sb.Append("font-size: ").Append(Pt(style.FontSize)).Append("pt; ");
+                    if (!(kindle && isBody)) sb.Append("font-family: ").Append(FontFamilyCss(style.FontFamily)).Append("; ");
+                    if (!kindle) sb.Append("font-size: ").Append(Pt(style.FontSize)).Append("pt; ");
+                    else if (!isBody) sb.Append("font-size: ").Append(Ratio(style.FontSize / bodySize)).Append("em; ");
                     if (style.Weight != null) sb.Append("font-weight: ").Append(style.EffectiveWeight()).Append("; "); // la variante de police (01/10)
                     else if (style.Bold) sb.Append("font-weight: bold; ");
                     if (style.Italic) sb.Append("font-style: italic; ");
-                    if (style.Color != null) sb.Append("color: ").Append(style.Color).Append("; ");
+                    if (style.Color != null && !(kindle && IsBlackOrWhite(style.Color))) sb.Append("color: ").Append(style.Color).Append("; ");
                     sb.Append("text-align: ").Append(style.Align == "justify" ? "justify" : style.Align == "center" ? "center" : style.Align == "right" ? "right" : "left").Append("; ");
                     if (style.FirstLineIndent > 0) sb.Append("text-indent: ").Append(Pt(style.FirstLineIndent)).Append("pt; ");
                     if (style.LeftIndent > 0) sb.Append("margin-left: ").Append(Pt(style.LeftIndent)).Append("pt; ");
                     if (style.RightIndent > 0) sb.Append("margin-right: ").Append(Pt(style.RightIndent)).Append("pt; ");
                     sb.Append("margin-top: ").Append(Pt(style.SpaceBefore)).Append("pt; ");
                     sb.Append("margin-bottom: ").Append(Pt(style.SpaceAfter)).Append("pt; ");
-                    sb.Append("line-height: ").Append(Ratio(LineHeightRatio(style))).Append("; ");
+                    if (!(kindle && isBody)) sb.Append("line-height: ").Append(Ratio(LineHeightRatio(style))).Append("; ");
                     sb.Append("font-variant-ligatures: ").Append(style.Ligatures ? "common-ligatures" : "none").Append("; ");
                     if (style.HyphenationEnabled) sb.Append("hyphens: auto; -webkit-hyphens: auto; ");
                     else sb.Append("hyphens: manual; -webkit-hyphens: manual; ");
@@ -475,7 +562,25 @@ namespace Marabook.Exchange
                 sb.Append(" }\n");
                 sb.Append("section.cover { text-align: center; margin: 0; padding: 0; }\n");
                 sb.Append("section.cover img { max-height: 100%; }\n");
+                // Gestionnaire d'export (20/11) : titres de partie, page de titre, ouverture de chapitre.
+                var family = kindle ? "" : "font-family: " + FontFamilyCss(body.FontFamily) + "; ";
+                sb.Append("h1.part { ").Append(family).Append("font-size: 1.9em; font-weight: bold; text-align: center; margin: 3em 0 1.5em 0; page-break-after: avoid; }\n");
+                sb.Append("section.part h1.part { margin-top: 30%; }\n");
+                sb.Append("section.titlepage { text-align: center; }\n");
+                sb.Append("h1.book-title { ").Append(family).Append("font-size: 2.2em; font-weight: bold; text-align: center; margin: 25% 0 0.6em 0; }\n");
+                sb.Append("p.book-subtitle { font-size: 1.3em; font-style: italic; text-align: center; text-indent: 0; margin: 0 0 2em 0; }\n");
+                sb.Append("p.book-author { font-size: 1.2em; text-align: center; text-indent: 0; margin: 0 0 4em 0; }\n");
+                sb.Append("p.book-colophon { font-size: 0.8em; text-align: center; text-indent: 0; margin: 0; }\n");
+                sb.Append("p.opening { text-indent: 0; }\n");
+                sb.Append("span.lettrine { float: left; font-size: 3.1em; line-height: 0.82; padding: 0.04em 0.08em 0 0; font-weight: normal; font-style: normal; }\n");
+                sb.Append("span.ouverture { font-variant: small-caps; letter-spacing: 0.03em; }\n");
                 return sb.ToString();
+            }
+
+            private static bool IsBlackOrWhite(string color)
+            {
+                var c = (color ?? "").Trim().ToLowerInvariant();
+                return c == "#000000" || c == "#000" || c == "#ffffff" || c == "#fff" || c == "black" || c == "white";
             }
 
             /// <summary>La valeur d'interligne du style rapportée à sa taille — un
@@ -516,21 +621,132 @@ namespace Marabook.Exchange
                 return sb.ToString();
             }
 
-            private string Chapter(BinderItem item, int number)
+            private string PartPage(string title)
+            {
+                var sb = new StringBuilder();
+                Head(sb, title);
+                sb.Append("<section epub:type=\"part\" class=\"part\"><h1 class=\"part\">").Append(Esc(title)).Append("</h1></section>\n");
+                sb.Append("</body></html>\n");
+                return sb.ToString();
+            }
+
+            private string TitlePageXhtml()
+            {
+                var title = (_options.Title ?? "").Trim();
+                if (title.Length == 0) title = _plan.Root.Title;
+                var sb = new StringBuilder();
+                Head(sb, title);
+                sb.Append("<section epub:type=\"titlepage\" class=\"titlepage\">\n<h1 class=\"book-title\">").Append(Esc(title)).Append("</h1>\n");
+                var subtitle = (_options.Subtitle ?? "").Trim();
+                if (subtitle.Length > 0) sb.Append("<p class=\"book-subtitle\">").Append(Esc(subtitle)).Append("</p>\n");
+                var author = (_options.Author ?? "").Trim();
+                if (author.Length > 0) sb.Append("<p class=\"book-author\">").Append(Esc(author)).Append("</p>\n");
+                var colophon = (_options.Colophon ?? "").Trim();
+                if (colophon.Length > 0) sb.Append("<p class=\"book-colophon\">").Append(Esc(colophon)).Append("</p>\n");
+                sb.Append("</section>\n</body></html>\n");
+                return sb.ToString();
+            }
+
+            /// <summary>Le paragraphe qui OUVRE un chapitre du récit : le
+            /// premier qui porte du texte courant — ni titre, ni liste, ni
+            /// séparateur, ni image, ni ligne centrée. -1 = aucun.</summary>
+            private int OpeningParagraph(TextDocument document)
+            {
+                for (var i = 0; i < document.Paragraphs.Count; i++)
+                {
+                    var paragraph = document.Paragraphs[i];
+                    if (ExportBlankPages.IsBlank(paragraph)) continue;
+                    if (paragraph.ListKind != null || paragraph.StyleId == StyleSheet.SeparatorId || ExportBlankPages.IsTitleStyle(_styles, paragraph.StyleId)) continue;
+                    if (paragraph.AlignOverride == "center" || paragraph.AlignOverride == "right") continue;
+                    var style = _styles.Find(paragraph.StyleId);
+                    if (style != null && (style.IsSeparator || (paragraph.AlignOverride == null && (style.Align == "center" || style.Align == "right")))) continue;
+                    if (paragraph.Runs.Count > 0 && PivotEdit.IsElement(paragraph.Runs[0])) return -1; // une image ou un filet ouvre le chapitre : pas de lettrine
+                    return i;
+                }
+                return -1;
+            }
+
+            private static bool IsWordChar(char c)
+            {
+                return char.IsLetterOrDigit(c) || c == '\'' || c == '’' || c == '-';
+            }
+
+            /// <summary>Dans le texte qui ouvre le paragraphe (jusqu'au
+            /// premier appel de note ou saut de ligne) : où finit la lettrine
+            /// (la première lettre, avec le guillemet qui la précède — rien
+            /// si le paragraphe s'ouvre sur un tiret de dialogue), où
+            /// finissent les petites capitales (le quatrième mot, ou la
+            /// première ponctuation forte).</summary>
+            private void OpeningRanges(TextParagraph paragraph, out int capEnd, out int smallEnd)
+            {
+                capEnd = 0;
+                smallEnd = 0;
+                var flat = new StringBuilder();
+                foreach (var run in paragraph.Runs)
+                {
+                    if (PivotEdit.IsElement(run)) break;
+                    flat.Append(run.Text);
+                }
+                var text = flat.ToString();
+                if (_options.DropCaps && text.Length > 0)
+                {
+                    var k = 0;
+                    if ("«“\"‘'".IndexOf(text[0]) >= 0)
+                    {
+                        k = 1;
+                        while (k < text.Length && (text[k] == ' ' || text[k] == ' ' || text[k] == ' ')) k++;
+                    }
+                    if (k < text.Length && char.IsLetterOrDigit(text[k])) capEnd = k + 1;
+                    else if (k + 1 < text.Length && char.IsHighSurrogate(text[k]) && char.IsLetter(text, k)) capEnd = k + 2;
+                }
+                if (_options.OpeningSmallCaps)
+                {
+                    int words = 0, end = 0, i = 0;
+                    while (i < text.Length && words < 4)
+                    {
+                        if (IsWordChar(text[i]))
+                        {
+                            while (i < text.Length && IsWordChar(text[i])) i++;
+                            words++;
+                            end = i;
+                            continue;
+                        }
+                        if (words > 0 && ".!?…:;".IndexOf(text[i]) >= 0) break;
+                        i++;
+                    }
+                    smallEnd = end;
+                }
+                smallEnd = Math.Max(smallEnd, capEnd);
+            }
+
+            private static void Span(StringBuilder sb, string text, string cssClass, string css)
+            {
+                if (text.Length == 0) return;
+                if (cssClass == null && css.Length == 0) { sb.Append(Esc(text)); return; }
+                sb.Append("<span");
+                if (cssClass != null) sb.Append(" class=\"").Append(cssClass).Append("\"");
+                if (css.Length > 0) sb.Append(" style=\"").Append(css).Append("\"");
+                sb.Append(">").Append(Esc(text)).Append("</span>");
+            }
+
+            private string Chapter(BinderItem item, int number, string title, List<string> partTitles, bool narrative)
             {
                 var document = Links.Strip(item.Document ?? new TextDocument());
                 var sb = new StringBuilder();
-                Head(sb, item.Title);
-                var type = _plan.IsBook && (item.IsExtraPage || item.IsToc)
+                Head(sb, title);
+                var type = !narrative
                     ? (ExtraPages.SectionOf(item) == ExtraPages.SectionFront ? "frontmatter" : "backmatter")
                     : "chapter";
                 sb.Append("<section epub:type=\"").Append(type).Append("\" id=\"ch").Append(number).Append("\">\n");
-                if (_options.ChapterHeadings) sb.Append("<h1 class=\"chapter\">").Append(Esc(item.Title)).Append("</h1>\n");
+                foreach (var part in partTitles) sb.Append("<h1 class=\"part\">").Append(Esc(part)).Append("</h1>\n");
+                if (_options.ChapterHeadings) sb.Append("<h1 class=\"chapter\">").Append(Esc(title)).Append("</h1>\n");
 
+                var opening = narrative && (_options.DropCaps || _options.OpeningSmallCaps) ? OpeningParagraph(document) : -1;
                 var notes = new List<Footnote>();
                 string openList = null;
-                foreach (var paragraph in document.Paragraphs)
+                for (var index = 0; index < document.Paragraphs.Count; index++)
                 {
+                    var paragraph = document.Paragraphs[index];
                     var list = paragraph.ListKind == "number" ? "ol" : paragraph.ListKind != null ? "ul" : null;
                     if (list != openList)
                     {
@@ -538,7 +754,7 @@ namespace Marabook.Exchange
                         if (list != null) sb.Append("<").Append(list).Append(">\n");
                         openList = list;
                     }
-                    ParagraphXhtml(sb, paragraph, document, list != null, notes);
+                    ParagraphXhtml(sb, paragraph, document, list != null, notes, index == opening);
                 }
                 if (openList != null) sb.Append("</").Append(openList).Append(">\n");
 
@@ -565,15 +781,18 @@ namespace Marabook.Exchange
                 return sb.ToString();
             }
 
-            private void ParagraphXhtml(StringBuilder sb, TextParagraph paragraph, TextDocument document, bool inList, List<Footnote> notes)
+            private void ParagraphXhtml(StringBuilder sb, TextParagraph paragraph, TextDocument document, bool inList, List<Footnote> notes, bool opening = false)
             {
+                int capEnd = 0, smallEnd = 0, offset = 0;
+                if (opening) OpeningRanges(paragraph, out capEnd, out smallEnd);
+                opening = smallEnd > 0;
                 // Un filet : un paragraphe à lui seul.
                 foreach (var run in paragraph.Runs)
                     if (run.IsRule) { sb.Append("<hr class=\"rule\"/>\n"); return; }
                 var style = _styles.Find(paragraph.StyleId);
                 var onlyImage = paragraph.Runs.Count == 1 && paragraph.Runs[0].ImageId != null;
                 var tag = inList ? "li" : "p";
-                sb.Append("<").Append(tag).Append(" class=\"").Append(onlyImage ? "figure" : ClassOf(style.Id)).Append("\"");
+                sb.Append("<").Append(tag).Append(" class=\"").Append(onlyImage ? "figure" : ClassOf(style.Id)).Append(opening ? " opening" : "").Append("\"");
                 var inline = new StringBuilder();
                 if (paragraph.AlignOverride != null)
                     inline.Append("text-align: ").Append(paragraph.AlignOverride == "justify" ? "justify" : paragraph.AlignOverride).Append("; ");
@@ -590,6 +809,7 @@ namespace Marabook.Exchange
                 var any = false;
                 foreach (var run in paragraph.Runs)
                 {
+                    if (PivotEdit.IsElement(run)) smallEnd = 0; // l'ouverture s'arrête au premier appel de note, saut de ligne ou image
                     if (run.IsLineBreak) { sb.Append("<br/>"); any = true; continue; }
                     if (run.ImageId != null)
                     {
@@ -609,7 +829,18 @@ namespace Marabook.Exchange
                     }
                     if (string.IsNullOrEmpty(run.Text)) continue;
                     var css = RunCss(run);
-                    if (css.Length > 0) sb.Append("<span style=\"").Append(css).Append("\">").Append(Esc(run.Text)).Append("</span>");
+                    var from = offset;
+                    offset += run.Text.Length;
+                    if (from < smallEnd)
+                    {
+                        // L'ouverture du chapitre (20/11) : la lettrine, puis les premiers mots en petites capitales.
+                        var cap = Math.Max(0, Math.Min(run.Text.Length, capEnd - from));
+                        var small = Math.Max(cap, Math.Min(run.Text.Length, smallEnd - from));
+                        Span(sb, run.Text.Substring(0, cap), "lettrine", css);
+                        Span(sb, run.Text.Substring(cap, small - cap), "ouverture", css);
+                        Span(sb, run.Text.Substring(small), null, css);
+                    }
+                    else if (css.Length > 0) sb.Append("<span style=\"").Append(css).Append("\">").Append(Esc(run.Text)).Append("</span>");
                     else sb.Append(Esc(run.Text));
                     any = true;
                 }

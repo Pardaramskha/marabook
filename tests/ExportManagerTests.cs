@@ -135,7 +135,7 @@ namespace Marabook.Tests
         private static void Presets(Harness t)
         {
             var builtIn = ExportPresets.BuiltIn();
-            t.Equal(9, builtIn.Count, "neuf préréglages de la maison");
+            t.Equal(10, builtIn.Count, "dix préréglages de la maison");
             var ids = new HashSet<string>();
             foreach (var preset in builtIn)
             {
@@ -143,7 +143,7 @@ namespace Marabook.Tests
                 t.Check(preset.BuiltIn && preset.Note.Length > 40, "« " + preset.Name + " » : de la maison, avec sa ligne d'explication");
                 t.Check(Array.IndexOf(ExportPresets.Categories, preset.Category) >= 0 && preset.Category != ExportPresets.CategoryCustom, "« " + preset.Name + " » : rangé dans une catégorie de la maison");
             }
-            t.Equal(9, ids.Count, "des identifiants tous distincts");
+            t.Equal(10, ids.Count, "des identifiants tous distincts");
             t.Equal("Document Word A4", ExportPresets.Find(builtIn, ExportPresets.WordA4).Name, "le premier : Document Word A4");
             t.Equal(ExportPages.Source, ExportPresets.Find(builtIn, ExportPresets.WordLayout).Pages, "Word mis en forme : la mise en page de chaque texte");
             t.Equal(ExportPresets.CategoryMixed, ExportPresets.Find(builtIn, ExportPresets.Bfp).Category, "le BFP : plusieurs types de documents");
@@ -179,7 +179,7 @@ namespace Marabook.Tests
             AppSettings.PathOverride = Path.Combine(dir, "settings.json");
             ExportPresetStore.Reset();
             t.Equal(0, ExportPresetStore.Custom.Count, "un dossier de réglages vierge : aucun préréglage personnalisé");
-            t.Equal(9, ExportPresetStore.All().Count, "…et les neuf de la maison");
+            t.Equal(10, ExportPresetStore.All().Count, "…et les dix de la maison");
             var options = BuiltIn(ExportPresets.PdfA4);
             options.TitlePage = true;
             var saved = ExportPresetStore.SaveAs(options, "  Mon PDF  ", "");
@@ -196,7 +196,7 @@ namespace Marabook.Tests
             t.Check(ExportPresetStore.Remove(saved.Id) && ExportPresetStore.Custom.Count == 0 && ExportPresetStore.LastId == null, "supprimé : il part, et le « dernier » avec lui");
             File.WriteAllText(ExportPresetStore.FilePath(), "{ ceci n'est pas du json");
             ExportPresetStore.Reset();
-            t.Equal(9, ExportPresetStore.All().Count, "un export.json illisible ne casse rien");
+            t.Equal(10, ExportPresetStore.All().Count, "un export.json illisible ne casse rien");
         }
 
         // ------------------------------------------------------------ plan
@@ -375,7 +375,7 @@ namespace Marabook.Tests
             var bfp = BuiltIn(ExportPresets.Bfp);
             var mixed = ExportFlow.Build(w.Project, ExportPlan.Build(w.Project, ids, bfp, null), bfp, null);
             var last = mixed[mixed.Count - 1];
-            t.Check(last.IsImage && last.Item == w.Plan && last.Marks[0].Title == "Plan du roman", "BFP : le plan fait un segment image, avec son signet");
+            t.Check(last.IsImage && last.Item == w.Plan && last.Marks[last.Marks.Count - 1].Title == "Plan du roman", "BFP : le plan fait un segment image, avec son signet");
 
             // BAT : le gabarit, les belles pages.
             var bat = BuiltIn(ExportPresets.Bat);
