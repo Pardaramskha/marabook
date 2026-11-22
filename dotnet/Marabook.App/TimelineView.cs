@@ -75,6 +75,15 @@ namespace Marabook.App
         private readonly Button _mode;               // « Mode : Frise ▾ » — un menu (14/11 soir, Rémi), plus deux boutons
         private readonly List<Control> _timelineOnly = new List<Control>();
         private bool _calendarMode;
+        // LA VUE LISTE et LE FILTRE PAR FICHE (20/11) : les événements un par ligne, cherchables ;
+        // « tout ce qui concerne Keira » vaut pour la frise, le calendrier et la liste.
+        private readonly TimelineList _list;
+        private bool _listMode;
+        private string _onlySheet;                   // l'id de la fiche filtrée ; null = toutes
+        private string _onlyTag;                     // le tag d'événement filtré (21/11) ; null = tous
+        /// <summary>Le lieu d'un événement demandé : la carte s'ouvre sur son repère ou sa zone.</summary>
+        public event Action<EventPlace> PlaceRequested;
+        private readonly Button _sheetButton;
         private bool _calendarPlaced;                // le calendrier a déjà son mois pour cette frise
         private DispatcherTimer _flashTimer;
 
@@ -107,7 +116,7 @@ namespace Marabook.App
         private TimelineView(bool embedded)
         {
             _embedded = embedded;
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
 
             // ================================================== en-tête
@@ -198,7 +207,7 @@ namespace Marabook.App
             _tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
             _tabsBar = new Border
             {
-                Background = Chrome.BarBg, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1),
+                [!Border.BackgroundProperty] = Skin.BarBinding, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1),
                 Padding = new Thickness(16, 6, 16, 6),
                 Child = new ScrollViewer
                 {
@@ -237,6 +246,10 @@ namespace Marabook.App
             ToolTip.SetTip(_typesButton, "Tous les types d'événement : les montrer, les masquer, les gérer");
             _typesButton.Click += delegate { Ui.ShowMenu(TypesMenu(), _typesButton); };
             modes.Children.Add(_typesButton);
+            _sheetButton = new Button { Padding = new Thickness(9, 0, 9, 0), Height = Buttons.Compact, MinHeight = Buttons.Compact, Focusable = false, Tag = "timeline-sheet-filter", Margin = new Thickness(0, 0, 10, 0) };
+            ToolTip.SetTip(_sheetButton, "Ne montrer que les événements qui concernent une fiche : elle leur est assignée, ou leur texte la cite");
+            _sheetButton.Click += delegate { Ui.ShowMenu(SheetMenu(), _sheetButton); };
+            modes.Children.Add(_sheetButton);
             DockPanel.SetDock(modes, Dock.Left);
             var filterRow = new DockPanel();
             filterRow.Children.Add(modes);
@@ -267,6 +280,27 @@ namespace Marabook.App
                 foreach (var entry in _events) if (ShownByType(entry)) shown.Add(entry);
                 return shown;
             };
+            _list = new TimelineList { IsVisible = false };
+            _list.Events = delegate
+            {
+                var shown = new List<TimelineEvent>();
+                foreach (var entry in _events) if (ShownByType(entry)) shown.Add(entry);
+                return Timelines.InOrder(_system, shown);
+            };
+            _list.Search = delegate(List<TimelineEvent> events, string query) { return Timelines.Search(_project, _system, _item == null ? null : _item.Timeline, events, query); };
+            _list.When = delegate(TimelineEvent entry) { return Timelines.WhenLabel(_system, entry); };
+            _list.TypeName = delegate(TimelineEvent entry) { var type = _item == null ? null : _item.Timeline.FindType(entry.TypeId); return type == null ? "" : type.Name; };
+            _list.ColorOf = delegate(TimelineEvent entry) { return _item == null ? Chrome.Accent.Color : ColorOf(_item.Timeline.FindType(entry.TypeId)); };
+            _list.Linked = delegate(TimelineEvent entry)
+            {
+                var linked = Timelines.ElementsLabel(_project, entry);
+                var place = Timelines.PlaceOf(_project, entry);
+                return place == null ? linked : linked.Length == 0 ? "lieu : " + place.Name : linked + "  ·  lieu : " + place.Name;
+            };
+            _list.Selected = delegate { return _selected; };
+            _list.Select = delegate(TimelineEvent entry) { _selected = entry; RefreshInspector(); };
+            _list.Edit = delegate(TimelineEvent entry) { EditEvent(entry); };
+            _list.Menu = MenuFor;
             _calendar.ColorOf = delegate(TimelineEvent entry) { return _item == null ? Chrome.Accent.Color : ColorOf(_item.Timeline.FindType(entry.TypeId)); };
             _calendar.Selected = delegate { return _selected; };
             _calendar.Select = delegate(TimelineEvent entry) { _selected = entry; RefreshInspector(); _calendar.Refresh(); };
@@ -279,6 +313,7 @@ namespace Marabook.App
             center.Children.Add(_surface);
             center.Children.Add(_empty);
             center.Children.Add(_calendar);
+            center.Children.Add(_list);
             // La compagne du parallélisme : sous la frise, de la même largeur.
             _peerTitle = new TextBlock { Foreground = Chrome.Ink, FontSize = 13, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             _peerHost = new Border { IsVisible = false, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 1, 0, 0), Tag = "timeline-peer" };
@@ -329,6 +364,9 @@ namespace Marabook.App
             {
                 _tab = -1;
                 _hidden.Clear();
+                _onlySheet = null;
+                _onlyTag = null;
+                _list.Query = "";
                 _selected = null;
                 _scrollY = 0;
                 _fitPending = true;
@@ -363,6 +401,10 @@ namespace Marabook.App
             _lifeProblems = life.Problems;
             _stats = Timelines.Stats(_system, _events);
             if (_tab >= _stats.Segments.Count) _tab = -1;
+            // La fiche du filtre a pu partir à la Corbeille, ou du projet.
+            if (_onlySheet != null && OnlySheet == null) _onlySheet = null;
+            // Le tag du filtre a pu quitter son dernier événement.
+            if (_onlyTag != null && !_events.Exists(delegate(TimelineEvent e) { return Timelines.HasTag(e, _onlyTag); })) _onlyTag = null;
             // La brique choisie est retrouvée par son id (une annulation remplace les objets).
             if (_selected != null)
             {
@@ -386,6 +428,7 @@ namespace Marabook.App
             _goTo.Watermark = "Aller à… (" + _system.Example() + ")";
             RebuildTabs();
             RebuildFilters();
+            UpdateSheetButton();
             ComputeRange();
             ClampView();
             Redraw();
@@ -407,12 +450,25 @@ namespace Marabook.App
         {
             if (on && _peer != null && !_embedded) SetParallel(null); // le calendrier montre un mois d'UNE frise
             _calendarMode = on;
+            if (on) _listMode = false;
             if (on && _item != null)
             {
                 _calendar.SetSystem(_system);
                 if (!_calendarPlaced) PlaceCalendar();
                 else _calendar.Refresh();
             }
+            ApplyMode();
+            Redraw();
+        }
+
+        public bool ListMode { get { return _listMode; } }
+
+        /// <summary>La vue Liste (20/11) : les événements un par ligne.</summary>
+        public void SetListMode(bool on)
+        {
+            if (on && _peer != null && !_embedded) SetParallel(null); // la liste est celle d'UNE frise
+            _listMode = on;
+            if (on) _calendarMode = false;
             ApplyMode();
             Redraw();
         }
@@ -437,15 +493,17 @@ namespace Marabook.App
         private void ApplyMode()
         {
             var face = new StackPanel { Orientation = Orientation.Horizontal };
-            var modeIcon = Icons.Make(_calendarMode ? CalendarIcon : TimelineIcon, 14, Chrome.Ink) as Control;
+            var modeIcon = Icons.Make(_listMode ? ListIcon : _calendarMode ? CalendarIcon : TimelineIcon, 14, Chrome.Ink) as Control;
             if (modeIcon != null) { modeIcon.VerticalAlignment = VerticalAlignment.Center; modeIcon.Margin = new Thickness(0, 0, 6, 0); face.Children.Add(modeIcon); }
-            face.Children.Add(new TextBlock { Text = _calendarMode ? "Calendrier" : "Frise", Foreground = Chrome.Ink, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            face.Children.Add(new TextBlock { Text = _listMode ? "Liste" : _calendarMode ? "Calendrier" : "Frise", Foreground = Chrome.Ink, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
             face.Children.Add(new TextBlock { Text = "▾", Foreground = Chrome.SoftText, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 0, 0) });
             _mode.Content = face;
             _calendar.IsVisible = _calendarMode;
-            _surface.IsVisible = !_calendarMode;
-            foreach (var control in _timelineOnly) control.IsVisible = !_calendarMode && !(_embedded && control == _minimap);
-            _tabsBar.IsVisible = !_calendarMode && _system.HasSegments && !_embedded && _peer == null;
+            _list.IsVisible = _listMode;
+            var axis = !_calendarMode && !_listMode;
+            _surface.IsVisible = axis;
+            foreach (var control in _timelineOnly) control.IsVisible = axis && !(_embedded && control == _minimap);
+            _tabsBar.IsVisible = axis && _system.HasSegments && !_embedded && _peer == null;
         }
 
         // ================================================== l'étendue, le parallélisme
@@ -511,6 +569,7 @@ namespace Marabook.App
                 return;
             }
             if (_calendarMode) SetCalendarMode(false);
+            if (_listMode) SetListMode(false);
             if (_peer == null)
             {
                 _peer = new TimelineView(true);
@@ -593,25 +652,130 @@ namespace Marabook.App
         }
 
         // L'icône d'une frise dans la Pile ; celle des fiches Événement.
-        private const string TimelineIcon = "frise", CalendarIcon = "fiche-evenement";
+        private const string TimelineIcon = "frise", CalendarIcon = "fiche-evenement", ListIcon = "list-bullets";
+
+        /// <summary>0 = Frise, 1 = Calendrier, 2 = Liste.</summary>
+        private int ModeIndex { get { return _calendarMode ? 1 : _listMode ? 2 : 0; } }
+
+        private void ApplyModeIndex(int mode)
+        {
+            if (mode == 1) SetCalendarMode(true);
+            else if (mode == 2) SetListMode(true);
+            else { _listMode = false; SetCalendarMode(false); }
+        }
+
+        /// <summary>Le mode choisi À LA MAIN : un écran de plus dans l'historique —
+        /// « Précédent » rend celui d'avant (21/11, Rémi).</summary>
+        internal void ChooseMode(int mode)
+        {
+            var before = ModeIndex;
+            if (before == mode) return;
+            ApplyModeIndex(mode);
+            ScreenSteps.Record(this, delegate { ApplyModeIndex(before); }, delegate { ApplyModeIndex(mode); });
+        }
 
         private ContextMenu ModeMenu()
         {
             var menu = new ContextMenu();
             var timeline = new MenuItem { Header = "Frise", Icon = Icons.Make(TimelineIcon, 14, Chrome.Ink), Tag = "timeline-mode-timeline" };
-            timeline.Click += delegate { SetCalendarMode(false); };
+            timeline.Click += delegate { ChooseMode(0); };
             var calendar = new MenuItem { Header = "Calendrier", Icon = Icons.Make(CalendarIcon, 14, Chrome.Ink), Tag = "timeline-mode-calendar" };
-            calendar.Click += delegate { SetCalendarMode(true); };
+            calendar.Click += delegate { ChooseMode(1); };
+            var list = new MenuItem { Header = "Liste", Icon = Icons.Make(ListIcon, 14, Chrome.Ink), Tag = "timeline-mode-list" };
+            list.Click += delegate { ChooseMode(2); };
             menu.Items.Add(timeline);
             menu.Items.Add(calendar);
+            menu.Items.Add(list);
             return menu;
         }
 
         /// <summary>Le filtre des types seul (le calendrier ignore l'onglet d'ère : il a sa propre navigation).</summary>
         private bool ShownByType(TimelineEvent entry)
         {
+            if (!ConcernsChosen(entry)) return false;
             return entry.TypeId == null || !_hidden.Contains(entry.TypeId);
         }
+
+        // ================================================== le filtre par fiche (20/11)
+
+        /// <summary>La fiche du filtre, ou null (aucun filtre, ou fiche disparue).</summary>
+        private BinderItem OnlySheet
+        {
+            get
+            {
+                if (_onlySheet == null || _project == null) return null;
+                var sheet = _project.FindById(_onlySheet);
+                if (sheet == null || sheet.Kind != ItemKind.Sheet) return null;
+                var root = sheet.RootCategory();
+                return root != null && root.CategoryKey == Project.KeyTrash ? null : sheet;
+            }
+        }
+
+        private bool ConcernsChosen(TimelineEvent entry)
+        {
+            if (_onlyTag != null && !Timelines.HasTag(entry, _onlyTag)) return false;
+            if (_onlySheet == null) return true;
+            var sheet = OnlySheet;
+            return sheet == null || Timelines.Concerns(entry, sheet);
+        }
+
+        /// <summary>« Tout ce qui concerne Keira » : null rend toutes les fiches.</summary>
+        public void SetSheetFilter(BinderItem sheet)
+        {
+            _onlySheet = sheet == null ? null : sheet.Id;
+            if (_selected != null && !ConcernsChosen(_selected)) _selected = null;
+            UpdateSheetButton();
+            if (_calendarMode) _calendar.Refresh();
+            Redraw();
+            RefreshInspector();
+        }
+
+        public BinderItem SheetFilter { get { return OnlySheet; } }
+
+        private void UpdateSheetButton()
+        {
+            var sheet = OnlySheet;
+            var face = new StackPanel { Orientation = Orientation.Horizontal };
+            face.Children.Add(new TextBlock
+            {
+                Text = sheet == null ? "Fiche : toutes" : "Fiche : " + sheet.Title, MaxWidth = 220, TextTrimming = TextTrimming.CharacterEllipsis,
+                Foreground = sheet != null ? Chrome.AccentStrong : Chrome.Ink, FontWeight = sheet != null ? FontWeight.SemiBold : FontWeight.Normal, FontSize = 13, VerticalAlignment = VerticalAlignment.Center
+            });
+            var caret = Icons.Make("caret-down-bold", 10, Chrome.SoftText);
+            caret.Margin = new Thickness(7, 1, 0, 0);
+            face.Children.Add(caret);
+            _sheetButton.Content = face;
+        }
+
+        /// <summary>Le menu du filtre : « Toutes les fiches », puis chaque fiche
+        /// que des événements de la frise concernent, avec son compte.</summary>
+        private ContextMenu SheetMenu()
+        {
+            var menu = new ContextMenu();
+            if (_item == null) return menu;
+            var all = new MenuItem { Header = "Toutes les fiches", Tag = "timeline-sheet-all", IsEnabled = _onlySheet != null };
+            all.Click += delegate { SetSheetFilter(null); };
+            menu.Items.Add(all);
+            var counts = Timelines.SheetsConcerned(_project, _events);
+            if (counts.Count == 0)
+            {
+                menu.Items.Add(new MenuItem { Header = "Aucun événement n'est assigné à une fiche, ni n'en cite une", IsEnabled = false });
+                return menu;
+            }
+            menu.Items.Add(new Separator());
+            foreach (var count in counts)
+            {
+                var captured = count.Sheet;
+                var entry = new MenuItem { Header = count.Sheet.Title + "   " + count.Count + (count.Sheet.Id == _onlySheet ? "   (filtre en cours)" : ""), Tag = "timeline-sheet-item" };
+                entry.Click += delegate { SetSheetFilter(captured); };
+                menu.Items.Add(entry);
+            }
+            return menu;
+        }
+
+        internal string SheetFilterLabelForProbe { get { var face = _sheetButton.Content as StackPanel; return face == null ? null : ((TextBlock)face.Children[0]).Text; } }
+        internal List<string> SheetMenuForProbe() { var names = new List<string>(); foreach (var item in SheetMenu().Items) { var entry = item as MenuItem; if (entry != null && Equals(entry.Tag, "timeline-sheet-item")) names.Add(entry.Header as string); } return names; }
+        internal TimelineList ListForProbe { get { return _list; } }
 
         public void OnThemeChanged() { Redraw(); if (_item != null) { RebuildFilters(); RefreshInspector(); } }
 
@@ -628,7 +792,8 @@ namespace Marabook.App
 
         private void Redraw()
         {
-            _empty.IsVisible = _item != null && _events.Count == 0 && !_calendarMode;
+            _empty.IsVisible = _item != null && _events.Count == 0 && !_calendarMode && !_listMode;
+            if (_listMode) _list.Refresh();
             _surface.Relayout();
             _surface.InvalidateVisual();
             _minimap.InvalidateVisual();
@@ -761,8 +926,8 @@ namespace Marabook.App
             var shown = 0;
             foreach (var type in types) if (!_hidden.Contains(type.Id)) shown++;
             var face = new StackPanel { Orientation = Orientation.Horizontal };
-            var filtered = shown < types.Count;
-            face.Children.Add(new TextBlock { Text = "Types  " + shown + "/" + types.Count, Foreground = filtered ? Chrome.AccentStrong : Chrome.Ink, FontWeight = filtered ? FontWeight.SemiBold : FontWeight.Normal, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            var filtered = shown < types.Count || _onlyTag != null;
+            face.Children.Add(new TextBlock { Text = "Types  " + shown + "/" + types.Count + (_onlyTag == null ? "" : "  ·  #" + _onlyTag), MaxWidth = 260, TextTrimming = TextTrimming.CharacterEllipsis, Foreground = filtered ? Chrome.AccentStrong : Chrome.Ink, FontWeight = filtered ? FontWeight.SemiBold : FontWeight.Normal, FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
             var caret = Icons.Make("caret-down-bold", 10, Chrome.SoftText);
             caret.Margin = new Thickness(7, 1, 0, 0);
             face.Children.Add(caret);
@@ -796,6 +961,25 @@ namespace Marabook.App
             var none = new MenuItem { Header = "Tout masquer", Tag = "timeline-types-none" };
             none.Click += delegate { foreach (var type in types) _hidden.Add(type.Id); RebuildFilters(); Redraw(); RefreshInspector(); };
             menu.Items.Add(none);
+            // Les tags d'événement (21/11) : le sous-menu n'existe que si la frise en porte.
+            var tags = Timelines.TagsOf(_events);
+            if (tags.Count > 0)
+            {
+                menu.Items.Add(new Separator());
+                var byTag = new MenuItem { Header = _onlyTag == null ? "Ne montrer qu'un tag" : "Tag : #" + _onlyTag, Tag = "timeline-tags" };
+                var every = new MenuItem { Header = "Tous les tags", IsEnabled = _onlyTag != null, Tag = "timeline-tag-all" };
+                every.Click += delegate { SetTagFilter(null); };
+                byTag.Items.Add(every);
+                byTag.Items.Add(new Separator());
+                foreach (var count in tags)
+                {
+                    var captured = count.Tag;
+                    var entry = new MenuItem { Header = "#" + count.Tag + "   " + count.Count + (Timelines.HasTag(new TimelineEvent { Tags = new List<string> { _onlyTag ?? "" } }, count.Tag) ? "   (filtre en cours)" : ""), Tag = "timeline-tag-item" };
+                    entry.Click += delegate { SetTagFilter(captured); };
+                    byTag.Items.Add(entry);
+                }
+                menu.Items.Add(byTag);
+            }
             menu.Items.Add(new Separator());
             var manage = new MenuItem { Header = "Gérer les types…", Tag = "timeline-types-manage" };
             manage.Click += async delegate
@@ -807,6 +991,50 @@ namespace Marabook.App
             menu.Items.Add(manage);
             return menu;
         }
+
+        /// <summary>« Seulement #guerre » : null rend tous les tags.</summary>
+        public void SetTagFilter(string tag)
+        {
+            _onlyTag = string.IsNullOrWhiteSpace(tag) ? null : tag.Trim();
+            if (_selected != null && !ConcernsChosen(_selected)) _selected = null;
+            UpdateTypesButton();
+            if (_calendarMode) _calendar.Refresh();
+            Redraw();
+            RefreshInspector();
+        }
+
+        internal string TagFilterForProbe { get { return _onlyTag; } }
+        internal List<string> TagMenuForProbe()
+        {
+            var names = new List<string>();
+            foreach (var item in TypesMenu().Items)
+            {
+                var entry = item as MenuItem;
+                if (entry == null || !Equals(entry.Tag, "timeline-tags")) continue;
+                foreach (var sub in entry.Items) { var leaf = sub as MenuItem; if (leaf != null && Equals(leaf.Tag, "timeline-tag-item")) names.Add(leaf.Header as string); }
+            }
+            return names;
+        }
+        internal List<string> CardTextsForProbe()
+        {
+            var texts = new List<string>();
+            CollectTexts(_inspector, texts);
+            return texts;
+        }
+        private static void CollectTexts(Control control, List<string> texts)
+        {
+            var text = control as TextBlock;
+            if (text != null) { if (!string.IsNullOrEmpty(text.Text)) texts.Add(text.Text); return; }
+            var button = control as Button;
+            if (button != null && button.Content is string) { texts.Add((string)button.Content); return; }
+            var content = control as ContentControl;
+            if (content != null && content.Content is Control) { CollectTexts((Control)content.Content, texts); return; }
+            var border = control as Border;
+            if (border != null && border.Child != null) { CollectTexts(border.Child, texts); return; }
+            var panel = control as Panel;
+            if (panel != null) foreach (var child in panel.Children) CollectTexts(child, texts);
+        }
+        internal void RequestPlaceForProbe(TimelineEvent entry) { OpenPlace(entry); }
 
         internal string TypesLabelForProbe { get { var face = _typesButton.Content as StackPanel; return face == null ? null : ((TextBlock)face.Children[0]).Text; } }
         internal int TypesMenuCountForProbe() { var n = 0; foreach (var item in TypesMenu().Items) if (item is MenuItem && Equals(((MenuItem)item).Tag, "timeline-types-item")) n++; return n; }
@@ -827,6 +1055,7 @@ namespace Marabook.App
         {
             if (entry.Start == null || entry.IsPending) return false;
             if (entry.TypeId != null && _hidden.Contains(entry.TypeId)) return false;
+            if (!ConcernsChosen(entry)) return false;
             if (!SegmentOnly) return true;
             var segment = _stats.Segments[_tab];
             return Timelines.StartOf(_system, entry) < segment.Start + segment.Length && Timelines.EndOf(_system, entry) > segment.Start;
@@ -980,7 +1209,9 @@ namespace Marabook.App
             var entry = _events.Find(delegate(TimelineEvent e) { return e.Id == eventId; });
             if (entry == null) return;
             if (entry.TypeId != null && _hidden.Remove(entry.TypeId)) RebuildFilters();
+            if (!ConcernsChosen(entry)) { _onlySheet = null; _onlyTag = null; UpdateSheetButton(); UpdateTypesButton(); }
             _selected = entry;
+            if (_listMode) _list.Refresh();
             if (SegmentOnly && !Shown(entry)) { _tab = -1; RebuildTabs(); ComputeRange(); }
             if (_surface.Bounds.Width > 0) CenterOn((Timelines.StartOf(_system, entry) + Timelines.EndOf(_system, entry)) / 2);
             RefreshInspector();
@@ -1115,20 +1346,42 @@ namespace Marabook.App
             if (target != null && handler != null) handler(target);
         }
 
+        private void OpenElement(BinderItem target)
+        {
+            var handler = NavigateRequested;
+            if (target != null && handler != null) handler(target);
+        }
+
+        /// <summary>Le lieu de l'événement : sa carte s'ouvre, le repère ou la zone choisis.</summary>
+        private void OpenPlace(TimelineEvent entry)
+        {
+            var place = Timelines.PlaceOf(_project, entry);
+            var handler = PlaceRequested;
+            if (place != null && handler != null) handler(place);
+        }
+
         private ContextMenu MenuFor(TimelineEvent entry, TimePoint at)
         {
             var menu = new ContextMenu();
             if (entry != null)
             {
-                var target = _project == null ? null : _project.FindById(entry.LinkId);
                 var edit = new MenuItem { Header = entry.Derived ? "Modifier la date…" : "Modifier…" };
                 edit.Click += delegate { EditEvent(entry); };
                 menu.Items.Add(edit);
-                if (target != null)
+                var targets = Timelines.ElementsOf(_project, entry);
+                for (var i = 0; i < targets.Count && i < 8; i++)
                 {
+                    var target = targets[i];
                     var open = new MenuItem { Header = "Ouvrir « " + target.Title + " »" };
-                    open.Click += delegate { OpenAssigned(entry); };
+                    open.Click += delegate { OpenElement(target); };
                     menu.Items.Add(open);
+                }
+                var where = Timelines.PlaceOf(_project, entry);
+                if (where != null)
+                {
+                    var show = new MenuItem { Header = "Voir « " + where.Name + " » sur la carte", Tag = "timeline-event-place" };
+                    show.Click += delegate { OpenPlace(entry); };
+                    menu.Items.Add(show);
                 }
                 AddCalculator(menu, entry.Start);
                 if (entry.Derived) return menu;
@@ -1310,15 +1563,34 @@ namespace Marabook.App
                 var weekDay = entry.IsSpan ? null : _system.WeekDayOf(entry.Start);
                 if (weekDay != null) card.Children.Add(Line("Jour :", weekDay));
                 if (type != null) card.Children.Add(Line("Type :", type.Name));
-                var target = _project == null ? null : _project.FindById(entry.LinkId);
-                if (target != null)
+                // Les éléments reliés (un bouton chacun), les âges des fiches datées, le lieu, les tags.
+                var links = Timelines.LinksOf(entry);
+                var ages = Timelines.AgesOf(_project, _system, entry);
+                foreach (var link in links)
                 {
-                    var open = Buttons.IconText("arrow-up-right-bold", TimelineLinks.Label(entry.LinkKind) + " : " + target.Title, "Ouvrir l'élément assigné à cet événement", Buttons.Compact, Buttons.Look.Outline);
+                    var target = _project == null ? null : _project.FindById(link.Id);
+                    if (target == null) continue;
+                    var age = ages.Find(delegate(EventAge a) { return ReferenceEquals(a.Sheet, target); });
+                    var open = Buttons.IconText("arrow-up-right-bold", TimelineLinks.Label(link.Kind) + " : " + target.Title + (age == null ? "" : "  ·  " + age.Label),
+                        age == null ? "Ouvrir cet élément relié à l'événement" : "Ouvrir cette fiche. Son âge est compté à la date de l'événement, depuis sa date de naissance.", Buttons.Compact, Buttons.Look.Outline);
                     open.HorizontalAlignment = HorizontalAlignment.Left;
-                    open.Margin = new Thickness(0, 4, 0, 4);
-                    open.Click += delegate { OpenAssigned(entry); };
+                    open.Margin = new Thickness(0, 4, 0, 0);
+                    open.Tag = "timeline-selected-element";
+                    open.Click += delegate { OpenElement(target); };
                     card.Children.Add(open);
                 }
+                var where = Timelines.PlaceOf(_project, entry);
+                if (where != null)
+                {
+                    var show = Buttons.IconText("pile-cartes", "Lieu : " + where.Label, "Ouvrir la carte sur ce lieu", Buttons.Compact, Buttons.Look.Outline);
+                    show.HorizontalAlignment = HorizontalAlignment.Left;
+                    show.Margin = new Thickness(0, 4, 0, 0);
+                    show.Tag = "timeline-selected-place";
+                    show.Click += delegate { OpenPlace(entry); };
+                    card.Children.Add(show);
+                }
+                if (entry.Tags != null && entry.Tags.Count > 0)
+                    card.Children.Add(new TextBlock { Text = "#" + string.Join("  #", entry.Tags.ToArray()), FontSize = 12, Foreground = Chrome.SoftText, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0), Tag = "timeline-selected-tags" });
                 if (!string.IsNullOrEmpty(entry.Description))
                     card.Children.Add(new TextBlock { Text = entry.Description, FontSize = 12, Foreground = Chrome.Ink, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 4) });
                 if (entry.Derived)
@@ -1387,6 +1659,7 @@ namespace Marabook.App
         internal bool SurfaceHasTipForProbe { get { return ToolTip.GetTip(_surface) != null; } }
         internal void SelectForProbe(string eventId) { SelectEvent(eventId); }
         internal void DeleteSelectedForProbe() { if (_selected != null) DeleteEvent(_selected); }
+        internal TimelineEvent SelectedEventForProbe { get { return _selected; } }
         /// <summary>Le couloir de chaque brique posée, par id — de gauche à droite.</summary>
         internal List<KeyValuePair<string, int>> LanesForProbe() { return _surface.Lanes(); }
         internal bool InspectorHasTagForProbe(string tag)
@@ -1675,7 +1948,7 @@ namespace Marabook.App
                     {
                         var type = owner._item.Timeline.FindType(entry.TypeId);
                         var title = string.IsNullOrEmpty(entry.Title) ? "(sans titre)" : entry.Title;
-                        if (!entry.Derived && entry.LinkId != null && owner._project != null && owner._project.FindById(entry.LinkId) != null) title += "  ↗";
+                        if (!entry.Derived && owner._project != null && Timelines.ElementsOf(owner._project, entry).Count > 0) title += "  ↗";
                         var placed = new Placed
                         {
                             Event = entry, X1 = X(Timelines.StartOf(system, entry)), X2 = X(Timelines.EndOf(system, entry)),

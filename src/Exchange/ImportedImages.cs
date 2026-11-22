@@ -26,6 +26,39 @@ namespace Marabook.Exchange
 
         /// <summary>Les images laissées de côté (format illisible ou entrée absente).</summary>
         public int Skipped;
+
+        /// <summary>QUI ÉCOUTE LES IMAGES LAISSÉES DE CÔTÉ (21/11). Un import
+        /// écartait en silence les formats que Marabook n'affiche pas (EMF et
+        /// WMF, les dessins vectoriels de Windows ; SVG) : le document
+        /// arrivait troué sans un mot. L'appelant pose ici de quoi recevoir
+        /// le nom de chaque image écartée, puis le DIT à l'auteur.</summary>
+        [ThreadStatic] public static Action<string> SkippedSink;
+
+        internal static void ReportSkipped(string name)
+        {
+            var sink = SkippedSink;
+            if (sink != null && !string.IsNullOrEmpty(name)) sink(Path.GetFileName(name.Replace('\\', '/')));
+        }
+
+        /// <summary>« 2 images EMF, 1 image SVG » : les images écartées, comptées par format.</summary>
+        public static string Describe(IEnumerable<string> names)
+        {
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            if (names != null)
+                foreach (var name in names)
+                {
+                    var extension = Path.GetExtension(name ?? "").TrimStart('.').ToUpperInvariant();
+                    if (extension.Length == 0) extension = "inconnu";
+                    int count;
+                    counts[extension] = counts.TryGetValue(extension, out count) ? count + 1 : 1;
+                }
+            var parts = new List<string>();
+            foreach (var pair in counts) parts.Add(pair.Value + (pair.Value > 1 ? " images " : " image ") + (pair.Key == "inconnu" ? "de format inconnu" : pair.Key));
+            return string.Join(", ", parts.ToArray());
+        }
+
+        /// <summary>Ce qu'on dit à l'auteur des formats écartés, et quoi faire.</summary>
+        public const string SkippedAdvice = "Marabook n'affiche pas ces formats (EMF et WMF sont des dessins vectoriels de Windows). Dans le logiciel d'origine, enregistrez ces images en PNG ou en JPEG puis réimportez le document — ou ajoutez-les ensuite à la main dans l'écrit.";
         /// <summary>Les images stockées (distinctes).</summary>
         public int Stored;
 
@@ -49,6 +82,7 @@ namespace Marabook.Exchange
             var extension = Path.GetExtension(entryName).ToLowerInvariant();
             if (entry == null || Array.IndexOf(Supported, extension) < 0)
             {
+                if (entry != null) ReportSkipped(entryName); // un format qu'on n'affiche pas : dit à l'auteur (21/11)
                 Skipped++;
                 _byEntry[entryName] = null;
                 return null;

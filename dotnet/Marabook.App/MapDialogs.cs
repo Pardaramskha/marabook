@@ -319,7 +319,14 @@ namespace Marabook.App
     /// <summary>Une zone ou un repère : son nom, sa couleur, la fiche liée, et à quel zoom il paraît.</summary>
     internal sealed class MapShapeDialog : Window
     {
-        public static readonly string[] Palette = { "#5B67D8", "#C0504D", "#3E9C7A", "#B5843A", "#8E6BBF", "#0E7C7B", "#D9603A", "#6B7280" };
+        public static readonly string[] Palette = HexOf(ColorPalette.Maps); // le nuancier des cartes, nommé dans la palette (22/11)
+
+        internal static string[] HexOf(PaletteColor[] colors)
+        {
+            var list = new string[colors.Length];
+            for (var i = 0; i < colors.Length; i++) list[i] = colors[i].Hex;
+            return list;
+        }
 
         private readonly Project _project;
         private readonly TextBox _name;
@@ -396,6 +403,7 @@ namespace Marabook.App
         {
             _swatches.Children.Clear();
             var colors = new List<string>(Palette);
+            foreach (var custom in ColorMenus.Customs(null)) if (!colors.Exists(delegate(string c) { return string.Equals(c, custom, StringComparison.OrdinalIgnoreCase); })) colors.Add(custom); // la palette de l'auteur (22/11)
             if (!colors.Exists(delegate(string c) { return string.Equals(c, _color, StringComparison.OrdinalIgnoreCase); })) colors.Add(_color);
             foreach (var value in colors)
             {
@@ -406,7 +414,8 @@ namespace Marabook.App
                 var swatch = new Border
                 {
                     Width = 24, Height = 24, CornerRadius = new CornerRadius(12), Background = new SolidColorBrush(parsed),
-                    BorderBrush = chosen ? Chrome.Ink : Chrome.Border, BorderThickness = new Thickness(chosen ? 2.5 : 1), Cursor = new Cursor(StandardCursorType.Hand)
+                    BorderBrush = chosen ? Chrome.Ink : Chrome.Border, BorderThickness = new Thickness(chosen ? 2.5 : 1), Cursor = new Cursor(StandardCursorType.Hand),
+                    [ToolTip.TipProperty] = ColorPalette.Describe(color)
                 };
                 swatch.PointerPressed += delegate { _color = color; FillSwatches(); };
                 _swatches.Children.Add(swatch);

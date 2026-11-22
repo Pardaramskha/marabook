@@ -26,6 +26,7 @@ namespace Marabook.App
                 if (_sheetLibrary.IsVisible) _sheetLibrary.RefreshEpoch();
             };
             _timelineView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _timelineView.PlaceRequested += OpenEventPlace;
             _timelineView.RenameRequested += delegate
             {
                 if (_current == null || _current.Kind != ItemKind.Timeline) return;
@@ -198,6 +199,52 @@ namespace Marabook.App
             if (_calculatorPanel != null && HasCalculatorPanel) _calculatorPanel.Reload(); // ses systèmes ont pu changer
             UpdateInspector();
             UpdateStats();
+        }
+
+        /// <summary>Un rétrolien cliqué (20/11) : ce qui cite la fiche s'ouvre
+        /// à l'endroit précis — l'événement choisi dans sa frise, le repère
+        /// ou la zone sur sa carte, l'arbre de la fiche parente.</summary>
+        internal void OpenBacklink(Backlink link)
+        {
+            if (link == null || link.Item == null || _project == null || _project.FindById(link.Item.Id) == null) return;
+            _binder.SelectItem(link.Item.Id);
+            if (link.Group == Backlink.Events && link.RefId != null)
+                Ui.Post(Avalonia.Threading.DispatcherPriority.Background, delegate { if (ReferenceEquals(_current, link.Item)) _timelineView.SelectEvent(link.RefId); });
+            else if (link.Group == Backlink.Maps && link.RefId != null && link.Item.Map != null)
+                Ui.Post(Avalonia.Threading.DispatcherPriority.Background, delegate
+                {
+                    if (!ReferenceEquals(_current, link.Item)) return;
+                    MapZone zone = null;
+                    MapMarker marker = null;
+                    foreach (var candidate in link.Item.Map.Markers) if (candidate.Id == link.RefId) marker = candidate;
+                    foreach (var candidate in link.Item.Map.Zones) if (candidate.Id == link.RefId) zone = candidate;
+                    if (zone != null || marker != null) _mapView.Select(zone, marker);
+                });
+            else if (link.Group == Backlink.Trees)
+                Ui.Post(Avalonia.Threading.DispatcherPriority.Background, delegate { if (ReferenceEquals(_current, link.Item)) _sheetView.ShowGenealogyForBacklink(); });
+        }
+
+        /// <summary>Le lieu d'un événement (21/11) : sa carte s'ouvre, le repère
+        /// ou la zone choisis.</summary>
+        internal void OpenEventPlace(EventPlace place)
+        {
+            if (place == null || place.Map == null || _project == null || _project.FindById(place.Map.Id) == null) return;
+            _binder.SelectItem(place.Map.Id);
+            Ui.Post(Avalonia.Threading.DispatcherPriority.Background, delegate
+            {
+                if (!ReferenceEquals(_current, place.Map) || place.Map.Map == null) return;
+                var marker = place.Marker == null ? null : place.Map.Map.FindMarker(place.Marker.Id);
+                var zone = place.Zone == null ? null : place.Map.Map.FindZone(place.Zone.Id);
+                if (zone != null || marker != null) _mapView.Reveal(zone, marker); // zoomé, filtres rallumés, zones alentour éclairées (21/11)
+            });
+        }
+
+        /// <summary>Depuis une carte : l'événement posé sur un lieu s'ouvre dans sa frise.</summary>
+        internal void OpenEventOfPlace(BinderItem timeline, string eventId)
+        {
+            if (timeline == null || _project == null || _project.FindById(timeline.Id) == null) return;
+            _binder.SelectItem(timeline.Id);
+            Ui.Post(Avalonia.Threading.DispatcherPriority.Background, delegate { if (ReferenceEquals(_current, timeline)) _timelineView.SelectEvent(eventId); });
         }
 
         /// <summary>Un lien de date cliqué : sa frise s'ouvre, à cette date.</summary>

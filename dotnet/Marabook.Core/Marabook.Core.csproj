@@ -41,4 +41,10 @@
     <Compile Include="..\..\src\Exchange\**\*.cs" Link="Exchange\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Le profil ICC de la condition d'impression (21/11/2026) : ISO Coated v2 de basICColor, licence zlib (assets/icc/LICENCE-basICColor.txt). -->
+    <EmbeddedResource Include="..\..\assets\icc\ISOcoated_v2_bas.ICC" LogicalName="icc/ISOcoated_v2_bas.ICC" />
+    <EmbeddedResource Include="..\..\assets\icc\LICENCE-basICColor.txt" LogicalName="icc/LICENCE-basICColor.txt" />
+  </ItemGroup>
+
 </Project>

@@ -14,7 +14,7 @@ namespace Marabook.Tests
         // Score mesuré à la création du harnais (batch 24) : 446 coupures
         // justes, 25 fautives, 22 manquées → 421. Toute régression sous ce
         // plancher échoue ; toute amélioration doit le relever.
-        public const int ScoreFloor = 464; // 09/10 : groupes de consonnes, x intervocalique, finales muettes (421 avant)
+        public const int ScoreFloor = 465; // 20/11 : motifs de Liang en renfort (464 avant) ; // 09/10 : groupes de consonnes, x intervocalique, finales muettes (421 avant)
 
         private static string Mark(string word, List<int> cuts)
         {
@@ -60,6 +60,11 @@ namespace Marabook.Tests
                     if (!same) Console.WriteLine("    " + entry.PadRight(34) + " obtenu : " + Mark(word, produced));
                 }
             }
+
+            var explore = Environment.GetEnvironmentVariable("MARABOOK_HYPHEN_WORDS");
+            if (!string.IsNullOrEmpty(explore))
+                foreach (var word in explore.Split(' '))
+                    Console.WriteLine("    > " + word.PadRight(22) + Mark(word, FrenchHyphenator.BreakPoints(word, 5, 2, 3)));
 
             var score = correct - faulty;
             t.Info("coupures justes : " + correct + " · fautives : " + faulty

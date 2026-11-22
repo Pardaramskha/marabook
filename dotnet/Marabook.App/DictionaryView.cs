@@ -38,7 +38,7 @@ namespace Marabook.App
 
         public DictionaryView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
 
             // La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de

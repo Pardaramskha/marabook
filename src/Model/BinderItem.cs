@@ -107,6 +107,11 @@ namespace Marabook.Model
         // seul — ni dans le projet, ni globalement. Vide = rien.
         public List<string> ProofIgnored = new List<string>();
 
+        // LES FICHES DE SCÈNE d'un écrit (2.0.0, 21/11, clé "scenes") : une par
+        // scène, dans l'ordre du texte — le découpage suit les séparateurs de
+        // scène (Scenes). Vide = rien de renseigné.
+        public List<SceneMeta> Scenes = new List<SceneMeta>();
+
         // L'OBJECTIF et la LIMITE d'un écrit (1.1.0, v41) : un nombre et son
         // unité (TextGoal.Words, Chars, Pages). 0 = aucun. L'objectif se
         // remplit à mesure qu'on écrit (Général du rail) ; la limite dépassée
@@ -220,6 +225,7 @@ namespace Marabook.Model
                 FieldValues = new Dictionary<string, string>(FieldValues),
                 RadarValues = new Dictionary<string, double>(RadarValues),
                 Tags = new List<string>(Tags),
+                Scenes = Marabook.Model.Scenes.CloneAll(Scenes),
                 Goal = Goal,
                 GoalUnit = GoalUnit,
                 Limit = Limit,

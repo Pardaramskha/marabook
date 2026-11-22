@@ -59,7 +59,7 @@ namespace Marabook.App
 
         public JournalView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             LastChildFill = true;
 
             // ---- entête (hors onglets, ne défile pas) ----

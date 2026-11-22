@@ -27,7 +27,7 @@ namespace Marabook.App
 
         public MapsHubView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
             var head = new Border { Background = Chrome.BarBgLight, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(16, 8, 16, 8) };
             SetDock(head, Dock.Top);

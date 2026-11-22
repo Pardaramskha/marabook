@@ -127,9 +127,9 @@ namespace Marabook.App
 
         public GraphView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             foreach (GraphEdgeKind kind in Enum.GetValues(typeof(GraphEdgeKind)))
-                _kinds[kind] = kind == GraphEdgeKind.Relation || kind == GraphEdgeKind.Wiki || kind == GraphEdgeKind.Tag;
+                _kinds[kind] = kind == GraphEdgeKind.Relation || kind == GraphEdgeKind.Wiki || kind == GraphEdgeKind.Tag || kind == GraphEdgeKind.Field;
 
             // L'en-tête : le titre à gauche, les facettes calées tout à droite
             // (31/10, Rémi), les filtres de la matrice dessous.
@@ -159,7 +159,22 @@ namespace Marabook.App
             export.Tag = "graph-export";
             export.Click += async delegate { await Export(); };
             actions.Children.Add(export);
+            // LES FORCES (21/11) : trois curseurs dans un volet replié — la carte se redispose quand on lâche.
+            var forces = Buttons.Icon("gear-six-bold", "Les forces de la disposition : écartement, répulsion, gravité", Buttons.Compact, Buttons.Look.Calm);
+            forces.Tag = "graph-forces";
+            actions.Children.Add(forces);
             ToolsPanel.Children.Add(actions);
+            _forcesPanel = new StackPanel { IsVisible = false, Margin = new Thickness(0, 4, 0, 4), Tag = "graph-forces-panel" };
+            _forceSpacing = ForceSlider("Écartement", Marabook.Settings.AppSettings.GraphSpacing, "La distance entre deux nœuds reliés : plus haut, la carte respire ; plus bas, elle se resserre");
+            _forceRepulsion = ForceSlider("Répulsion", Marabook.Settings.AppSettings.GraphRepulsion, "Ce qui écarte les nœuds les uns des autres : plus haut, les grappes s'ouvrent");
+            _forceGravity = ForceSlider("Gravité", Marabook.Settings.AppSettings.GraphGravity, "Ce qui ramène tout vers le centre : plus haut, les îlots isolés se rapprochent");
+            var resetForces = Buttons.Text("Rétablir", "Revenir aux forces d'office", Buttons.Compact, Buttons.Look.Calm);
+            resetForces.HorizontalAlignment = HorizontalAlignment.Left;
+            resetForces.Tag = "graph-forces-reset";
+            resetForces.Click += delegate { SetForces(1, 1, 1); };
+            _forcesPanel.Children.Add(resetForces);
+            ToolsPanel.Children.Add(_forcesPanel);
+            forces.Click += delegate { _forcesPanel.IsVisible = !_forcesPanel.IsVisible; };
             _search = new TextBox { Watermark = "Chercher un nœud…", Tag = "graph-search", HorizontalAlignment = HorizontalAlignment.Stretch, Margin = new Thickness(0, 4, 0, 0) };
             ToolTip.SetTip(_search, "Les nœuds dont le titre contient ce texte restent en lumière, les autres s'estompent (Échap efface)");
             _search.TextChanged += delegate { ApplySearch(); };
@@ -178,11 +193,12 @@ namespace Marabook.App
             // Structure (cochée d'office) et l'Écriture (décochée).
             ToolsPanel.Children.Add(ToolsLabel("Structure", 8));
             AddKindToggle(GraphEdgeKind.Relation, "Relations", "Les relations typées entre fiches (diagramme relationnel)");
+            AddKindToggle(GraphEdgeKind.Field, "Champs", "Les champs « Fiche liée » : une fiche qui en désigne une autre dans l'un de ses champs");
             AddKindToggle(GraphEdgeKind.Wiki, "Liens", "Les liens [[…]] posés dans les fiches et les écrits");
             AddKindToggle(GraphEdgeKind.Tag, "Tags", "Deux fiches qui partagent un tag (pointillé)");
             ToolsPanel.Children.Add(ToolsLabel("Écriture", 8));
             AddKindToggle(GraphEdgeKind.Structure, "Livres", "Un livre et ses chapitres");
-            var texts = new CheckBox { Content = "Écrits", IsChecked = _showTexts, Tag = "graph-texts" };
+            var texts = new CheckBox { Content = "Écrits", IsChecked = _showTexts, Tag = "graph-texts", HorizontalAlignment = HorizontalAlignment.Left }; // à gauche : une case étirée sur la colonne centrait son infobulle (21/11)
             ToolTip.SetTip(texts, "Montrer les écrits, livres et plans — décoché : les fiches seules");
             texts.IsCheckedChanged += delegate { _showTexts = texts.IsChecked == true; RefreshVisibility(); };
             ToolsPanel.Children.Add(texts);
@@ -305,9 +321,70 @@ namespace Marabook.App
             _facetButtons.Children.Add(button);
         }
 
+        private StackPanel _forcesPanel;
+        private Slider _forceSpacing, _forceRepulsion, _forceGravity;
+        private DispatcherTimer _forcesTimer;
+        private bool _settingForces;
+
+        /// <summary>Un curseur de force : son nom, sa valeur (× 1,0), de 0,3 à 3.</summary>
+        private Slider ForceSlider(string label, double value, string tip)
+        {
+            var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+            var caption = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
+            var slider = new Slider { Minimum = GraphForces.Min, Maximum = GraphForces.Max, Value = GraphForces.Clamp(value), SmallChange = 0.1, LargeChange = 0.5, Tag = "graph-force:" + label };
+            ToolTip.SetTip(slider, tip);
+            Action name = delegate { caption.Text = label + "  × " + slider.Value.ToString("0.0", fr); };
+            name();
+            slider.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property != Slider.ValueProperty) return;
+                name();
+                if (!_settingForces) ForcesChanged();
+            };
+            _forcesPanel.Children.Add(caption);
+            _forcesPanel.Children.Add(slider);
+            return slider;
+        }
+
+        /// <summary>Un curseur a bougé : les forces sont retenues, et la carte
+        /// se redispose une fois le geste fini (un tiers de seconde sans mouvement).</summary>
+        private void ForcesChanged()
+        {
+            Marabook.Settings.AppSettings.GraphSpacing = _forceSpacing.Value;
+            Marabook.Settings.AppSettings.GraphRepulsion = _forceRepulsion.Value;
+            Marabook.Settings.AppSettings.GraphGravity = _forceGravity.Value;
+            if (_forcesTimer == null)
+            {
+                _forcesTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+                _forcesTimer.Tick += delegate { _forcesTimer.Stop(); Marabook.Settings.AppSettings.Save(); Relayout(); };
+            }
+            _forcesTimer.Stop();
+            _forcesTimer.Start();
+        }
+
+        /// <summary>Pose les trois forces d'un coup et redispose sans attendre.</summary>
+        internal void SetForces(double spacing, double repulsion, double gravity)
+        {
+            _settingForces = true;
+            _forceSpacing.Value = GraphForces.Clamp(spacing);
+            _forceRepulsion.Value = GraphForces.Clamp(repulsion);
+            _forceGravity.Value = GraphForces.Clamp(gravity);
+            _settingForces = false;
+            Marabook.Settings.AppSettings.GraphSpacing = _forceSpacing.Value;
+            Marabook.Settings.AppSettings.GraphRepulsion = _forceRepulsion.Value;
+            Marabook.Settings.AppSettings.GraphGravity = _forceGravity.Value;
+            if (_forcesTimer != null) _forcesTimer.Stop();
+            Marabook.Settings.AppSettings.Save();
+            Relayout();
+        }
+
+        internal bool ForcesShownForProbe { get { return _forcesPanel.IsVisible; } }
+        internal void ToggleForcesForProbe() { _forcesPanel.IsVisible = !_forcesPanel.IsVisible; }
+        internal bool KindOnForProbe(GraphEdgeKind kind) { return _kinds[kind]; }
+
         private void AddKindToggle(GraphEdgeKind kind, string label, string tip)
         {
-            var toggle = new CheckBox { Content = label, IsChecked = _kinds[kind], Tag = "graph-kind:" + kind };
+            var toggle = new CheckBox { Content = label, IsChecked = _kinds[kind], Tag = "graph-kind:" + kind, HorizontalAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(toggle, tip);
             var kindRef = kind;
             toggle.IsCheckedChanged += delegate { _kinds[kindRef] = toggle.IsChecked == true; RefreshVisibility(); };
@@ -375,6 +452,7 @@ namespace Marabook.App
                 Content = category.Name,
                 IsChecked = !_hiddenCategories.Contains(category.Id),
                 Margin = new Thickness(depth * 18, 0, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left,
                 Tag = "graph-type-filter:" + category.Id
             };
             ToolTip.SetTip(box, depth == 0 ? "Montrer ou cacher les fiches de cette catégorie (et de ses sous-catégories)" : "Montrer ou cacher les fiches de cette sous-catégorie");
@@ -466,6 +544,7 @@ namespace Marabook.App
             var known = new Dictionary<string, GraphPosition>();
             foreach (var pair in project.GraphLayout) known[pair.Key] = new GraphPosition { X = pair.Value.X, Y = pair.Value.Y, Pinned = pair.Value.Pinned };
             var options = new GraphOptions { Tags = true, Texts = true }; // tout : les filtres jouent à l'affichage
+            var forcesNow = Marabook.Settings.AppSettings.GraphForcesNow;
             var completion = new TaskCompletionSource<bool>();
             _loading = completion.Task;
             Task.Run(delegate
@@ -477,7 +556,7 @@ namespace Marabook.App
                 {
                     graph = RelationGraph.Build(entries, options);
                     var warm = known.Count >= graph.Nodes.Count * 0.9 && known.Count > 0;
-                    positions = GraphLayout.Arrange(graph, known, GraphLayout.IterationsFor(graph.Nodes.Count, warm), Seed);
+                    positions = GraphLayout.Arrange(graph, known, GraphLayout.IterationsFor(graph.Nodes.Count, warm), Seed, forcesNow);
                     foreach (var image in portraits) ImageCache.Thumbnail(image, PortraitWidth); // la table est verrouillée : sûr hors du fil d'interface
                 }
                 catch (Exception error) { failure = error; }
@@ -589,6 +668,7 @@ namespace Marabook.App
                 case GraphEdgeKind.Presence: return Chrome.AccentSoft;
                 case GraphEdgeKind.Structure: return Chrome.Warn;
                 case GraphEdgeKind.Plan: return Chrome.Ok;
+                case GraphEdgeKind.Field: return Chrome.AccentStrong;
                 default: return Chrome.FaintText;
             }
         }
@@ -602,6 +682,7 @@ namespace Marabook.App
                 case GraphEdgeKind.Presence: return "présence";
                 case GraphEdgeKind.Structure: return "livre";
                 case GraphEdgeKind.Plan: return "plan";
+                case GraphEdgeKind.Field: return "champ";
                 default: return "tag";
             }
         }
@@ -775,12 +856,13 @@ namespace Marabook.App
             foreach (var pair in _positions) if (pair.Value.Pinned) pinned[pair.Key] = pair.Value;
             var graph = _graph;
             var generation = _generation;
+            var forcesNow = Marabook.Settings.AppSettings.GraphForcesNow;
             _loader.IsVisible = true;
             _loaderText.Text = "Disposition…";
             _busy.Begin();
             Task.Run(delegate
             {
-                var positions = GraphLayout.Arrange(graph, pinned, GraphLayout.IterationsFor(graph.Nodes.Count, false), Seed + 1);
+                var positions = GraphLayout.Arrange(graph, pinned, GraphLayout.IterationsFor(graph.Nodes.Count, false), Seed + 1, forcesNow);
                 Dispatcher.UIThread.Post(delegate
                 {
                     if (generation != _generation) return;

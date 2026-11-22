@@ -12,7 +12,8 @@ namespace Marabook.Model
         Presence,  // un nom de fiche qui apparaît dans un écrit (compte = poids)
         Structure, // un livre et ses écrits
         Plan,      // un plan et les écrits de ses colonnes
-        Tag        // deux fiches qui partagent un tag
+        Tag,       // deux fiches qui partagent un tag
+        Field      // un champ « Fiche liée » d'une fiche qui en désigne une autre (21/11)
     }
 
     public class GraphNode
@@ -52,6 +53,7 @@ namespace Marabook.Model
         public List<string> Tags = new List<string>();
         public List<KeyValuePair<string, string>> Relations = new List<KeyValuePair<string, string>>(); // (id cible, nature)
         public List<string> LinkTargets = new List<string>();  // ids des éléments visés par [[…]]
+        public List<KeyValuePair<string, string>> FieldLinks = new List<KeyValuePair<string, string>>(); // fiches : (id visé, nom du champ « Fiche liée »)
         public List<string> LinkedTexts = new List<string>();  // plans : écrits reliés aux colonnes
         public List<string> Names;                              // fiches : les noms cherchés (Presence.NamesOf)
         public string Plain;                                    // écrits : le texte brut
@@ -60,6 +62,7 @@ namespace Marabook.Model
     public class GraphOptions
     {
         public bool Relations = true, Wiki = true, Presence = true, Structure = true, Plans = true, Tags = false;
+        public bool Fields = true; // les champs « Fiche liée » (21/11)
         public bool Texts = true;  // les écrits (et livres, plans) comme nœuds ; false = fiches seules
     }
 
@@ -104,6 +107,16 @@ namespace Marabook.Model
                         if (!string.IsNullOrEmpty(relation.TargetId))
                             entry.Relations.Add(new KeyValuePair<string, string>(relation.TargetId, relation.Kind ?? ""));
                     entry.Names = Presence.NamesForGraph(item, project.TemplateOf(item)); // prénom du titre compris (28/10)
+                    // Les champs « Fiche liée » du modèle (21/11) : une famille de liens à part.
+                    var template = project.TemplateOf(item);
+                    if (template != null)
+                        foreach (var field in template.Fields)
+                        {
+                            if (FieldKinds.Normalize(field.Kind) != FieldKinds.Sheet) continue;
+                            string target;
+                            if (item.FieldValues.TryGetValue(field.Id, out target) && !string.IsNullOrEmpty(target) && target != item.Id)
+                                entry.FieldLinks.Add(new KeyValuePair<string, string>(target, field.Name ?? ""));
+                        }
                 }
                 if (item.Kind == ItemKind.Plan && item.Plan != null)
                     foreach (var column in item.Plan.Columns)
@@ -182,6 +195,10 @@ namespace Marabook.Model
                     foreach (var relation in entry.Relations)
                         if (byId.ContainsKey(relation.Key))
                             graph.AddEdge(entry.Id, relation.Key, GraphEdgeKind.Relation, relation.Value, 1, dedupe, true);
+                if (options.Fields)
+                    foreach (var link in entry.FieldLinks)
+                        if (byId.ContainsKey(link.Key))
+                            graph.AddEdge(entry.Id, link.Key, GraphEdgeKind.Field, link.Value, 1, dedupe, false);
                 if (options.Wiki)
                     foreach (var target in entry.LinkTargets)
                         if (byId.ContainsKey(target))

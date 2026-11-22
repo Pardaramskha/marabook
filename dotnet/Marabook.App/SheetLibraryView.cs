@@ -43,7 +43,8 @@ namespace Marabook.App
         private readonly ComboBox _sortBox;
         private string _filterCategoryId; // null = toutes ; UncategorizedKey = les sans-catégorie
         private const string UncategorizedKey = "~sans-categorie";
-        private static int _sortIndex;
+        private bool _syncingSort;
+        private readonly ToggleButton _listToggle;   // la vue en liste compacte (21/11)
         private static readonly string[] SortLabels = { "Nom A → Z", "Nom Z → A", "Couleur", "Portrait d'abord" };
         // Le filtre par TAG (1.1.0) : « Tous les tags », puis chaque tag des
         // fiches du projet ; null = tous.
@@ -188,7 +189,7 @@ namespace Marabook.App
 
         public SheetLibraryView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
             // Un clic dans le vide (ou Échap) désélectionne ; Suppr envoie le
             // lot à la corbeille (1.0.3).
@@ -236,12 +237,24 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center
             };
             foreach (var label in SortLabels) _sortBox.Items.Add(label);
-            _sortBox.SelectedIndex = _sortIndex;
+            _sortBox.SelectedIndex = Marabook.Settings.AppSettings.LibrarySortFor(null);
+            ToolTip.SetTip(_sortBox, "L'ordre des fiches. Choisi pendant qu'une catégorie est filtrée, il est retenu pour cette catégorie seule.");
             _sortBox.SelectionChanged += delegate
             {
-                if (_sortBox.SelectedIndex < 0 || _sortBox.SelectedIndex == _sortIndex) return;
-                _sortIndex = _sortBox.SelectedIndex;
+                if (_syncingSort || _sortBox.SelectedIndex < 0 || _sortBox.SelectedIndex == Marabook.Settings.AppSettings.LibrarySortFor(SortKey)) return;
+                // Sous un filtre de catégorie, le tri est celui de CETTE catégorie ; sinon, le tri d'office.
+                Marabook.Settings.AppSettings.RememberLibrarySort(SortKey ?? "", _sortBox.SelectedIndex);
+                Marabook.Settings.AppSettings.Save();
                 RebuildRows();
+            };
+            _listToggle = Buttons.IconToggle("list-bullets", "Vue en liste : une ligne par fiche, pour les longues bibliothèques", Buttons.Bar, Buttons.Look.Outline);
+            _listToggle.Tag = "library-list";
+            _listToggle.IsChecked = Marabook.Settings.AppSettings.LibraryList;
+            _listToggle.Click += delegate
+            {
+                var list = _listToggle.IsChecked == true;
+                SetListMode(list);
+                ScreenSteps.Record(this, delegate { SetListMode(!list); }, delegate { SetListMode(list); }); // « Précédent » rend l'autre écran (21/11)
             };
 
             var left = _actionsRow = new StackPanel { Orientation = Orientation.Horizontal };
@@ -337,6 +350,9 @@ namespace Marabook.App
             searchRow.Children.Add(_tagBox);
             _sortBox.Margin = new Thickness(8, 0, 0, 0);
             searchRow.Children.Add(_sortBox);
+            _listToggle.Margin = new Thickness(8, 0, 0, 0);
+            _listToggle.VerticalAlignment = VerticalAlignment.Center;
+            searchRow.Children.Add(_listToggle);
             Children.Add(searchRow);
 
             // Un filet entre les commandes et les pastilles de filtre (1.1.0).
@@ -706,6 +722,10 @@ namespace Marabook.App
             if (_filterCategoryId == UncategorizedKey && uncategorized.Count == 0) _filterCategoryId = null;
             RebuildTagChoices();
             BuildChips(byCategory, uncategorized.Count, total);
+            // Le sélecteur de tri montre celui de la catégorie filtrée (ou le tri d'office).
+            _syncingSort = true;
+            _sortBox.SelectedIndex = Marabook.Settings.AppSettings.LibrarySortFor(SortKey);
+            _syncingSort = false;
 
             var first = true;
             // Les DOSSIERS (14/09) : leur propre rangée, en tête — ceux de la
@@ -750,12 +770,12 @@ namespace Marabook.App
                     if (!byCategory.TryGetValue(subCategory.Id, out inside)) inside = new List<BinderItem>();
                     inside = Matching(inside, needle);
                     if (inside.Count == 0 && searching) continue;
-                    SortSheets(inside);
+                    SortSheets(inside, category.Id);
                     boxes.Add(new KeyValuePair<SheetCategory, List<BinderItem>>(subCategory, inside));
                     inBoxes += inside.Count;
                 }
                 if (own.Count == 0 && inBoxes == 0 && (searching || boxes.Count == 0)) continue;
-                SortSheets(own);
+                SortSheets(own, category.Id);
                 AddDivider(first);
                 AddHeader(category.Name, category, own.Count + inBoxes);
                 if (own.Count > 0) AddCards(own, category);
@@ -768,7 +788,7 @@ namespace Marabook.App
                 var sheets = Matching(uncategorized, needle);
                 if (sheets.Count > 0)
                 {
-                    SortSheets(sheets);
+                    SortSheets(sheets, UncategorizedKey);
                     AddDivider(first);
                     AddHeader("Sans catégorie", null, sheets.Count);
                     AddCards(sheets, null);
@@ -843,10 +863,10 @@ namespace Marabook.App
         /// <summary>L'ordre des cartes (1.0.4) : alphabétique à la française
         /// d'abord, puis, stable, la clé du sélecteur — à rebours, par
         /// couleur (les colorées en tête, groupées), ou portrait d'abord.</summary>
-        private static void SortSheets(List<BinderItem> sheets)
+        private static void SortSheets(List<BinderItem> sheets, string categoryKey)
         {
             SortByTitle(sheets);
-            switch (_sortIndex)
+            switch (Marabook.Settings.AppSettings.LibrarySortFor(categoryKey))
             {
                 case 1: sheets.Reverse(); break;
                 case 2: StableOrder(sheets, delegate(BinderItem s) { return s.CardColor == null ? "~" : s.CardColor.ToUpperInvariant(); }); break;
@@ -1314,9 +1334,117 @@ namespace Marabook.App
         /// (132 px), net sur un écran Retina.</summary>
         public const int ThumbnailWidth = 264;
 
+        /// <summary>La clé du tri en cours de réglage : la catégorie d'ensemble
+        /// du filtre, « sans catégorie », ou null (aucun filtre : le tri d'office).</summary>
+        private string SortKey
+        {
+            get
+            {
+                if (_filterCategoryId == null || _project == null) return null;
+                if (_filterCategoryId == UncategorizedKey) return UncategorizedKey;
+                var top = _project.TopOf(_project.FindSheetCategory(_filterCategoryId));
+                return top == null ? null : top.Id;
+            }
+        }
+
+        /// <summary>Tuiles ou liste compacte (21/11) : le choix est retenu d'une session à l'autre.</summary>
+        public void SetListMode(bool list)
+        {
+            if (_listToggle.IsChecked != list) _listToggle.IsChecked = list;
+            if (Marabook.Settings.AppSettings.LibraryList == list) return;
+            Marabook.Settings.AppSettings.LibraryList = list;
+            Marabook.Settings.AppSettings.Save();
+            RebuildRows();
+        }
+
+        internal bool ListModeForProbe { get { return Marabook.Settings.AppSettings.LibraryList; } }
+        internal int SortIndexForProbe { get { return _sortBox.SelectedIndex; } }
+        internal void SetSortForProbe(int index) { _sortBox.SelectedIndex = index; }
+        internal void FilterCategoryForProbe(string categoryId) { _filterCategoryId = categoryId; RebuildRows(); }
+        internal List<string> CardTitlesForProbe()
+        {
+            var titles = new List<string>();
+            foreach (var id in _cardOrder) { var sheet = _project == null ? null : _project.FindById(id); if (sheet != null) titles.Add(sheet.Title); }
+            return titles;
+        }
+
+        /// <summary>Le conteneur des fiches d'une rangée : des tuiles qui
+        /// passent à la ligne, ou des lignes empilées.</summary>
+        private static Panel CardsPanel()
+        {
+            return Marabook.Settings.AppSettings.LibraryList ? (Panel)new StackPanel() : new WrapPanel();
+        }
+
+        /// <summary>Une fiche en LIGNE (21/11) : la vignette, le nom, ses tags,
+        /// son état à l'époque active. Mêmes gestes que la tuile.</summary>
+        private Control BuildRow(BinderItem sheet, SheetCategory category)
+        {
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("30,2*,3*,Auto") };
+            var thumb = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Background = Chrome.BarBgLight, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left };
+            var image = _project.FindImage(sheet.ImageId);
+            var source = image == null ? null : ImageCache.Thumbnail(image, ThumbnailWidth);
+            if (source != null) thumb.Background = new ImageBrush(source) { Stretch = Stretch.UniformToFill, AlignmentX = AlignmentX.Center, AlignmentY = AlignmentY.Center };
+            else thumb.Child = CategoryPlaceholder(category, 13, _project);
+            grid.Children.Add(thumb);
+            var name = new TextBlock { Text = sheet.Title, FontWeight = FontWeight.SemiBold, FontSize = 12.5, Foreground = Chrome.Ink, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
+            Grid.SetColumn(name, 1);
+            grid.Children.Add(name);
+            var tags = new TextBlock
+            {
+                Text = sheet.Tags == null || sheet.Tags.Count == 0 ? "" : "#" + string.Join("  #", sheet.Tags.ToArray()),
+                FontSize = 12, Foreground = Chrome.SoftText, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0)
+            };
+            // Une fiche VIDE le dit (21/11, Rémi) : rien d'écrit hors de son nom — la photo ne compte pas.
+            var detail = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            if (SheetContent.IsEmpty(sheet))
+                detail.Children.Add(new Border
+                {
+                    Child = new TextBlock { Text = "Vide", FontSize = 11, FontStyle = FontStyle.Italic, Foreground = Chrome.SoftText },
+                    BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(7, 0, 7, 1), Margin = new Thickness(0, 0, 10, 0),
+                    VerticalAlignment = VerticalAlignment.Center, Tag = "library-row-empty",
+                    [ToolTip.TipProperty] = "Rien n'est écrit sur cette fiche en dehors de son nom : aucun champ, aucun texte"
+                });
+            detail.Children.Add(tags);
+            Grid.SetColumn(detail, 2);
+            grid.Children.Add(detail);
+            if (_epochAt != null)
+            {
+                var status = Epochs.Evaluate(_project, sheet, _epochSystem, _epochAt);
+                if (status.State != LifeState.Unknown)
+                {
+                    var age = new TextBlock
+                    {
+                        Text = status.Label.Split(new[] { " · " }, StringSplitOptions.None)[0], FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink,
+                        VerticalAlignment = VerticalAlignment.Center, Tag = "epoch-age", [ToolTip.TipProperty] = status.Label
+                    };
+                    Grid.SetColumn(age, 3);
+                    grid.Children.Add(age);
+                    if (status.State != LifeState.Alive) { grid.Opacity = 0.45; grid.Tag = "epoch-dimmed"; }
+                }
+            }
+            // La couleur de la fiche : un liseré à gauche.
+            var tint = sheet.CardColor == null ? null : (IBrush)new SolidColorBrush(Ink.Parse(sheet.CardColor).ToColor());
+            var row = new Border
+            {
+                Background = Chrome.CardBg, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(0, 0, 8, 3), Padding = new Thickness(0, 0, 10, 0), Cursor = new Cursor(StandardCursorType.Hand), MaxWidth = 860, HorizontalAlignment = HorizontalAlignment.Left, MinWidth = 420,
+                Child = new DockPanel
+                {
+                    Children =
+                    {
+                        new Border { Width = 4, Background = tint ?? Brushes.Transparent, CornerRadius = new CornerRadius(3, 0, 0, 3), Margin = new Thickness(0, 0, 8, 0), [DockPanel.DockProperty] = Dock.Left },
+                        new Border { Child = grid, Padding = new Thickness(0, 4, 0, 4) }
+                    }
+                }
+            };
+            row.Classes.Add("library-row");
+            Wire(row, sheet, false);
+            return row;
+        }
+
         private void AddCards(List<BinderItem> sheets, SheetCategory category)
         {
-            var wrap = new WrapPanel();
+            var wrap = CardsPanel();
             foreach (var sheet in sheets)
                 wrap.Children.Add(Entrance(BuildCard(sheet, category)));
             if (sheets.Count == 0)
@@ -1436,6 +1564,7 @@ namespace Marabook.App
         /// le modèle diffère du modèle de base de sa catégorie.</summary>
         private Control BuildCard(BinderItem sheet, SheetCategory category)
         {
+            if (Marabook.Settings.AppSettings.LibraryList) return BuildRow(sheet, category);
             var layout = new DockPanel { Width = 132 }; // photo en haut, nom centré dans le reste (29/09)
 
             // — la photo, ou son emplacement réservé. Batch 36 : l'image est
@@ -1560,6 +1689,14 @@ namespace Marabook.App
                 Cursor = new Cursor(StandardCursorType.Hand),
                 Child = layout
             };
+            Wire(card, sheet, true);
+            return card;
+        }
+
+        /// <summary>Les gestes d'une fiche de la bibliothèque, tuile ou ligne :
+        /// choisir, étendre la sélection, ouvrir, glisser, le menu.</summary>
+        private void Wire(Border card, BinderItem sheet, bool lift)
+        {
             var sheetRef = sheet;
             card.Tag = sheet;
             _cardsById[sheet.Id] = card;
@@ -1608,8 +1745,7 @@ namespace Marabook.App
             };
             card.PointerEntered += delegate { card.BorderBrush = Chrome.Accent; };
             card.PointerExited += delegate { card.BorderBrush = _selected.Contains(sheetRef.Id) ? (IBrush)Chrome.Accent : Chrome.Border; };
-            CardLift.Attach(card); // soulèvement au survol (b35)
-            return card;
+            if (lift) CardLift.Attach(card); // soulèvement au survol (b35)
         }
 
         /// <summary>Le symbole d'une fiche sans image (29/09) : l'icône de sa
@@ -1692,9 +1828,12 @@ namespace Marabook.App
                 if (handler != null) handler(sheet);
             };
             menu.Items.Add(open);
-            var export = new MenuItem { Header = "Exporter la fiche…" }; // l'Encyclopédie (31/10)
-            export.Click += delegate { var handler = ExportSheetRequested; if (handler != null) handler(sheet); };
-            menu.Items.Add(export);
+            if (MenuProvider == null) // le menu commun a « Exporter… » et « Exporter l'Encyclopédie… » (22/11)
+            {
+                var export = new MenuItem { Header = "Exporter la fiche…" }; // l'Encyclopédie (31/10)
+                export.Click += delegate { var handler = ExportSheetRequested; if (handler != null) handler(sheet); };
+                menu.Items.Add(export);
+            }
 
             var move = new MenuItem { Header = "Changer de catégorie" };
             foreach (var category in _project.OrderedCategories()) // catégories puis leurs sous-catégories (1.0.5)
@@ -2123,7 +2262,9 @@ namespace Marabook.App
             head.Children.Add(title);
             DockPanel.SetDock(head, Dock.Top);
             dock.Children.Add(head);
-            var wrap = new WrapPanel { Margin = new Thickness(2, 0, 2, 0), IsVisible = !collapsed };
+            var wrap = CardsPanel();
+            wrap.Margin = new Thickness(2, 0, 2, 0);
+            wrap.IsVisible = !collapsed;
             foreach (var sheet in sheets) wrap.Children.Add(Entrance(BuildCard(sheet, sub)));
             if (sheets.Count == 0)
                 wrap.Children.Add(new TextBlock

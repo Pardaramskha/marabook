@@ -34,7 +34,7 @@ namespace Marabook.App
         private string _accent;          // l'accent, « #RRGGBB » (1/11 : le nuancier de Marabook plutôt qu'un champ hex)
         private readonly FontPicker _bodyFont, _headingFont;
         private readonly ComboBox _size, _portrait, _format;
-        private readonly CheckBox _dark, _infobox, _relations, _presence, _radar, _tags, _dates, _lexicon, _lexiconUndefined, _lexiconNoNames, _lexiconGlobal, _emptySheets, _open;
+        private readonly CheckBox _dark, _infobox, _relations, _presence, _radar, _tags, _dates, _lexicon, _lexiconUndefined, _lexiconNoNames, _lexiconGlobal, _emptySheets, _open, _maps;
         private readonly Image _coverPreview;
         private readonly TextBlock _coverLabel;
         private readonly Button _coverRemove;
@@ -103,11 +103,24 @@ namespace Marabook.App
             right.Children.Add(Caption("Format"));
             _format = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
             _format.Items.Add(new ComboBoxItem { Content = "HTML — un dossier navigable" });
+            _format.Items.Add(new ComboBoxItem { Content = "Markdown — un fichier par fiche" });   // 21/11
+            _format.Items.Add(new ComboBoxItem { Content = "CSV — un tableau par catégorie" });
             _format.Items.Add(new ComboBoxItem { Content = "PDF — bientôt", IsEnabled = false }); // grisé (1/11, Rémi) : le lot PDF n'est pas livré
-            _format.SelectedIndex = 0;
-            ToolTip.SetTip(_format, "Le PDF arrive dans un prochain lot : le HTML est prêt");
-            _format.SelectionChanged += delegate { if (_format.SelectedIndex != 0) _format.SelectedIndex = 0; };
+            _format.SelectedIndex = defaults.Format == EncyclopediaOptions.FormatMarkdown ? 1 : defaults.Format == EncyclopediaOptions.FormatCsv ? 2 : 0;
+            ToolTip.SetTip(_format, "HTML : l'encyclopédie mise en page, à lire dans un navigateur. Markdown : le contenu des fiches, liens gardés, pour un wiki ou Obsidian. CSV : les champs en colonnes, pour un tableur. Le PDF arrive dans un prochain lot.");
+            var dataNote = new TextBlock
+            {
+                Text = "Markdown et CSV n'emportent que le contenu des fiches cochées : champs, relations, tags, texte. Titres, apparence, couverture, lexique et cartes ne valent que pour le HTML.",
+                FontSize = 11, Foreground = Chrome.SoftText, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0), Tag = "encyclopedia-data-note",
+                IsVisible = _format.SelectedIndex == 1 || _format.SelectedIndex == 2
+            };
+            _format.SelectionChanged += delegate
+            {
+                if (_format.SelectedIndex == 3 || _format.SelectedIndex < 0) _format.SelectedIndex = 0;
+                dataNote.IsVisible = _format.SelectedIndex == 1 || _format.SelectedIndex == 2;
+            };
             right.Children.Add(_format);
+            right.Children.Add(dataNote);
 
             right.Children.Add(Caption("Titres", 12));
             _title = Field(right, "Titre", defaults.Title, "Vide : « Encyclopédie de <projet> » (du, des, d'… selon le nom)");
@@ -234,6 +247,10 @@ namespace Marabook.App
             right.Children.Add(_lexiconUndefined);
             right.Children.Add(_lexiconNoNames);
             right.Children.Add(_lexiconGlobal);
+            // Les cartes (20/11) : chacune en image, sur une page « Cartes », ses lieux liés à leurs fiches.
+            _maps = new CheckBox { Content = "Exporter les cartes (page « Cartes »)", IsChecked = defaults.IncludeMaps, Tag = "encyclopedia-maps", HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 8, 0, 0) };
+            ToolTip.SetTip(_maps, "Chaque carte du projet en image, avec ses zones et ses repères ; un lieu lié à une fiche exportée y mène. Version web seulement.");
+            right.Children.Add(_maps);
             Grid.SetColumn(right, 2);
             columns.Children.Add(right);
             root.Children.Add(columns);
@@ -509,7 +526,7 @@ namespace Marabook.App
             var sizes = new[] { 14, 15, 16, 17, 18, 20 };
             var options = new EncyclopediaOptions
             {
-                Format = EncyclopediaOptions.FormatHtml,
+                Format = dialog._format.SelectedIndex == 1 ? EncyclopediaOptions.FormatMarkdown : dialog._format.SelectedIndex == 2 ? EncyclopediaOptions.FormatCsv : EncyclopediaOptions.FormatHtml,
                 Title = (dialog._title.Text ?? "").Trim(),
                 Subtitle = (dialog._subtitle.Text ?? "").Trim(),
                 Author = (dialog._author.Text ?? "").Trim(),
@@ -529,6 +546,7 @@ namespace Marabook.App
                 LexiconUndefined = dialog._lexiconUndefined.IsChecked == true,
                 LexiconExcludeNames = dialog._lexiconNoNames.IsChecked == true,
                 LexiconAllProjects = dialog._lexiconGlobal.IsChecked == true,
+                IncludeMaps = dialog._maps.IsChecked == true,
                 IncludeEmptySheets = dialog._emptySheets.IsChecked == true,
                 ExceptTag = dialog._exceptTag.SelectedIndex > 0 && dialog._exceptTag.SelectedIndex <= dialog._exceptTags.Count ? dialog._exceptTags[dialog._exceptTag.SelectedIndex - 1] : "",
                 CoverImageId = dialog._coverImageId,

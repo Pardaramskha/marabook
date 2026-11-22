@@ -218,7 +218,7 @@ namespace Marabook.Exchange
                         path = System.IO.Path.Combine(BaseDirectory, path);
                     if (!System.IO.File.Exists(path)) return null;
                     var extension = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                    if (Array.IndexOf(ImportedImages.Supported, extension) < 0) return null;
+                    if (Array.IndexOf(ImportedImages.Supported, extension) < 0) { ImportedImages.ReportSkipped(path); return null; }
                     var info = new System.IO.FileInfo(path);
                     if (info.Length == 0 || info.Length > 20 * 1024 * 1024) return null;
                     string stored;

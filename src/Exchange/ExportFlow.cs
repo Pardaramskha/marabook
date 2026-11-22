@@ -57,7 +57,7 @@ namespace Marabook.Exchange
             if (project == null || plan == null || preset == null) return segments;
             meta = meta ?? new ExportMeta();
             var targets = Targets(plan);
-            var mixed = (plan.Texts.Count > 0 ? 1 : 0) + (plan.Sheets.Count > 0 ? 1 : 0) + (plan.Plans.Count + plan.MindMaps.Count > 0 ? 1 : 0) > 1;
+            var mixed = (plan.Texts.Count > 0 ? 1 : 0) + (plan.Sheets.Count > 0 ? 1 : 0) + (plan.Plans.Count + plan.MindMaps.Count + plan.Maps.Count > 0 ? 1 : 0) > 1;
 
             // ---- les écrits, par mise en page
             var groups = new List<List<BinderItem>>();
@@ -218,6 +218,7 @@ namespace Marabook.Exchange
             // ---- les plans et les cartes mentales : une image, une page à sa taille
             Images(project, plan.Plans, ExportLevels.TitlePlans, preset, splitTypes, segments);
             Images(project, plan.MindMaps, ExportLevels.TitleMindMaps, preset, splitTypes, segments);
+            Images(project, plan.Maps, ExportLevels.TitleMaps, preset, splitTypes, segments);
             return segments;
         }
 
@@ -295,7 +296,7 @@ namespace Marabook.Exchange
         private static List<KeyValuePair<string, string>> Targets(ExportPlan plan)
         {
             var list = new List<KeyValuePair<string, string>>();
-            foreach (var group in new[] { plan.Sheets, plan.Texts, plan.Plans, plan.MindMaps })
+            foreach (var group in new[] { plan.Sheets, plan.Texts, plan.Plans, plan.MindMaps, plan.Maps })
                 foreach (var item in group)
                     if (!string.IsNullOrEmpty((item.Title ?? "").Trim())) list.Add(new KeyValuePair<string, string>(item.Title.Trim(), item.Id));
             return list;

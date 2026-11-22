@@ -94,7 +94,7 @@ namespace Marabook.App
         // Caractère
         private FontPicker _fontCombo; // le sélecteur partagé du ruban (0.50.0)
         private TextBox _sizeBox, _leadingBox, _colorBox;
-        private CheckBox _boldCheck, _italicCheck, _ligaturesCheck;
+        private CheckBox _boldCheck, _italicCheck, _ligaturesCheck, _kerningCheck;
         private ComboBox _weightCombo;   // la variante de police (01/10) : les graisses installées
         private TextBlock _weightHint;
         // Paragraphe
@@ -406,7 +406,13 @@ namespace Marabook.App
             form.Children.Add(FormRow("Valeur d'interligne", leadingRow));
 
             _ligaturesCheck = new CheckBox { Content = "Ligatures", VerticalAlignment = VerticalAlignment.Center };
-            form.Children.Add(FormRow("", _ligaturesCheck));
+            _kerningCheck = new CheckBox { Content = "Crénage", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(18, 0, 0, 0), Tag = "style-kerning" };
+            ToolTip.SetTip(_ligaturesCheck, "Les ligatures que la police dessine : fi, fl, ff… Une approche posée à la main les défait.");
+            ToolTip.SetTip(_kerningCheck, "Les paires de lettres que la police resserre ou écarte : AV, To, r., « f »…");
+            var shapingRow = new StackPanel { Orientation = Orientation.Horizontal };
+            shapingRow.Children.Add(_ligaturesCheck);
+            shapingRow.Children.Add(_kerningCheck);
+            form.Children.Add(FormRow("", shapingRow));
 
             form.Children.Add(FormRow("Couleur", _colorBox = new TextBox
             {
@@ -794,6 +800,7 @@ namespace Marabook.App
             _italicCheck.IsChecked = style.Italic;
             _leadingBox.Text = Pt(style.LineHeight);
             _ligaturesCheck.IsChecked = style.Ligatures;
+            _kerningCheck.IsChecked = style.Kerning;
             _colorBox.Text = style.Color ?? "auto";
 
             _alignCombo.SelectedIndex = style.Align == "center" ? 1
@@ -896,6 +903,7 @@ namespace Marabook.App
             _boldCheck.IsEnabled = _current.Weight == null;
             _current.LineHeight = FromPt(_leadingBox.Text, _current.LineHeight, 0, 200);
             _current.Ligatures = _ligaturesCheck.IsChecked == true;
+            _current.Kerning = _kerningCheck.IsChecked == true;
             var color = (_colorBox.Text ?? "").Trim();
             _current.Color = (color.Length == 0 || color.Equals("auto", StringComparison.OrdinalIgnoreCase))
                 ? null : color;

@@ -42,6 +42,10 @@ namespace Marabook.App
                 case FieldKinds.Rating: return RatingEditor(value, onChanged);
                 case FieldKinds.List: return ListEditor(value, onChanged);
                 case FieldKinds.Choice: return ChoiceEditor(value, options, onChanged);
+                case FieldKinds.Multi: return MultiEditor(value, options, onChanged);
+                case FieldKinds.Bool: return BoolEditor(value, onChanged);
+                case FieldKinds.Color: return ColorEditor(value, onChanged);
+                case FieldKinds.Coords: return CoordsEditor(value, onChanged);
                 case FieldKinds.Sheet: return SheetEditor(value, project, self, onChanged, navigate);
                 default: return TextEditor(value, false, onChanged);
             }
@@ -320,6 +324,126 @@ namespace Marabook.App
                 onChanged(combo.SelectedIndex == 0 ? "" : (string)combo.SelectedItem);
             };
             return combo;
+        }
+
+        // --------------------------------------------- choix multiple (21/11)
+
+        /// <summary>Une case par option du modèle ; la valeur est la suite des
+        /// options cochées (« feu, glace »). Une valeur qui n'est plus dans
+        /// les options garde sa case, cochée : rien ne se perd.</summary>
+        private static Control MultiEditor(string value, List<string> options, Action<string> onChanged)
+        {
+            var chosen = FieldKinds.ListItems(value);
+            var all = new List<string>();
+            if (options != null) foreach (var option in options) if (!all.Contains(option)) all.Add(option);
+            foreach (var kept in chosen) if (!all.Contains(kept)) all.Add(kept);
+            var wrap = new WrapPanel { Tag = null };
+            if (all.Count == 0)
+            {
+                wrap.Children.Add(new TextBlock { Text = "Aucune option : le bouton « … » du champ les définit.", FontSize = 12, Foreground = Chrome.SoftText });
+                return wrap;
+            }
+            var boxes = new List<CheckBox>();
+            foreach (var option in all)
+            {
+                var box = new CheckBox { Content = option, IsChecked = chosen.Contains(option), Margin = new Thickness(0, 0, 14, 0), MinHeight = 24, Padding = new Thickness(6, 0, 0, 0), FontSize = 12 };
+                boxes.Add(box);
+                box.IsCheckedChanged += delegate
+                {
+                    var now = new List<string>();
+                    foreach (var other in boxes) if (other.IsChecked == true) now.Add((string)other.Content);
+                    onChanged(FieldKinds.JoinOptions(now));
+                };
+                wrap.Children.Add(box);
+            }
+            return wrap;
+        }
+
+        // --------------------------------------------------- oui / non (21/11)
+
+        /// <summary>Une case : cochée « oui », décochée « non ». Tant qu'on
+        /// n'y a pas touché, le champ reste vide (pas renseigné).</summary>
+        private static Control BoolEditor(string value, Action<string> onChanged)
+        {
+            var state = FieldKinds.BoolOf(value);
+            var box = new CheckBox { IsChecked = state == true, Content = state == null ? "" : state.Value ? "Oui" : "Non", MinHeight = 24, Padding = new Thickness(6, 0, 0, 0), FontSize = 12, [ToolTip.TipProperty] = "Cocher pour oui, décocher pour non" };
+            box.IsCheckedChanged += delegate
+            {
+                var yes = box.IsChecked == true;
+                box.Content = yes ? "Oui" : "Non";
+                onChanged(yes ? FieldKinds.Yes : FieldKinds.No);
+            };
+            return box;
+        }
+
+        // ----------------------------------------------------- couleur (21/11)
+
+        /// <summary>Une pastille qui ouvre le sélecteur de couleur, et le code
+        /// « #RRGGBB » à côté, que l'on peut aussi taper.</summary>
+        private static Control ColorEditor(string value, Action<string> onChanged)
+        {
+            var row = new DockPanel();
+            var swatch = new Button
+            {
+                Width = 28, Height = 24, MinHeight = 24, Padding = new Thickness(0), Margin = new Thickness(0, 0, 6, 0), Focusable = false,
+                [ToolTip.TipProperty] = "Choisir la couleur", Tag = "field-color-swatch"
+            };
+            var box = new TextBox { Text = value, Watermark = "#RRGGBB", [ToolTip.TipProperty] = "Le code de la couleur : « #A1B2C3 »" };
+            var normal = box.Foreground;
+            Action paint = delegate
+            {
+                var hex = FieldKinds.ColorOf(box.Text);
+                swatch.Background = hex == null ? Chrome.BarBgLight : new SolidColorBrush(Ink.Parse(hex).ToColor());
+                box.Foreground = hex == null && (box.Text ?? "").Trim().Length > 0 ? Chrome.Warn : normal;
+            };
+            paint();
+            box.TextChanged += delegate { paint(); onChanged(FieldKinds.ColorOf(box.Text) ?? (box.Text ?? "")); };
+            swatch.Click += async delegate
+            {
+                var owner = Ui.OwnerOf(swatch);
+                if (owner == null) return;
+                var picked = await ColorDialog.Ask(owner);
+                if (picked != null) box.Text = picked;
+            };
+            DockPanel.SetDock(swatch, Dock.Left);
+            row.Children.Add(swatch);
+            row.Children.Add(box);
+            row.Tag = box;
+            return row;
+        }
+
+        // ------------------------------------------------- coordonnées (21/11)
+
+        /// <summary>Latitude et longitude, en degrés : « 48,85 » ou « 48,85 N »,
+        /// « 2,35 » ou « 2,35 O ». Une saisie qui ne se lit pas est gardée
+        /// telle quelle, en avertissement.</summary>
+        private static Control CoordsEditor(string value, Action<string> onChanged)
+        {
+            var fr = CultureInfo.GetCultureInfo("fr-FR");
+            double latitude, longitude;
+            var read = FieldKinds.TryCoords(value, out latitude, out longitude);
+            var parts = (value ?? "").Split(';');
+            var lat = new TextBox { Text = read ? latitude.ToString("0.######", fr) : parts.Length > 0 ? parts[0].Trim() : "", Watermark = "Latitude", [ToolTip.TipProperty] = "La latitude en degrés : de −90 (sud) à 90 (nord), ou « 33,9 S »", Tag = "field-coords-lat" };
+            var lon = new TextBox { Text = read ? longitude.ToString("0.######", fr) : parts.Length > 1 ? parts[1].Trim() : "", Watermark = "Longitude", [ToolTip.TipProperty] = "La longitude en degrés : de −180 (ouest) à 180 (est), ou « 18,4 O »", Tag = "field-coords-lon" };
+            var normal = lat.Foreground;
+            Action changed = delegate
+            {
+                var a = (lat.Text ?? "").Trim();
+                var b = (lon.Text ?? "").Trim();
+                double la, lo;
+                var ok = FieldKinds.TryCoords(a + ";" + b, out la, out lo);
+                var empty = a.Length == 0 && b.Length == 0;
+                lat.Foreground = lon.Foreground = ok || empty ? normal : Chrome.Warn;
+                onChanged(empty ? "" : ok ? FieldKinds.CoordsValue(la, lo) : a + " ; " + b);
+            };
+            lat.TextChanged += delegate { changed(); };
+            lon.TextChanged += delegate { changed(); };
+            var grid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,6,*") };
+            grid.Children.Add(lat);
+            Grid.SetColumn(lon, 2);
+            grid.Children.Add(lon);
+            grid.Tag = lat;
+            return grid;
         }
 
         // ------------------------------------------------------ fiche liée

@@ -84,6 +84,9 @@ namespace Marabook.App
         // ---- structure
         private readonly RadioButton _seqDefault, _seqRecto, _seqNoBlank;
         private readonly CheckBox _splitTypes, _splitBooks, _splitFolders, _splitSubfolders, _splitOwnPage;
+        private readonly CheckBox _oneFile;
+        private readonly TextBox _filePattern;
+        private readonly TextBlock _fileSample;
         // ---- livre numérique
         private readonly CheckBox _dropCaps, _smallCaps, _kindle;
         // ---- aperçu
@@ -101,7 +104,7 @@ namespace Marabook.App
         private readonly CheckBox _headersFooters, _plainMargins, _capFont, _spacing, _comments, _links, _outline, _check;
         private readonly TextBox _maxFont, _lineSpacing;
         // ---- impression
-        private readonly CheckBox _bookBleed, _marks, _guides;
+        private readonly CheckBox _bookBleed, _marks, _guides, _pdfx;
         private readonly TextBox _bleed;
         private readonly ComboBox _profile, _imposition;
         private readonly TextBlock _printNote;
@@ -193,7 +196,7 @@ namespace Marabook.App
 
             // ------------------------------------------------------------ ampleur
             var scopePage = Page();
-            scopePage.Children.Add(Hint("Cochez ce qui part dans l'export. Les éléments sortent dans l'ordre de la Pile : les écrits, puis les fiches, les plans et les cartes mentales."));
+            scopePage.Children.Add(Hint("Cochez ce qui part dans l'export. Les éléments sortent dans l'ordre de la Pile : les écrits, puis les fiches, les plans, les cartes mentales et les cartes."));
             var quick = new WrapPanel { Margin = new Thickness(0, 0, 0, 8) };
             quick.Children.Add(Quick("Tous les écrits", "export-scope-all-texts", delegate { CheckKind(ItemKind.Text, true); }));
             quick.Children.Add(Quick("Toutes les fiches", "export-scope-all-sheets", delegate { CheckKind(ItemKind.Sheet, true); }));
@@ -308,6 +311,16 @@ namespace Marabook.App
             _splitOwnPage = Check(levels, "Ces titres prennent une page à eux", "export-split-own-page", "Sinon, ils coiffent le premier écrit qu'ils annoncent. Avec « Retirer les pleines pages blanches », ils le coiffent toujours.");
             _splitOwnPage.Margin = new Thickness(0, 8, 0, 2);
             structurePage.Children.Add(AstrolabeUi.Section("Rendu par niveau", "Un titre à chaque changement, chacun dans son style : « Export — titre de genre », « de livre », « de partie », « de sous-partie », que Word garde sous ces noms. Les fiches gardent leurs catégories.", levels, "export-section-levels"));
+
+            // Un fichier par écrit (20/11) : un dossier de fichiers nommés d'après un modèle.
+            var files = new StackPanel();
+            _oneFile = Check(files, "Un fichier par écrit", "export-one-file", "Au lieu d'un seul fichier, l'export en écrit un par élément coché — écrit, fiche ou plan — dans le dossier que vous choisirez.");
+            _filePattern = new TextBox { Tag = "export-file-pattern", Width = 260, VerticalAlignment = VerticalAlignment.Center };
+            Tip(_filePattern, "Le modèle du nom de chaque fichier. Ce qu'il sait remplacer :\n" + ExportFiles.Legend());
+            files.Children.Add(Inline(new TextBlock { Text = "Nom des fichiers", Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center }, _filePattern, ""));
+            _fileSample = new TextBlock { Tag = "export-file-sample", Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0) };
+            files.Children.Add(_fileSample);
+            structurePage.Children.Add(AstrolabeUi.Section("Fichiers", "Un seul fichier, ou un par élément : un chapitre par fichier pour un·e bêta-lecteur·ice, une fiche par fichier pour un wiki.", files, "export-section-files"));
             _tabs.Items.Add(Tab("Structure", structurePage, "export-tab-structure"));
 
             // ------------------------------------------------------------ impression
@@ -331,6 +344,8 @@ namespace Marabook.App
             GridRow(printGrid, 0, "Profil couleur", _profile);
             GridRow(printGrid, 2, "Imposition", _imposition);
             print.Children.Add(printGrid);
+            _pdfx = Check(print, "Conforme PDF/X-1a:2003", "export-pdfx", "Le fichier que les imprimeurs demandent : il se déclare PDF/X, porte son identifiant, ses métadonnées et sa condition d'impression (le profil ICC « ISO Coated v2 », livré avec Marabook, y est incorporé), et renonce aux liens cliquables. Après l'export, Marabook relit le fichier et le contrôle règle par règle ; ce contrôle ne remplace pas celui de l'imprimeur.");
+            _pdfx.Margin = new Thickness(0, 8, 0, 2);
             _printBody = print;
             printPage.Children.Add(AstrolabeUi.Section("Le fichier pour l'imprimeur", "Polices incorporées, texte composé ligne à ligne. Laissez 0 sans coche pour un PDF de lecture.", print, "export-section-print"));
             _tabs.Items.Add(Tab("Impression", printPage, "export-tab-print"));
@@ -411,7 +426,7 @@ namespace Marabook.App
             _profile.SelectionChanged += selection;
             _imposition.SelectionChanged += selection;
             foreach (var box in new[] { _titlePage, _headings, _numbers, _pageBreak, _headersFooters, _plainMargins, _capFont, _spacing, _comments, _links, _outline, _check, _bookBleed, _marks, _guides, _coverInclude,
-                _splitTypes, _splitBooks, _splitFolders, _splitSubfolders, _splitOwnPage, _dropCaps, _smallCaps, _kindle })
+                _splitTypes, _splitBooks, _splitFolders, _splitSubfolders, _splitOwnPage, _dropCaps, _smallCaps, _kindle, _pdfx, _oneFile })
                 box.IsCheckedChanged += delegate { OptionsChanged(); };
             // L'exclusion des trois choix est tenue ici : le groupe d'Avalonia ne joue que pour des boutons à l'écran.
             var sequence3 = new[] { _seqDefault, _seqRecto, _seqNoBlank };
@@ -424,7 +439,7 @@ namespace Marabook.App
                 };
             foreach (var combo in new[] { _filterStatus, _filterOnlyTag, _filterExceptTag })
                 combo.SelectionChanged += delegate { if (_building) return; Refresh(); };
-            foreach (var box in new[] { _maxFont, _lineSpacing, _bleed })
+            foreach (var box in new[] { _maxFont, _lineSpacing, _bleed, _filePattern })
                 box.TextChanged += delegate { OptionsChanged(); };
             foreach (var box in new[] { _title, _subtitle, _author, _publisher, _collection, _isbn, _year, _language })
                 box.TextChanged += delegate { if (_building) return; Refresh(); };
@@ -657,6 +672,9 @@ namespace Marabook.App
             _dropCaps.IsChecked = _preset.DropCaps;
             _smallCaps.IsChecked = _preset.OpeningSmallCaps;
             _kindle.IsChecked = _preset.Kindle;
+            _pdfx.IsChecked = _preset.PdfX;
+            _oneFile.IsChecked = _preset.OneFilePerText;
+            _filePattern.Text = ExportFiles.Normalize(_preset.FileNamePattern);
             _headersFooters.IsChecked = _preset.HeadersFooters;
             _plainMargins.IsChecked = _preset.PlainMargins;
             _capFont.IsChecked = _preset.MaxFontPt > 0;
@@ -704,6 +722,9 @@ namespace Marabook.App
             p.DropCaps = _dropCaps.IsChecked == true;
             p.OpeningSmallCaps = _smallCaps.IsChecked == true;
             p.Kindle = _kindle.IsChecked == true;
+            p.PdfX = _pdfx.IsChecked == true;
+            p.OneFilePerText = _oneFile.IsChecked == true;
+            p.FileNamePattern = ExportFiles.Normalize(_filePattern.Text);
             p.HeadersFooters = _headersFooters.IsChecked == true;
             p.PlainMargins = _plainMargins.IsChecked == true;
             p.MaxFontPt = _capFont.IsChecked == true ? Math.Max(6, Math.Min(72, Parse(_maxFont.Text, 12))) : 0;
@@ -752,6 +773,9 @@ namespace Marabook.App
             Avail(_seqDefault, true, null);
             Avail(_splitTypes, !epub, "Un EPUB ne porte que des écrits : il n'y a qu'un genre, rien à séparer.");
             Avail(_splitOwnPage, _preset.SplitsLevels && (breakable || epub), !_preset.SplitsLevels ? "Cochez d'abord une séparation ci-dessus." : noPages);
+            Avail(_filePattern, _preset.OneFilePerText, "Cochez d'abord « Un fichier par écrit ».");
+            _fileSample.Text = !_preset.OneFilePerText ? "" : _plan.Count < 2 ? "Un seul élément est coché : l'export n'écrira qu'un fichier, au nom que vous lui donnerez." : "→ " + ExportFiles.Sample(_project, _plan, _preset, ReadMeta(), DateTime.Today, 3);
+            _fileSample.IsVisible = _fileSample.Text.Length > 0;
             Avail(_headersFooters, pdf, "Les en-têtes et pieds des gabarits ne se dessinent que dans un PDF. " + (format == ExportFormats.Docx ? "Dans Word, un folio centré les remplace." : "Le format " + name + " n'en a pas."));
             Avail(_plainMargins, paged, "Les marges ne valent que pour Word et PDF : " + noPages.Substring(0, 1).ToLower(French) + noPages.Substring(1));
             var noStyle = epub ? "Dans un EPUB, c'est le lecteur qui règle la taille et l'interligne sur sa liseuse." : "Le format " + name + " ne porte ni taille de police ni interligne.";
@@ -773,6 +797,7 @@ namespace Marabook.App
             Avail(_guides, pdf && !booklet, pdf ? noBooklet : pdfOnly);
             Avail(_profile, pdf, pdfOnly);
             Avail(_imposition, pdf, pdfOnly);
+            Avail(_pdfx, pdf && _preset.Cmyk, pdf ? "PDF/X-1a ne vaut qu'en CMJN : choisissez d'abord le profil « CMJN — Coated FOGRA39 » ci-dessus." : pdfOnly);
             _printNote.Text = pdf ? "Ces réglages ne valent que pour un PDF remis à un imprimeur. Pour lire à l'écran, laissez-les tels quels." : "Ces réglages ne valent que pour un PDF : le format choisi (" + name + ") n'en tient pas compte.";
             Avail(_coverInclude, epub, "Seul un EPUB embarque une couverture : le format choisi (" + name + ") n'en porte pas.");
             _previewButton.IsVisible = pdf && _preview != null;
@@ -817,7 +842,7 @@ namespace Marabook.App
 
         private static bool IsExportable(BinderItem item)
         {
-            return item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.Plan || item.Kind == ItemKind.MindMap;
+            return item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.Plan || item.Kind == ItemKind.MindMap || (item.Kind == ItemKind.Map && item.Map != null && item.Map.HasImage);
         }
 
         private void BuildScope()
@@ -862,6 +887,7 @@ namespace Marabook.App
 
             AddFlat("Plans", Project.KeyPlans, ItemKind.Plan);
             if (_mindMaps) AddFlat("Cartes mentales", Project.KeyMindMaps, ItemKind.MindMap);
+            AddFlat("Cartes", Project.KeyMaps, ItemKind.Map); // 20/11 : chaque carte en image, sur une page à sa taille
 
             foreach (var root in _roots) _scopePanel.Children.Add(Render(root, 0));
             SyncScope();
@@ -1122,6 +1148,7 @@ namespace Marabook.App
             SyncMeta();
             _plan = ExportPlan.Build(_project, _checked, _preset, ReadMeta(), filter);
             RemarkGlyphs();
+            RemarkEpubCheck();
             SyncAvailability();
 
             // L'aperçu ne vaut plus : il se refait s'il est à l'écran, sinon à sa prochaine ouverture.
@@ -1164,10 +1191,23 @@ namespace Marabook.App
             var modified = _base != null && _preset.Signature() != _base.Signature();
             _footerPreset.Text = (_base == null ? "" : _base.Name) + (modified ? " — modifié" : "");
             var warn = _plan.WarnCount;
-            _footerPlan.Text = _plan.Summary() + (_plan.IsEmpty ? "" : " → " + ExportFormats.Short(_preset.Format))
+            _footerPlan.Text = _plan.Summary() + (_plan.IsEmpty ? "" : " → " + ExportFormats.Short(_preset.Format) + (ExportFiles.Applies(_preset, _plan) ? " (" + _plan.Count + " fichiers)" : ""))
                 + (_pageCount > 0 ? "  ·  " + _pageCount + (_pageCount > 1 ? " pages" : " page") : "")
                 + (warn > 0 ? "  ·  " + warn + (warn > 1 ? " avertissements" : " avertissement") : "");
             _footerPlan.Foreground = warn > 0 ? Chrome.Warn : Chrome.SoftText;
+        }
+
+        /// <summary>Avant un EPUB, dit qui le contrôlera (20/11) : EPUBCheck,
+        /// l'outil officiel, s'il est installé ; sinon le contrôle maison.</summary>
+        private void RemarkEpubCheck()
+        {
+            if (_preset.Format != ExportFormats.Epub || _plan.IsEmpty) return;
+            var tool = EpubCheckTool.Find();
+            if (tool != null)
+                _plan.Warnings.Add(new ExportWarning { Level = ExportWarning.Info, Text = "EPUBCheck est installé : l'EPUB sera validé par l'outil officiel.", Detail = tool.Describe() });
+            else
+                _plan.Warnings.Add(new ExportWarning { Level = ExportWarning.Info, Text = "L'EPUB passera le contrôle de structure de Marabook.",
+                    Detail = "Pour la validation officielle, installez EPUBCheck et Java : Marabook s'en sert dès qu'il trouve le lanceur « epubcheck » dans le PATH, ou le dossier d'EPUBCheck déballé dans " + System.IO.Path.Combine(Platform.Current.DataFolder, "outils") + "." });
         }
 
         private ExportFilter ReadFilter()

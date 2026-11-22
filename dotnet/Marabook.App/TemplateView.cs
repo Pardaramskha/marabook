@@ -41,7 +41,7 @@ namespace Marabook.App
         public TemplateView()
         {
             Focusable = true;
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             _root = new StackPanel { Margin = new Thickness(24, 12, 24, 16) };
             Child = new ScrollViewer
             {
@@ -162,7 +162,7 @@ namespace Marabook.App
                         : new SolidColorBrush(Ink.Parse(value).ToColor()),
                     BorderBrush = _item.TemplateColor == value ? (IBrush)Chrome.Ink : Chrome.Border,
                     BorderThickness = new Thickness(_item.TemplateColor == value ? 2.2 : 1),
-                    [ToolTip.TipProperty] = value == null ? "Aucune" : value,
+                    [ToolTip.TipProperty] = value == null ? "Aucune" : ColorPalette.Describe(value),
                     Cursor = new Cursor(StandardCursorType.Hand)
                 };
                 chip.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {

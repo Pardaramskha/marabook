@@ -53,10 +53,114 @@ namespace Marabook.Model
         public const string List = "list";
         public const string Choice = "choice";
         public const string Sheet = "sheet";
+        // 21/11 — quatre natures de plus : oui/non, couleur, choix multiple, coordonnées.
+        public const string Bool = "bool";
+        public const string Color = "color";
+        public const string Multi = "multi";
+        public const string Coords = "coords";
 
         public const int RatingMax = 5;
+        public const string Yes = "oui";
+        public const string No = "non";
 
-        public static readonly string[] All = { Text, Multiline, Number, Date, Rating, List, Choice, Sheet };
+        public static readonly string[] All = { Text, Multiline, Number, Date, Rating, List, Choice, Multi, Bool, Color, Coords, Sheet };
+
+        /// <summary>Les natures dont le MODÈLE porte les options (choix, choix multiple).</summary>
+        public static bool HasOptions(string kind)
+        {
+            var known = Normalize(kind);
+            return known == Choice || known == Multi;
+        }
+
+        /// <summary>Les natures dont la valeur est une suite d'éléments (liste, choix multiple).</summary>
+        public static bool IsItems(string kind)
+        {
+            var known = Normalize(kind);
+            return known == List || known == Multi;
+        }
+
+        /// <summary>Une valeur « bool » : vrai, faux, ou null (pas renseignée).
+        /// « oui », « vrai », « true », « 1 », « x » valent oui.</summary>
+        public static bool? BoolOf(string value)
+        {
+            var text = (value ?? "").Trim().ToLowerInvariant();
+            if (text.Length == 0) return null;
+            if (text == Yes || text == "vrai" || text == "true" || text == "1" || text == "x" || text == "yes") return true;
+            if (text == No || text == "faux" || text == "false" || text == "0" || text == "no") return false;
+            return null;
+        }
+
+        /// <summary>Une valeur « color » : « #RRGGBB » en majuscules, ou null
+        /// si elle ne se lit pas (« #abc » et « A1B2C3 » se lisent).</summary>
+        public static string ColorOf(string value)
+        {
+            var text = (value ?? "").Trim().TrimStart('#');
+            if (text.Length == 3) text = "" + text[0] + text[0] + text[1] + text[1] + text[2] + text[2];
+            if (text.Length != 6) return null;
+            foreach (var c in text) if (!Uri.IsHexDigit(c)) return null;
+            return "#" + text.ToUpperInvariant();
+        }
+
+        /// <summary>Une valeur « coords » : latitude et longitude en degrés
+        /// décimaux. Se lit « 48,85 ; 2,35 », « 48.85, 2.35 », « 48,85° N ;
+        /// 2,35° O » (S et O/W rendent le signe négatif). Faux hors de
+        /// ±90 / ±180 ou si l'une des deux manque.</summary>
+        public static bool TryCoords(string value, out double latitude, out double longitude)
+        {
+            latitude = 0;
+            longitude = 0;
+            var text = (value ?? "").Trim();
+            if (text.Length == 0) return false;
+            string[] parts;
+            if (text.IndexOf(';') >= 0) parts = text.Split(';');
+            else if (text.IndexOf(", ", StringComparison.Ordinal) >= 0) parts = text.Split(new[] { ", " }, StringSplitOptions.None);
+            else
+            {
+                // « 48.85,2.35 » : une seule virgule entre deux nombres à point ; sinon un blanc.
+                var comma = text.IndexOf(',');
+                if (comma > 0 && comma == text.LastIndexOf(',') && text.IndexOf('.') >= 0) parts = text.Split(',');
+                else parts = text.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            }
+            if (parts.Length != 2) return false;
+            if (!TryDegrees(parts[0], "NS", out latitude) || !TryDegrees(parts[1], "EOW", out longitude)) return false;
+            return Math.Abs(latitude) <= 90 && Math.Abs(longitude) <= 180;
+        }
+
+        private static bool TryDegrees(string part, string letters, out double degrees)
+        {
+            degrees = 0;
+            var text = (part ?? "").Trim().Replace("°", " ").Trim();
+            var negative = false;
+            if (text.Length > 0)
+            {
+                var last = char.ToUpperInvariant(text[text.Length - 1]);
+                if (letters.IndexOf(last) >= 0)
+                {
+                    negative = last == 'S' || last == 'O' || last == 'W';
+                    text = text.Substring(0, text.Length - 1).Trim();
+                }
+                else if (char.IsLetter(last)) return false;
+            }
+            text = text.Replace(',', '.').Replace(" ", "");
+            if (!double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out degrees)) return false;
+            if (negative) degrees = -Math.Abs(degrees);
+            return true;
+        }
+
+        /// <summary>La valeur ENREGISTRÉE de coordonnées : « 48.85;2.35 » (point décimal, sans unité).</summary>
+        public static string CoordsValue(double latitude, double longitude)
+        {
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+            return latitude.ToString("0.######", inv) + ";" + longitude.ToString("0.######", inv);
+        }
+
+        /// <summary>Ce qu'on en LIT : « 48,85° N · 2,35° E ».</summary>
+        public static string CoordsText(double latitude, double longitude)
+        {
+            var fr = System.Globalization.CultureInfo.GetCultureInfo("fr-FR");
+            return Math.Abs(latitude).ToString("0.####", fr) + "° " + (latitude < 0 ? "S" : "N") + " · "
+                + Math.Abs(longitude).ToString("0.####", fr) + "° " + (longitude < 0 ? "O" : "E");
+        }
 
         private static readonly char[] ListSeparators = { ',', ';' };
 
@@ -80,6 +184,10 @@ namespace Marabook.Model
                 case Rating: return "Note sur 5";
                 case List: return "Liste";
                 case Choice: return "Choix";
+                case Multi: return "Choix multiple";
+                case Bool: return "Oui / non";
+                case Color: return "Couleur";
+                case Coords: return "Coordonnées";
                 case Sheet: return "Fiche liée";
                 default: return "Texte court";
             }
@@ -154,7 +262,19 @@ namespace Marabook.Model
             switch (Normalize(kind))
             {
                 case Rating: return RatingText(RatingOf(value));
-                case List: return string.Join(" · ", ListItems(value).ToArray());
+                case List:
+                case Multi: return string.Join(" · ", ListItems(value).ToArray());
+                case Bool:
+                {
+                    var yes = BoolOf(value);
+                    return yes == null ? (value ?? "") : yes.Value ? "Oui" : "Non";
+                }
+                case Color: return ColorOf(value) ?? (value ?? "");
+                case Coords:
+                {
+                    double latitude, longitude;
+                    return TryCoords(value, out latitude, out longitude) ? CoordsText(latitude, longitude) : (value ?? "");
+                }
                 case Sheet:
                 {
                     if (string.IsNullOrEmpty(value)) return "";
@@ -708,6 +828,23 @@ namespace Marabook.Model
                     TemplateId = template.Id
                 });
             }
+        }
+    }
+
+    /// <summary>UNE FICHE VIDE (21/11, Rémi) : rien d'écrit en dehors de son
+    /// nom — aucun champ du modèle, aucune info libre, pas de texte, de
+    /// synopsis ni de notes. Le portrait ne compte pas ; les tags, la
+    /// couleur et les relations non plus (ce ne sont pas des champs écrits).</summary>
+    public static class SheetContent
+    {
+        public static bool IsEmpty(BinderItem sheet)
+        {
+            if (sheet == null) return true;
+            foreach (var value in sheet.FieldValues.Values) if (!string.IsNullOrWhiteSpace(value)) return false;
+            foreach (var info in sheet.FreeInfo) if (info != null && !string.IsNullOrWhiteSpace(info.Value)) return false;
+            if (!string.IsNullOrWhiteSpace(sheet.Synopsis) || !string.IsNullOrWhiteSpace(sheet.Notes)) return false;
+            if (sheet.Document != null && sheet.Document.ToPlainText().Replace("￼", "").Trim().Length > 0) return false;
+            return true;
         }
     }
 

@@ -164,6 +164,14 @@ namespace Marabook.App
                 var marks = dialog.ControlForProbe<CheckBox>("export-marks");
                 var profile = dialog.ControlForProbe<ComboBox>("export-profile");
                 Check(marks != null && marks.IsChecked == true && profile != null && profile.SelectedIndex == 1, "onglet Impression : traits de coupe et CMJN, comme le bouton Publier d'avant");
+                var pdfxBox = dialog.ControlForProbe<CheckBox>("export-pdfx");
+                Check(pdfxBox != null && pdfxBox.IsChecked == true && pdfxBox.IsEnabled && dialog.PresetForProbe.PdfX, "onglet Impression : « Conforme PDF/X-1a:2003 », coché pour le BAT");
+                profile.SelectedIndex = 0;
+                await Settle();
+                Check(!pdfxBox.IsEnabled && (dialog.TipForProbe("export-pdfx") ?? "").StartsWith("PDF/X-1a ne vaut qu'en CMJN"), "…en RVB, la case se grise et dit pourquoi");
+                Check(dialog.PlanForProbe.Warnings.Exists(delegate(ExportWarning w) { return w.Text.StartsWith("PDF/X-1a ne vaut qu'en CMJN"); }), "…et les vérifications le signalent");
+                profile.SelectedIndex = 1;
+                await Settle();
                 Check(dialog.FooterForProbe.StartsWith("BAT Imprimeur |") && dialog.FooterForProbe.Contains("→ PDF"), "le pied résume : préréglage, ampleur, format (" + dialog.FooterForProbe + ")");
                 Shot(dialog, "export-1-preset.png");
 
@@ -365,6 +373,81 @@ namespace Marabook.App
                 var margin = (book.Book.BleedMm + 5) * 72 / 25.4;
                 var media = "/MediaBox [0 0 " + (trimW + 2 * margin).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + " ";
                 Check(pdf.Contains(media), "BAT : le format du gabarit, plus le fond perdu du livre et la zone des traits (" + media.Trim() + "…)");
+                // Le BAT est un PDF/X-1a (20/11) : identifiant, XMP, condition d'impression, repérage — et il passe son contrôle.
+                var batReport = Print.PdfXInspector.Inspect(File.ReadAllBytes(path));
+                var batProblems = batReport.Problems;
+                Check(batProblems.Count == 0, "BAT : un PDF/X-1a:2003 qui passe son contrôle" + (batProblems.Count > 0 ? " — " + string.Join(" / ", batProblems.ToArray()) : ""));
+                Check(batReport.Pages > 0 && batReport.Fonts > 0 && batReport.Notes.Count == 0, "BAT : le contrôle a LU le fichier — " + batReport.Summary() + (batReport.Notes.Count > 0 ? " — " + string.Join(" / ", batReport.Notes.ToArray()) : ""));
+                Check(pdf.Contains("/GTS_PDFXVersion (PDF/X-1a:2003)") && pdf.Contains("/ID [<") && pdf.Contains("<pdfxid:GTS_PDFXVersion>") && pdf.Contains("/Reg CS") == false && pdf.Contains("/Reg [/Separation /All"),
+                    "BAT : version PDF/X, identifiant, XMP, traits de coupe en couleur de repérage");
+                var fogra = Print.IccProfiles.FindFogra39();
+                Check(fogra != null && ReferenceEquals(fogra, Print.IccProfiles.Embedded()) && pdf.Contains("/DestOutputProfile"), "BAT : le profil FOGRA39 livré avec Marabook est incorporé (" + (fogra == null ? "absent" : fogra.Description) + ")");
+
+                // Le façonnage (20/11) : les polices réelles donnent leur crénage et leurs ligatures.
+                var shaper = new AvaloniaFontEngine();
+                var times = shaper.Resolve("Times New Roman", 400, false);
+                var timesLayout = shaper.Layout(times);
+                Check(!times.HasGlyphs || (timesLayout != null && timesLayout.HasKerning), "Times New Roman : sa table de crénage est lue" + (timesLayout == null ? " (aucune table)" : " (ligatures : " + timesLayout.HasLigatures + ", petites capitales : " + timesLayout.HasSmallCaps + ")"));
+                if (timesLayout != null)
+                {
+                    ushort gA, gV;
+                    shaper.TryGlyph(times, 'A', out gA);
+                    shaper.TryGlyph(times, 'V', out gV);
+                    Check(timesLayout.Kern(gA, gV) < 0, "…« AV » s'y resserre (" + timesLayout.Kern(gA, gV) + " unités sur " + timesLayout.UnitsPerEm + ")");
+                }
+                foreach (var family in new[] { "Times New Roman", "EB Garamond", "Garamond", "Calibri", "Cambria", "Georgia", "Palatino Linotype", "Segoe UI", "Arial" })
+                {
+                    var probed = shaper.Resolve(family, 400, false);
+                    var tables = shaper.Layout(probed);
+                    Console.WriteLine("    (police " + family + " : " + (tables == null ? "aucune table lue" : "crénage " + tables.HasKerning + ", ligatures " + tables.HasLigatures + ", petites capitales " + tables.HasSmallCaps + " — " + string.Join(" ", tables.Features.ToArray())) + ")");
+                }
+                var fine = Path.Combine(folder, "faconnage.pdf");
+                var fineDocument = TextDocument.FromPlainText("AVANT la fin, le fil officiel flotte. Tout Va Très bien.");
+                // Une police à ligatures, s'il y en a une ici : le fi et le ffl doivent se lier, et le PDF garder leur texte.
+                var fineStyles = project.Styles.Clone();
+                string ligatureFamily = null;
+                foreach (var family in new[] { "EB Garamond", "Cambria", "Calibri", "Palatino Linotype" })
+                {
+                    var candidate = shaper.Layout(shaper.Resolve(family, 400, false));
+                    if (candidate != null && candidate.HasLigatures) { ligatureFamily = family; break; }
+                }
+                if (ligatureFamily != null) fineStyles.Body.FontFamily = ligatureFamily;
+                var fineEngine = new Print.CompositionEngine(fineDocument, fineStyles, new PageSetup(), project, true, shaper);
+                fineEngine.ComposeAll();
+                Print.PdfWriter.Write(fine, fineEngine.Current, new Print.PdfExportOptions { Title = "Façonnage" });
+                var kernedPieces = 0;
+                var ligated = 0;
+                foreach (var linePiece in fineEngine.Current.Paragraphs[0].Lines[0].Pieces)
+                {
+                    if (!linePiece.IsGlyphs) continue;
+                    if (linePiece.GlyphChars != null) ligated++;
+                    for (var g = 0; g < linePiece.Advances.Length; g++)
+                        if (Math.Abs(linePiece.Advances[g] - shaper.GlyphAdvance(linePiece.Face, linePiece.GlyphIndices[g]) * linePiece.EmSize) > 0.01) { kernedPieces++; break; }
+                }
+                Check(kernedPieces > 0, "le compositeur crène : " + kernedPieces + " mots ont une paire resserrée, " + ligated + " portent une ligature");
+                Check(ligatureFamily == null || ligated >= 2, "avec " + (ligatureFamily ?? "aucune police à ligatures") + " : « fin », « fil », « officiel », « flotte » se lient (" + ligated + " mots)");
+                // Le même texte à l'écran : la page dessinée par le rendu de l'éditeur, ligatures comprises.
+                try
+                {
+                    var composed = fineEngine.Current;
+                    var pixel = new PixelSize((int)Math.Ceiling(composed.PageWidthPx * 2), 260);
+                    using (var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(pixel, new Vector(192, 192)))
+                    {
+                        using (var dc = bitmap.CreateDrawingContext())
+                        {
+                            dc.FillRectangle(Avalonia.Media.Brushes.White, new Rect(0, 0, composed.PageWidthPx, 130));
+                            using (dc.PushTransform(Matrix.CreateTranslation(0, -composed.TopPx + 20)))
+                                ComposedRenderer.DrawPage(dc, composed, 0, false);
+                        }
+                        if (!string.IsNullOrEmpty(shots)) bitmap.Save(Path.Combine(shots, "export-7-faconnage-ecran.png"));
+                    }
+                    Check(true, "le rendu de l'éditeur dessine le texte façonné");
+                }
+                catch (Exception error)
+                {
+                    Check(false, "le rendu de l'éditeur dessine le texte façonné — " + error.Message);
+                }
+
                 Check(shell.CompileForPublishForProbe(book).Paragraphs.Count == ExportFlow.Build(project, done, HousePreset(ExportPresets.Bat), meta)[0].Document.Paragraphs.Count,
                     "BAT : le même manuscrit que l'ancien « Publier », paragraphe pour paragraphe");
 

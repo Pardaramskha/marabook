@@ -61,6 +61,11 @@ namespace Marabook.App
         // deux SECTIONS EXTRAS (21/09) que le modèle active ; le suivi se
         // filtre par écrit, groupe ou livre depuis l'en-tête de son paper.
         private readonly Border _presencePaper, _evolutionPaper;
+        // Les rétroliens (20/11) : ce qui cite la fiche — le paper ne paraît que s'il y en a.
+        private readonly Border _backlinksPaper;
+        private readonly StackPanel _backlinksPanel;
+        private bool _showBacklinks;
+        public event Action<Backlink> BacklinkRequested; // ouvrir ce qui cite la fiche, à l'endroit précis
         private readonly StackPanel _presencePanel, _evolutionPanel;
         private readonly ComboBox _presenceFilter;
         private string _presenceFilterId;   // null = toute l'amplitude ; sinon l'id d'un écrit, groupe ou livre
@@ -124,7 +129,7 @@ namespace Marabook.App
 
         public SheetView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
 
             // ================================================== le bandeau
             var banner = new Border
@@ -145,6 +150,7 @@ namespace Marabook.App
             back.Click += delegate { var h = BackRequested; if (h != null) h(); };
             DockPanel.SetDock(back, Dock.Left);
             bannerRow.Children.Add(back);
+            _backButton = back;
 
             var rightTools = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             _moduleButtons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
@@ -181,6 +187,7 @@ namespace Marabook.App
             AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(OnFunctionKey), RoutingStrategies.Tunnel);
             DockPanel.SetDock(rightTools, Dock.Right);
             bannerRow.Children.Add(rightTools);
+            _bannerTools = rightTools;
 
             var titles = new StackPanel { Margin = new Thickness(16, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center };
             _titleLabel = new TextBlock
@@ -320,6 +327,8 @@ namespace Marabook.App
             var addStep = AddButton("Ajouter une étape");
             addStep.Click += delegate { AddStep(); };
             _evolutionPaper = Paper("Évolution", _evolutionPanel, addStep);
+            _backlinksPanel = new StackPanel { Tag = "sheet-backlinks" };
+            _backlinksPaper = Paper("Rétroliens", _backlinksPanel, null);
 
             // Trois modes selon la largeur des papers : large (≥ 900 px) =
             // les trois colonnes ; moyen (≥ 560 px) = deux colonnes (image +
@@ -328,6 +337,7 @@ namespace Marabook.App
             Ui.OnSizeChanged(papers, delegate { LayoutPapers(false); });
             // Un paper n'est pas cliquable : pas de curseur main hérité (b42).
             var generalScroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = papers, Cursor = new Cursor(StandardCursorType.Arrow) };
+            _generalScroll = generalScroll;
             _tabs.Items.Add(new TabItem { Header = "Général", Content = generalScroll });
 
             // — Texte libre : l'éditeur markdown.
@@ -528,6 +538,39 @@ namespace Marabook.App
         /// markdown y ramène toujours : barre, Ctrl+F, insertions).</summary>
         internal void ShowTextTabPublic() { ShowTextTab(); } // capture (hotfix 1.0.3-a)
         internal void ShowGeneralTabPublic() { _tabs.SelectedIndex = 0; } // sonde des champs cross-fiche (07/10)
+        private ScrollViewer _generalScroll;
+        private Button _backButton;
+
+        /// <summary>Dans la vue scindée (21/11), « Retour » n'a pas où mener et le bandeau est étroit : le bouton s'efface.</summary>
+        public bool BackShown
+        {
+            get { return _backButton != null && _backButton.IsVisible; }
+            set
+            {
+                if (_backButton != null) _backButton.IsVisible = value;
+                // Bandeau étroit : « Mode wiki » et « Généalogie » passent SOUS le titre au lieu de le recouvrir.
+                if (_bannerTools == null) return;
+                DockPanel.SetDock(_bannerTools, value ? Dock.Right : Dock.Bottom);
+                _bannerTools.HorizontalAlignment = value ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+                _bannerTools.Margin = value ? new Thickness(0) : new Thickness(0, 6, 0, 0);
+            }
+        }
+        private StackPanel _bannerTools;
+
+        /// <summary>Où l'on en est dans la fiche (21/11) : son onglet et le
+        /// défilement de son Général — ce qu'un onglet de travail retient.</summary>
+        public void GetViewPosition(out int pane, out double scroll)
+        {
+            pane = Math.Max(0, _tabs.SelectedIndex);
+            scroll = _generalScroll == null ? 0 : _generalScroll.Offset.Y;
+        }
+
+        public void SetViewPosition(int pane, double scroll)
+        {
+            if (pane >= 0 && pane < _tabs.Items.Count) _tabs.SelectedIndex = pane;
+            if (_generalScroll != null && scroll >= 0) _generalScroll.Offset = new Vector(0, Math.Min(scroll, Math.Max(0, _generalScroll.Extent.Height - _generalScroll.Viewport.Height)));
+        }
+
         internal bool GeneralTabShownForProbe { get { return _tabs.SelectedIndex == 0; } }
         internal void ShowGeneralTabForProbe() { _tabs.SelectedIndex = 0; }
 
@@ -761,8 +804,9 @@ namespace Marabook.App
             var third = wantMode == 3 ? _columns[2] : second;
             if (_showTracking) third.Children.Add(_presencePaper);
             if (_showEvolution) third.Children.Add(_evolutionPaper);
+            if (_showBacklinks) third.Children.Add(_backlinksPaper);
             // Sans section extra, la troisième colonne se ferme.
-            if (wantMode == 3 && !_showTracking && !_showEvolution)
+            if (wantMode == 3 && !_showTracking && !_showEvolution && !_showBacklinks)
                 _papersGrid.ColumnDefinitions[2].Width = new GridLength(0);
         }
 
@@ -882,6 +926,41 @@ namespace Marabook.App
             }
             return any;
         }
+
+        /// <summary>Les rétroliens (20/11) : les fiches, les écrits, les
+        /// événements, les cartes et les arbres qui citent la fiche, rangés
+        /// par genre ; un clic ouvre l'endroit précis. Sans rétrolien, pas de paper.</summary>
+        private void RebuildBacklinks()
+        {
+            _backlinksPanel.Children.Clear();
+            var links = _item == null ? new List<Backlink>() : Backlinks.Of(_project, _item);
+            var show = links.Count > 0;
+            if (show) SheetWiki.FillBacklinks(_backlinksPanel, links, OpenBacklink);
+            if (show == _showBacklinks) return;
+            _showBacklinks = show;
+            LayoutPapers(true);
+        }
+
+        private void OpenBacklink(Backlink link)
+        {
+            var handler = BacklinkRequested;
+            if (handler != null) handler(link);
+        }
+
+        internal List<string> BacklinksForProbe()
+        {
+            var lines = new List<string>();
+            if (!_showBacklinks) return lines;
+            foreach (var child in _backlinksPanel.Children)
+            {
+                var line = child as TextBlock;
+                if (line != null) lines.Add((line.Tag as string == "backlink-group" ? "# " : "") + (line.Inlines != null && line.Inlines.Count > 0 ? line.Inlines.Text : line.Text));
+            }
+            return lines;
+        }
+        internal bool BacklinksShownForProbe { get { return _showBacklinks && _backlinksPaper.IsEffectivelyVisible; } }
+        internal void OpenBacklinkForProbe(Backlink link) { OpenBacklink(link); }
+        internal void ShowGenealogyForBacklink() { if (_genealogyButton.IsVisible && _genealogyButton.IsChecked != true) _genealogyButton.IsChecked = true; }
 
         /// <summary>Les étapes, dans l'ordre du récit — le même que le wiki
         /// (Presence.OrderedSteps), rebâti dès qu'une étape change d'écrit.</summary>
@@ -1238,7 +1317,7 @@ namespace Marabook.App
                 Padding = new Thickness(0, 1, 0, 1),
                 Margin = new Thickness(4, 0, 0, 0),
                 [ToolTip.TipProperty] = "Les options de ce choix (séparées par des virgules)",
-                IsVisible = FieldKinds.Normalize(entry.Kind) == FieldKinds.Choice ? true : false
+                IsVisible = FieldKinds.HasOptions(entry.Kind)
             };
             Action askOptions = async delegate
             {
@@ -1261,7 +1340,7 @@ namespace Marabook.App
                 // pendant son propre événement.
                 Ui.Post(DispatcherPriority.Background, new Action(delegate
                 {
-                    if (chosen == FieldKinds.Choice && entry.Options.Count == 0) askOptions();
+                    if (FieldKinds.HasOptions(chosen) && entry.Options.Count == 0) askOptions();
                     else RebuildFields();
                 }));
             };
@@ -2061,6 +2140,8 @@ namespace Marabook.App
         internal TextBox BodyBox { get { return _bodyBox; } } // sonde (hotfix 1.0.3-a)
         internal bool HasFieldBoxForProbe(string fieldId) { return fieldId != null && _fieldBoxes.ContainsKey(fieldId); } // sonde (1.0.5)
         internal string CategoryLabelForProbe { get { return _categoryLabel.Text ?? ""; } }
+        /// <summary>Sonde (21/11) : le contrôle de saisie d'un champ, quelle que soit sa nature.</summary>
+        internal Control FieldControlForProbe(string fieldId) { Control box; return fieldId != null && _fieldBoxes.TryGetValue(fieldId, out box) ? box : null; }
 
         /// <summary>Sonde (07/10 soir) : la zone de saisie du premier champ de
         /// cette nature (liste, nombre…), ou null.</summary>
@@ -2097,6 +2178,7 @@ namespace Marabook.App
             RebuildRelations();
             RebuildPresence();
             RebuildEvolution();
+            RebuildBacklinks();
             RebuildRadar();
             RebuildModules();
             RefreshPortrait();
@@ -2343,7 +2425,7 @@ namespace Marabook.App
             return SheetWiki.Build(_item, _template, _project, _bodyBox.Text, false,
                 delegate(BinderItem target) { var h = NavigateRequested; if (h != null) h(target); },
                 delegate(string target) { var handler = LinkClicked; if (handler != null) handler(target); },
-                ToggleTask);
+                ToggleTask, OpenBacklink);
         }
 
         private void ToggleTask(int index)

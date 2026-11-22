@@ -67,9 +67,13 @@ namespace Marabook.App
         /// coquille, montré comme une racine d'Encyclopédie — sélectionnable,
         /// jamais déplacé ni cible de dépôt, sans menu.</summary>
         public BinderItem GraphItem;
+        /// <summary>L'Atelier (21/11) : la première page de la section Outils — pas un item du projet.</summary>
+        public BinderItem AtelierItem;
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
         // demande, et sait si l'item est déjà épinglé pour libeller le menu.
         public event Action<BinderItem> SidePinRequested;
+        public event Action<BinderItem> SplitRequested;      // « Ouvrir en vue scindée » (21/11)
+        public Func<BinderItem, bool> IsSplit;
         // Les onglets (1.1.0) : « Ouvrir dans un nouvel onglet » du menu de la
         // Pile — offert quand la coquille dit que la rangée a de la place.
         public event Action<BinderItem> NewTabRequested;
@@ -108,7 +112,7 @@ namespace Marabook.App
 
         public BinderView()
         {
-            Background = Chrome.BarBg; // la Pile est du chrome (batch 40)
+            Skin.Bar(this); // la Pile est du chrome (batch 40) — un voile sur le fond d'un skin (21/11)
             BorderBrush = Chrome.Border;
             BorderThickness = new Thickness(0, 0, 1, 0);
 
@@ -143,7 +147,7 @@ namespace Marabook.App
                 var node = NodeFromSource(e.Source);
                 if (node == null || _renameBox != null) return;
                 var item = node.Tag as BinderItem;
-                if (item == null || (item.IsCategory && item.CategoryKey == MainWindow.GraphKey)) return;
+                if (item == null || (item.IsCategory && MainWindow.IsPageKey(item.CategoryKey))) return;
                 if (CanOpenTab == null || !CanOpenTab()) return;
                 var handler = NewTabRequested;
                 if (handler != null) handler(item);
@@ -177,10 +181,20 @@ namespace Marabook.App
             {
                 // Suppr dans la Pile (30/09) : l'élément choisi part à la
                 // corbeille — la fenêtre n'a plus de raccourci global.
-                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null && _multi.Count > 1)
+                // Un lot, même d'UNE ligne, prime sur la ligne ouverte (21/11, Rémi :
+                // un chapitre coché dans un livre ouvert, Suppr emportait le livre).
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null && _multi.Count > 0)
                 {
                     e.Handled = true;
                     DeleteMany(MultiItems()); // tout le lot (1.0.3)
+                    return;
+                }
+                // Des cartes cochées dans la zone centrale priment aussi (le clavier
+                // peut être resté dans la Pile, sur le livre qui les contient).
+                if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null
+                    && DeleteInterceptor != null && DeleteInterceptor())
+                {
+                    e.Handled = true;
                     return;
                 }
                 if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _renameBox == null
@@ -476,7 +490,9 @@ namespace Marabook.App
         };
 
         public const string UnderConstruction = "En construction";
-        internal static readonly HashSet<string> CollapsedSections = new HashSet<string>();
+        /// <summary>22/11 (Rémi) : au lancement, avant tout geste, la section Outils est REPLIÉE —
+        /// elle s'ouvre d'un clic sur son nom, ou dès qu'on ouvre un de ses éléments.</summary>
+        internal static readonly HashSet<string> CollapsedSections = new HashSet<string> { "Outils" };
 
         /// <summary>La section d'une racine, ou null (l'Accueil, une racine inconnue).</summary>
         private static PileSection SectionOf(BinderItem root)
@@ -592,7 +608,8 @@ namespace Marabook.App
                         var collapsed = CollapsedSections.Contains(section.Name);
                         _tree.Items.Add(SectionRow(section.Name, collapsed, roots.Count));
                         if (collapsed) { foreach (var root in roots) placed.Add(root); continue; }
-                        if (roots.Count == 0) _tree.Items.Add(UnderConstructionRow());
+                        // La section Outils (21/11) : l'Atelier, sa première page ; « En construction » tant qu'il n'est pas posé.
+                        if (roots.Count == 0 && !(section.Name == "Outils" && AtelierItem != null)) _tree.Items.Add(UnderConstructionRow());
                     }
                     foreach (var root in roots)
                     {
@@ -601,6 +618,7 @@ namespace Marabook.App
                     }
                     // Le graphe relationnel (1.1.0, 28/10) : une entrée fixe
                     // sous le Dictionnaire — pas un item du projet.
+                    if (section.Name == "Outils" && AtelierItem != null) _tree.Items.Add(BuildNode(AtelierItem)); // une page, comme le graphe
                     if (section.Name == "Encyclopédie" && GraphItem != null && Profiles.Enabled(Profiles.Graph)) _tree.Items.Add(BuildNode(GraphItem)); // une racine comme les autres : sélectionnable, dans l'historique et les onglets
                 }
                 // Une racine qu'aucune section ne nomme (un .plot plus récent) :
@@ -1104,15 +1122,37 @@ namespace Marabook.App
         private BinderItem _multiPressed; // clic ordinaire sur une ligne du lot : décidé au relâchement
         public event Action<List<BinderItem>> MultiSelectionChanged;
         public Func<List<BinderItem>, ContextMenu> BatchMenuProvider;
+        /// <summary>Suppr dans la Pile : vrai si la coquille s'en est chargée
+        /// (des cartes cochées dans la zone centrale).</summary>
+        public Func<bool> DeleteInterceptor;
 
         /// <summary>Les éléments du lot, dans l'ordre de la Pile.</summary>
         public List<BinderItem> MultiItems()
         {
             var result = new List<BinderItem>();
             if (_project == null || _multi.Count == 0) return result;
-            foreach (var item in _project.AllItems())
+            foreach (var item in PileOrder())
                 if (_multi.Contains(item.Id)) result.Add(item);
             return result;
+        }
+
+        /// <summary>Tous les éléments dans l'ordre où la Pile les MONTRE, de haut
+        /// en bas : chaque conteneur suivi de ce qu'il contient (21/11). Project.AllItems
+        /// va « par niveaux » — tous les livres, puis tous leurs chapitres : une plage
+        /// MAJ+clic partie d'un livre ramassait les chapitres du livre voisin, et un
+        /// lot à cheval sur deux niveaux ne sortait pas dans l'ordre de l'écran.</summary>
+        private List<BinderItem> PileOrder()
+        {
+            var order = new List<BinderItem>();
+            if (_project != null)
+                foreach (var root in _project.Roots) Walk(root, order);
+            return order;
+        }
+
+        private static void Walk(BinderItem item, List<BinderItem> into)
+        {
+            into.Add(item);
+            foreach (var child in item.Children) Walk(child, into);
         }
 
         public void ClearMultiSelection()
@@ -1150,8 +1190,12 @@ namespace Marabook.App
             {
                 // La ligne déjà choisie entre dans le lot, si elle est de la même famille.
                 var current = SelectedItem;
+                // …sauf si elle CONTIENT la ligne cliquée (21/11, Rémi) : le livre
+                // ouvert entrait dans le lot dès qu'on cochait un de ses chapitres,
+                // et « Envoyer à la corbeille » emportait le livre entier.
                 if (current != null && !current.IsCategory && current.Id != item.Id
-                    && current.RootCategory() != null && current.RootCategory().CategoryKey == root)
+                    && current.RootCategory() != null && current.RootCategory().CategoryKey == root
+                    && !item.IsDescendantOf(current))
                     _multi.Add(current.Id);
             }
             else
@@ -1188,14 +1232,25 @@ namespace Marabook.App
             var root = item.RootCategory().CategoryKey;
             if (anchor.RootCategory() == null || anchor.RootCategory().CategoryKey != root) return false;
             var order = new List<BinderItem>();
-            foreach (var candidate in _project.AllItems())
+            foreach (var candidate in PileOrder())
                 if (!candidate.IsCategory && _nodesById.ContainsKey(candidate.Id)
                     && candidate.RootCategory() != null && candidate.RootCategory().CategoryKey == root)
                     order.Add(candidate);
             var a = order.IndexOf(anchor);
             var b = order.IndexOf(item);
             if (a < 0 || b < 0) return false;
-            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++) _multi.Add(order[i].Id);
+            // Un conteneur d'un des deux bouts n'entre pas dans la plage (21/11) :
+            // du livre ouvert à son cinquième chapitre, ce sont cinq chapitres
+            // qu'on vise, pas le livre — qui les emporterait tous à la corbeille.
+            for (var i = Math.Min(a, b); i <= Math.Max(a, b); i++)
+            {
+                var row = order[i];
+                if (row != item && row != anchor && (item.IsDescendantOf(row) || anchor.IsDescendantOf(row))) continue;
+                if (row == anchor && item.IsDescendantOf(anchor)) continue;
+                if (row == item && anchor.IsDescendantOf(item)) continue;
+                _multi.Add(row.Id);
+            }
+            if (_multi.Count > 0 && _multiAnchor == null) _multiAnchor = item;
             ApplyMultiVisuals();
             AnnounceMulti();
             return true;
@@ -1323,6 +1378,13 @@ namespace Marabook.App
         /// a changé.</summary>
         private bool UnfoldFor(string id)
         {
+            // L'Atelier n'est pas du projet (22/11) : sa section, Outils, est repliée au lancement — elle se déplie pour lui.
+            if (AtelierItem != null && id == AtelierItem.Id)
+            {
+                if (!CollapsedSections.Remove("Outils")) return false;
+                Rebuild();
+                return true;
+            }
             var item = _project == null ? null : _project.FindById(id);
             if (item == null) return false;
             var changed = false;
@@ -1401,256 +1463,299 @@ namespace Marabook.App
             return BuildContextMenu(item, confirmDelete, false);
         }
 
+        /// <summary>Les GROUPES du menu contextuel (2.0.0, 22/11/2026, Rémi) : partout les
+        /// mêmes, dans le même ordre, séparés d'un filet — un groupe vide n'en laisse pas.
+        ///   Open      Ouvrir dans un nouvel onglet
+        ///   Create    Nouvel écrit, Nouveau dossier, Nouvelle partie, Nouveau livre, Nouvelle fiche…
+        ///   Exchange  Exporter…, Exporter l'Encyclopédie…, importer
+        ///   State     Projet actif, Épingler à l'accueil, Épingler au rail, Vue scindée (une coche = actif)
+        ///   Gestures  Unifier, Appliquer le gabarit du livre, Classer, Gérer les fiches, Restaurer
+        ///   Identity  Renommer…, Options du livre…, Tuile…, Icône…
+        ///   End       Dupliquer, Envoyer à la corbeille, Vider la corbeille</summary>
+        private sealed class MenuPlan
+        {
+            public const int Open = 0, Create = 1, Exchange = 2, State = 3, Gestures = 4, Identity = 5, End = 6;
+            private readonly List<object>[] _groups = new List<object>[7];
+
+            public MenuPlan() { for (var i = 0; i < _groups.Length; i++) _groups[i] = new List<object>(); }
+
+            public void Add(int group, object entry) { _groups[group].Add(entry); }
+
+            public MenuItem Add(int group, string label, EventHandler<RoutedEventArgs> onClick)
+            {
+                var entry = new MenuItem { Header = label };
+                entry.Click += onClick;
+                _groups[group].Add(entry);
+                return entry;
+            }
+
+            /// <summary>Une bascule : le libellé ne change pas, une coche dit que c'est en cours.</summary>
+            public MenuItem Toggle(int group, string label, bool active, EventHandler<RoutedEventArgs> onClick)
+            {
+                var entry = Add(group, label, onClick);
+                if (active) entry.Icon = Icons.Check(12, Chrome.Ink);
+                entry.Tag = active ? "on" : "off";
+                return entry;
+            }
+
+            public ContextMenu Build()
+            {
+                var menu = new ContextMenu();
+                foreach (var group in _groups)
+                {
+                    if (group.Count == 0) continue;
+                    if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+                    foreach (var entry in group) menu.Items.Add(entry);
+                }
+                return menu.Items.Count == 0 ? null : menu;
+            }
+        }
+
+        /// <summary>« Exporter… » (22/11) : le gestionnaire d'export, cet élément coché.</summary>
+        public event Action<BinderItem> ExportRequested;
+        /// <summary>L'élément a-t-il quelque chose à exporter (lui-même, ou ce qu'il contient) ? Posé par la coquille.</summary>
+        public Func<BinderItem, bool> CanExport;
+        /// <summary>« Appliquer le gabarit du livre » (22/11, dans le menu commun) : la mise en page de l'écrit suit son livre.</summary>
+        public event Action<BinderItem> ApplyBookLayoutRequested;
+
+        /// <summary>Vrai quand un écrit de livre ne suit pas la mise en page de son livre.</summary>
+        private bool StraysFromBook(BinderItem item)
+        {
+            if (item == null || item.Kind != ItemKind.Text || _project == null || !Profiles.Enabled(Profiles.BookFormat)) return false;
+            var book = item.EnclosingBook();
+            if (book == null || book.Book == null || book.Book.Template == null) return false;
+            var effective = item.Page ?? _project.Page;
+            return effective != null && !effective.SameLayout(book.Book.Template);
+        }
+
         private ContextMenu BuildContextMenu(BinderItem item, bool confirmDelete, bool fromPile)
         {
-            if (item.IsCategory && item.CategoryKey == MainWindow.GraphKey) return null; // la page du graphe : rien à créer, renommer ni supprimer (28/10)
-            var menu = new ContextMenu();
-            var inTrash = item.RootCategory().CategoryKey == Project.KeyTrash;
+            if (item.IsCategory && MainWindow.IsPageKey(item.CategoryKey)) return null; // la page du graphe, l'Atelier : rien à créer, renommer ni supprimer (28/10)
+            // L'Accueil (batch 41) : rien à créer, rien à renommer, rien à supprimer — pas de menu du tout.
+            if (item.IsHomeRoot) return null;
+            // L'Astrolabe (16/11) n'a pas d'enfants dans la Pile : systèmes et mondes vivent dans sa page.
+            if (item.IsCategory && item.CategoryKey == Project.KeyAstrolabe) return null;
+
+            var plan = new MenuPlan();
+            var rootKey = item.RootCategory().CategoryKey;
+            var inTrash = rootKey == Project.KeyTrash;
             // Les onglets (1.1.0) : tout élément de la Pile peut s'ouvrir dans
             // un onglet de plus — tant que la rangée a de la place.
             if (CanOpenTab != null && CanOpenTab())
-                AddMenu(menu, "Ouvrir dans un nouvel onglet", delegate
+                plan.Add(MenuPlan.Open, "Ouvrir dans un nouvel onglet", delegate
                 {
                     var handler = NewTabRequested;
                     if (handler != null) handler(item);
                 });
 
-            // L'Encyclopédie (31/10, Rémi) : la racine Fiches exporte tout.
-            if (item.IsCategory && item.CategoryKey == Project.KeySheets)
-                AddMenu(menu, "Exporter l'Encyclopédie…", delegate { var handler = ExportEncyclopediaRequested; if (handler != null) handler(); });
             if (inTrash)
             {
-                if (!item.IsCategory)
-                    AddMenu(menu, "Restaurer dans Écrits", delegate { Restore(item); });
-                AddMenu(menu, "Vider la corbeille", HardDeleteInk, delegate { EmptyTrash(); });
-                return menu;
-            }
-            // L'Accueil (batch 41) : rien à créer, rien à renommer, rien à
-            // supprimer — pas de menu du tout.
-            if (item.IsHomeRoot) return null;
-            // La racine Dictionnaire (batch 33) n'a pas d'enfants dans la
-            // Pile : ses entrées vivent dans son écran.
-            if (item.IsCategory && item.CategoryKey == Project.KeyDictionary)
-            {
-                AddMenu(menu, "Nouvelle entrée…", delegate
-                {
-                    var handler = DictionaryEntryRequested;
-                    if (handler != null) handler();
-                });
-                return menu;
-            }
-            // La racine Plans (batch 35) ne reçoit que des plans.
-            if (item.IsCategory && item.CategoryKey == Project.KeyPlans)
-            {
-                AddMenu(menu, "Nouveau plan", delegate { NewPlan(item); });
-                return menu;
-            }
-            // L'Astrolabe (16/11) n'a pas d'enfants dans la Pile : systèmes et mondes vivent dans sa page.
-            if (item.IsCategory && item.CategoryKey == Project.KeyAstrolabe) return null;
-            // La racine Cartes (16/11) ne reçoit que des cartes : une image importée chacune.
-            if (item.IsCategory && item.CategoryKey == Project.KeyMaps)
-            {
-                AddMenu(menu, "Nouvelle carte…", delegate { NewMap(); });
-                return menu;
-            }
-            // La racine Frises (1.2.0) ne reçoit que des frises.
-            if (item.IsCategory && item.CategoryKey == Project.KeyTimelines)
-            {
-                AddMenu(menu, "Nouvelle frise…", delegate { NewTimeline(item); });
-                return menu;
-            }
-            // La racine Cartes mentales (22/09) ne reçoit que des cartes.
-            if (item.IsCategory && item.CategoryKey == Project.KeyMindMaps)
-            {
-                AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(item); });
-                AddMenu(menu, "Importer une carte (.tea)…", delegate { ImportMindMapDialog(item); });
-                return menu;
+                if (!item.IsCategory) plan.Add(MenuPlan.Gestures, "Restaurer dans Écrits", delegate { Restore(item); });
+                plan.Add(MenuPlan.End, "Vider la corbeille", delegate { EmptyTrash(); }).Foreground = HardDeleteInk;
+                return plan.Build();
             }
 
-            if (item.CanHaveChildren)
+            var exportable = CanExport != null && CanExport(item);
+            EventHandler<RoutedEventArgs> export = delegate { var handler = ExportRequested; if (handler != null) handler(item); };
+
+            // ------------------------------------------------ les racines
+            if (item.IsCategory)
             {
-                var rootKey = item.RootCategory().CategoryKey;
-                // Chaque racine ne propose que son contenu natif (pack de
-                // correctifs du 12/09/2026) : Fiches = fiches et dossiers,
-                // Recherche = import seulement, Écrits = écrits, livres,
-                // dossiers. Le dépôt par glisser-déposer reste libre.
-                if (rootKey == Project.KeySheets)
+                if (item.CategoryKey == Project.KeyDictionary) // ses entrées vivent dans son écran (batch 33)
+                    plan.Add(MenuPlan.Create, "Nouvelle entrée…", delegate { var handler = DictionaryEntryRequested; if (handler != null) handler(); });
+                else if (item.CategoryKey == Project.KeyPlans)
+                    plan.Add(MenuPlan.Create, "Nouveau plan", delegate { NewPlan(item); });
+                else if (item.CategoryKey == Project.KeyMaps) // une image importée chacune (16/11)
+                    plan.Add(MenuPlan.Create, "Nouvelle carte…", delegate { NewMap(); });
+                else if (item.CategoryKey == Project.KeyTimelines)
+                    plan.Add(MenuPlan.Create, "Nouvelle frise…", delegate { NewTimeline(item); });
+                else if (item.CategoryKey == Project.KeyMindMaps)
                 {
-                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(item); });
-                    AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
+                    plan.Add(MenuPlan.Create, "Nouvelle carte mentale", delegate { NewMindMap(item); });
+                    plan.Add(MenuPlan.Exchange, "Importer une carte (.tea)…", delegate { ImportMindMapDialog(item); });
                 }
-                else if (rootKey == Project.KeyResearch)
-                {
-                    AddMenu(menu, "Importer des fichiers…", delegate { ImportMediaDialog(item); });
-                }
-                else
-                {
-                    AddMenu(menu, "Nouvel écrit", delegate { NewText(item); });
-                    // Un Livre se crée dans Écrits uniquement, jamais dans un
-                    // autre livre.
-                    if (rootKey == Project.KeyWritings && item.EnclosingBook() == null)
-                        AddMenu(menu, "Nouveau livre", delegate { NewBook(item); });
-                    if (!item.IsInsideOutOfBook()) // pas de parties dans le Hors-livre (29/09)
-                        AddMenu(menu, "Nouveau dossier", delegate { NewFolder(item); });
-                }
+                else AddCreations(plan, item, rootKey);
+                if (exportable) plan.Add(MenuPlan.Exchange, "Exporter…", export);
+                // L'Encyclopédie (31/10, Rémi) : la racine Fiches exporte tout.
+                if (item.CategoryKey == Project.KeySheets)
+                    plan.Add(MenuPlan.Exchange, "Exporter l'Encyclopédie…", delegate { var handler = ExportEncyclopediaRequested; if (handler != null) handler(); });
+                return plan.Build();
             }
+
+            // ------------------------------------------------ créer
+            if (item.CanHaveChildren) AddCreations(plan, item, rootKey);
             // Depuis la Pile seulement (14/09) : créer AU MÊME NIVEAU que
             // l'item cliqué — une fiche à côté d'une fiche, un import à côté
             // d'un document de Recherche, un plan à côté d'un plan.
-            if (fromPile && !item.IsCategory)
+            if (fromPile)
             {
                 var parent = item.Parent;
-                if (item.Kind == ItemKind.Sheet)
-                    AddMenu(menu, "Nouvelle fiche", delegate { NewSheet(parent); });
-                else if (item.Kind == ItemKind.Media)
-                    AddMenu(menu, "Nouvel import…", delegate { ImportMediaDialog(parent); });
-                else if (item.Kind == ItemKind.Plan)
-                    AddMenu(menu, "Nouveau plan", delegate { NewPlan(null); });
-                else if (item.Kind == ItemKind.Timeline)
-                    AddMenu(menu, "Nouvelle frise…", delegate { NewTimeline(null); });
-                else if (item.Kind == ItemKind.Map)
-                    AddMenu(menu, "Nouvelle carte…", delegate { NewMap(); });
-                else if (item.Kind == ItemKind.MindMap)
-                {
-                    AddMenu(menu, "Nouvelle carte mentale", delegate { NewMindMap(null); });
-                    AddMenu(menu, "Exporter la carte (.tea)…", delegate { ExportMindMap(item); });
-                }
+                if (item.Kind == ItemKind.Sheet) plan.Add(MenuPlan.Create, "Nouvelle fiche", delegate { NewSheet(parent); });
+                else if (item.Kind == ItemKind.Media) plan.Add(MenuPlan.Create, "Nouvel import…", delegate { ImportMediaDialog(parent); });
+                else if (item.Kind == ItemKind.Plan) plan.Add(MenuPlan.Create, "Nouveau plan", delegate { NewPlan(null); });
+                else if (item.Kind == ItemKind.Timeline) plan.Add(MenuPlan.Create, "Nouvelle frise…", delegate { NewTimeline(null); });
+                else if (item.Kind == ItemKind.Map) plan.Add(MenuPlan.Create, "Nouvelle carte…", delegate { NewMap(); });
+                else if (item.Kind == ItemKind.MindMap) plan.Add(MenuPlan.Create, "Nouvelle carte mentale", delegate { NewMindMap(null); });
             }
-            if (!item.IsCategory)
+
+            // ------------------------------------------------ exporter
+            if (exportable) plan.Add(MenuPlan.Exchange, "Exporter…", export);
+            if (item.Kind == ItemKind.Sheet) // l'Encyclopédie (31/10) : son dialogue, cette fiche cochée
+                plan.Add(MenuPlan.Exchange, "Exporter l'Encyclopédie…", delegate { var handler = ExportSheetRequested; if (handler != null) handler(item); });
+            if (fromPile && item.Kind == ItemKind.MindMap)
+                plan.Add(MenuPlan.Exchange, "Exporter la carte (.tea)…", delegate { ExportMindMap(item); });
+
+            // ------------------------------------------------ l'état
+            // Le projet actif (1.0.5-a) : un écrit, un dossier ou un livre
+            // d'Écrits — le spectre par défaut des relevés ; un seul à la fois.
+            if ((item.Kind == ItemKind.Text || item.Kind == ItemKind.Folder || item.Kind == ItemKind.Book)
+                && !item.IsExtraPage && rootKey == Project.KeyWritings)
             {
-                if (menu.Items.Count > 0) menu.Items.Add(new Separator()); // pas de filet en tête (fiche, écrit sans enfant — 14/09)
-                // Épingler sur l'Accueil (batch 41) : une bascule annulable.
-                AddMenu(menu, item.Pinned ? "Ne plus épingler à l'accueil" : "Épingler à l'accueil", delegate { TogglePin(item); });
-                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
+                var active = _project.ActiveScope() == item;
+                plan.Toggle(MenuPlan.State, "Projet actif", active, delegate { SetActiveScope(active ? null : item); });
+            }
+            // Épingler sur l'Accueil (batch 41) : une bascule annulable.
+            plan.Toggle(MenuPlan.State, "Épingler à l'accueil", item.Pinned, delegate { TogglePin(item); });
+            if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet)
+            {
+                var sidePinned = IsSidePinned != null && IsSidePinned(item);
+                plan.Toggle(MenuPlan.State, "Épingler au rail", sidePinned, delegate
                 {
-                    var sidePinned = IsSidePinned != null && IsSidePinned(item);
-                    AddMenu(menu, sidePinned ? "Retirer du rail" : "Épingler au rail", delegate
-                    {
-                        var handler = SidePinRequested;
-                        if (handler != null) handler(item);
-                    });
-                }
-                // Le projet actif (1.0.5-a) : un écrit, un dossier ou un livre
-                // d'Écrits — le spectre par défaut des relevés ; un seul à la fois.
-                if ((item.Kind == ItemKind.Text || item.Kind == ItemKind.Folder || item.Kind == ItemKind.Book)
-                    && !item.IsExtraPage && item.RootCategory().CategoryKey == Project.KeyWritings)
+                    var handler = SidePinRequested;
+                    if (handler != null) handler(item);
+                });
+                // La vue scindée (21/11) : l'élément s'ouvre À DROITE de celui qu'on a déjà, et s'y édite.
+                var split = IsSplit != null && IsSplit(item);
+                plan.Toggle(MenuPlan.State, "Vue scindée", split, delegate
                 {
-                    var active = _project.ActiveScope() == item;
-                    AddMenu(menu, active ? "Ne plus en faire le projet actif" : "Projet actif", delegate { SetActiveScope(active ? null : item); });
-                }
-                if (item.Kind == ItemKind.Book)
-                    AddMenu(menu, "Options du livre…", delegate { BookOptions(item); });
-                // « Unifier » (18/10) : le chapitre finit sur une page impaire —
-                // une page blanche à sa fin, la pastille du signalement en icône.
-                if (item.Kind == ItemKind.Text && ChapterOddEnd != null && ChapterOddEnd(item) > 0)
-                {
-                    var unify = new MenuItem { Header = "Unifier", Icon = FlowIcon(12), Tag = "unify" };
-                    ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne. Don't thank me.");
-                    unify.Click += delegate
-                    {
-                        var handler = UnifyRequested;
-                        if (handler != null) handler(item);
-                    };
-                    menu.Items.Add(unify);
-                }
-                // Un dossier de Fiches, depuis la Pile (29/09) : classer ses
-                // fiches par ordre alphabétique — annulable.
-                if (fromPile && item.CanHaveChildren && item.Children.Count > 1
-                    && item.RootCategory().CategoryKey == Project.KeySheets)
-                    AddMenu(menu, "Classer par ordre alphabétique", delegate { SortChildren(item); });
-                // Un dossier de Fiches (1.0.5) : « Gérer les fiches › Casser le
-                // dossier » — ses fiches rejoignent la racine Fiches, le
-                // dossier part à la corbeille. Depuis la Pile ou une tuile.
-                if (item.Kind == ItemKind.Folder && item.RootCategory().CategoryKey == Project.KeySheets)
-                {
-                    var manage = new MenuItem { Header = "Gérer les fiches" };
-                    var sheets = new List<BinderItem>();
-                    BreakFolderAction.CollectSheets(item, sheets);
-                    var breakFolder = new MenuItem
-                    {
-                        Header = "Casser le dossier",
-                        IsEnabled = sheets.Count > 0,
-                        [ToolTip.TipProperty] = sheets.Count == 0 ? "Aucune fiche dans ce dossier"
-                            : "Renvoyer " + (sheets.Count == 1 ? "sa fiche" : "ses " + sheets.Count + " fiches") + " dans la catégorie Fiches, puis mettre le dossier à la corbeille"
-                    };
-                    breakFolder.Click += delegate { BreakFolder(item); };
-                    manage.Items.Add(breakFolder);
-                    menu.Items.Add(manage);
-                }
-                // Le dossier Hors-livre (29/09) : ni renommé, ni changé d'icône, ni supprimé.
-                if (item.IsOutOfBook) return menu;
-                AddMenu(menu, "Renommer…", delegate { Rename(item); });
-                AddMenu(menu, "Changer l'icône…", delegate { ChangeIcon(item); });
-                // La couleur de l'icône (29/09) : la teinte seule, l'icône
-                // reste — le nuancier partagé, sur l'icône choisie ou celle
-                // par défaut de l'item.
-                if (!item.IsCategory) menu.Items.Add(BuildIconColorMenu(item));
-                // La couleur (29/09) : toute tuile colorable (écrit, fiche,
-                // livre, dossier) l'a dans son menu — le nuancier du Général.
-                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet
-                    || item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder)
-                    menu.Items.Add(BuildColorMenu(item));
-                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Book)
-                {
-                    AddMenu(menu, item.ImageId == null ? "Image de la carte…" : "Changer l'image de la carte…",
-                        delegate { ChangeCardImage(item); });
-                    if (item.ImageId != null)
-                        AddMenu(menu, "Retirer l'image de la carte", delegate { RemoveCardImage(item); });
-                }
-                // Dupliquer (30/09) : écrit, fiche ou gabarit — la copie juste
-                // après l'original, annulable.
-                if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.PageTemplate)
-                    AddMenu(menu, "Dupliquer", delegate { Duplicate(item); });
-                if (item.Kind == ItemKind.Sheet)
-                    AddMenu(menu, "Exporter la fiche…", delegate { var handler = ExportSheetRequested; if (handler != null) handler(item); }); // l'Encyclopédie (31/10)
-                // Suppression DOUCE (29/09) : vers la corbeille, en orange —
-                // elle se restaure ; la sèche (vider la corbeille) est rouge.
-                AddMenu(menu, "Envoyer à la corbeille", SoftDeleteInk, async delegate
-                {
-                    if (confirmDelete && !await ConfirmTrash(item)) return;
-                    Delete(item);
+                    var handler = SplitRequested;
+                    if (handler != null) handler(item);
                 });
             }
-            return menu;
-        }
 
-        /// <summary>Le sous-menu « Couleur » d'un item (29/09) : le nuancier,
-        /// les couleurs personnalisées du projet, « Nouvelle couleur… »,
-        /// « Aucune couleur » — la même palette que le bouton du Général.
-        /// Annulable (ChangeColorAction).</summary>
-        private MenuItem BuildColorMenu(BinderItem item)
-        {
-            var root = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(item.CardColor, 1, Chrome.Border) };
-            ColorMenus.Fill(root, Ui.OwnerOf(this), _project, item.CardColor, delegate(string value) { ApplyColor(item, value); });
-            return root;
-        }
-
-        /// <summary>Le sous-menu « Couleur de l'icône » (29/09) : teinte l'icône
-        /// vectorielle de l'item (la sienne, ou celle par défaut de sa nature)
-        /// sans la changer — icône « svg:nom:#hex ». Une icône fichier ou
-        /// glyphe ne se teinte pas : l'entrée est là, éteinte.</summary>
-        private MenuItem BuildIconColorMenu(BinderItem item)
-        {
-            var current = item.Icon;
-            string name = null, tint = null;
-            if (current == null) name = ItemIcons.DefaultSvg(item);
-            else if (current.StartsWith("svg:", StringComparison.Ordinal))
+            // ------------------------------------------------ les gestes propres à l'élément
+            // « Unifier » (18/10) : le chapitre finit sur une page impaire —
+            // une page blanche à sa fin, la pastille du signalement en icône.
+            if (item.Kind == ItemKind.Text && ChapterOddEnd != null && ChapterOddEnd(item) > 0)
             {
-                var token = current.Substring(4);
-                var colon = token.IndexOf(':');
-                name = colon < 0 ? token : token.Substring(0, colon);
-                tint = colon < 0 ? null : token.Substring(colon + 1);
+                var unify = new MenuItem { Header = "Unifier", Icon = FlowIcon(12), Tag = "unify" };
+                ToolTip.SetTip(unify, "Ajoute une page blanche à la fin de ce chapitre, au gabarit du document — comme un saut de page après sa dernière ligne. Don't thank me.");
+                unify.Click += delegate
+                {
+                    var handler = UnifyRequested;
+                    if (handler != null) handler(item);
+                };
+                plan.Add(MenuPlan.Gestures, unify);
             }
-            var root = new MenuItem { Header = "Couleur de l'icône", IsEnabled = name != null };
-            if (name == null) return root;
-            var iconName = name;
-            ColorMenus.Fill(root, Ui.OwnerOf(this), _project, tint, delegate(string value)
+            if (StraysFromBook(item))
+                plan.Add(MenuPlan.Gestures, "Appliquer le gabarit du livre", delegate { var handler = ApplyBookLayoutRequested; if (handler != null) handler(item); });
+            // Un dossier de Fiches, depuis la Pile (29/09) : classer ses
+            // fiches par ordre alphabétique — annulable.
+            if (fromPile && item.CanHaveChildren && item.Children.Count > 1 && rootKey == Project.KeySheets)
+                plan.Add(MenuPlan.Gestures, "Classer par ordre alphabétique", delegate { SortChildren(item); });
+            // Un dossier de Fiches (1.0.5) : « Gérer les fiches › Casser le
+            // dossier » — ses fiches rejoignent la racine Fiches, le
+            // dossier part à la corbeille. Depuis la Pile ou une tuile.
+            if (item.Kind == ItemKind.Folder && rootKey == Project.KeySheets)
             {
-                var icon = value == null ? (item.Icon == null ? null : "svg:" + iconName) : "svg:" + iconName + ":" + value;
-                if (icon == item.Icon) return;
-                RunAndSelect(new ChangeIconAction(item, icon), null, null);
-            });
-            return root;
+                var manage = new MenuItem { Header = "Gérer les fiches" };
+                var sheets = new List<BinderItem>();
+                BreakFolderAction.CollectSheets(item, sheets);
+                var breakFolder = new MenuItem
+                {
+                    Header = "Casser le dossier",
+                    IsEnabled = sheets.Count > 0,
+                    [ToolTip.TipProperty] = sheets.Count == 0 ? "Aucune fiche dans ce dossier"
+                        : "Renvoyer " + (sheets.Count == 1 ? "sa fiche" : "ses " + sheets.Count + " fiches") + " dans la catégorie Fiches, puis mettre le dossier à la corbeille"
+                };
+                breakFolder.Click += delegate { BreakFolder(item); };
+                manage.Items.Add(breakFolder);
+                plan.Add(MenuPlan.Gestures, manage);
+            }
+
+            // Le dossier Hors-livre (29/09) : ni renommé, ni changé d'icône, ni supprimé.
+            if (item.IsOutOfBook) return plan.Build();
+
+            // ------------------------------------------------ l'identité
+            plan.Add(MenuPlan.Identity, "Renommer…", delegate { Rename(item); });
+            if (item.Kind == ItemKind.Book)
+                plan.Add(MenuPlan.Identity, "Options du livre…", delegate { BookOptions(item); });
+            // « Tuile… » (22/11) : la couleur et l'image de la tuile dans UNE fenêtre — toute
+            // tuile colorable (écrit, fiche, livre, dossier) ; l'image, pour un écrit ou un livre.
+            if (HasTile(item))
+                plan.Add(MenuPlan.Identity, "Tuile…", delegate { EditTile(item); }).Tag = "tile";
+            // « Icône… » (22/11) : l'icône ET sa couleur dans la même fenêtre.
+            plan.Add(MenuPlan.Identity, "Icône…", delegate { ChangeIcon(item); }).Tag = "icon";
+
+            // ------------------------------------------------ la fin
+            // Dupliquer (30/09) : écrit, fiche ou gabarit — la copie juste
+            // après l'original, annulable.
+            if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.PageTemplate)
+                plan.Add(MenuPlan.End, "Dupliquer", delegate { Duplicate(item); });
+            // Suppression DOUCE (29/09) : vers la corbeille, en orange —
+            // elle se restaure ; la sèche (vider la corbeille) est rouge.
+            plan.Add(MenuPlan.End, "Envoyer à la corbeille", async delegate
+            {
+                if (confirmDelete && !await ConfirmTrash(item)) return;
+                Delete(item);
+            }).Foreground = SoftDeleteInk;
+            return plan.Build();
+        }
+
+        /// <summary>Ce qu'un conteneur peut recevoir — chaque racine ne propose que son contenu
+        /// natif (pack du 12/09/2026) : Fiches = fiches et dossiers, Recherche = import seulement,
+        /// Écrits = écrits, dossiers (des PARTIES dans un livre), livres. Le dépôt par
+        /// glisser-déposer reste libre.</summary>
+        private void AddCreations(MenuPlan plan, BinderItem item, string rootKey)
+        {
+            if (rootKey == Project.KeySheets)
+            {
+                plan.Add(MenuPlan.Create, "Nouvelle fiche", delegate { NewSheet(item); });
+                plan.Add(MenuPlan.Create, "Nouveau dossier", delegate { NewFolder(item); });
+            }
+            else if (rootKey == Project.KeyResearch)
+            {
+                plan.Add(MenuPlan.Create, "Importer des fichiers…", delegate { ImportMediaDialog(item); });
+            }
+            else
+            {
+                plan.Add(MenuPlan.Create, "Nouvel écrit", delegate { NewText(item); });
+                if (!item.IsInsideOutOfBook()) // pas de parties dans le Hors-livre (29/09)
+                {
+                    // Dans un livre, un dossier est une PARTIE : elle se nomme ainsi.
+                    if (item.EnclosingBook() != null) plan.Add(MenuPlan.Create, "Nouvelle partie", delegate { NewPart(item); });
+                    else plan.Add(MenuPlan.Create, "Nouveau dossier", delegate { NewFolder(item); });
+                }
+                // Un Livre se crée dans Écrits uniquement, jamais dans un autre livre.
+                if (rootKey == Project.KeyWritings && item.EnclosingBook() == null)
+                    plan.Add(MenuPlan.Create, "Nouveau livre", delegate { NewBook(item); });
+            }
+        }
+
+        /// <summary>Une PARTIE (22/11) : le dossier d'un livre, purement indicatif — la compilation et les folios le traversent.</summary>
+        public async void NewPart(BinderItem parent)
+        {
+            if (parent == null) parent = TargetParent();
+            var title = await InputDialog.Ask(Ui.OwnerOf(this), "Nouvelle partie", "Nom de la partie :", "Partie");
+            if (title == null) return;
+            var item = new BinderItem { Kind = ItemKind.Folder, Title = title };
+            RunAndSelect(new AddItemAction(parent, item, -1), item.Id, parent.Id);
+        }
+
+        internal static bool HasTile(BinderItem item)
+        {
+            return item != null && (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.Book || item.Kind == ItemKind.Folder);
+        }
+
+        /// <summary>« Tuile… » (22/11) : la fenêtre qui personnalise la tuile — sa couleur, son
+        /// image. Chaque geste s'applique aussitôt, et s'annule comme avant (Ctrl+Z).</summary>
+        public async void EditTile(BinderItem item)
+        {
+            if (item == null || item.IsCategory || _project == null) return;
+            await TileDialog.Show(Ui.OwnerOf(this), _project, item,
+                delegate(string value) { ApplyColor(item, value); },
+                async delegate { await ChangeCardImageAsync(item); },
+                delegate { RemoveCardImage(item); });
         }
 
         /// <summary>« Classer par ordre alphabétique » (29/09) : les enfants
@@ -1683,21 +1788,6 @@ namespace Marabook.App
                 + (item.Children.Count > 0 ? "\nSon contenu part avec." : ""),
                 AppInfo.Name, MessageButtons.YesNo, MessageIcon.Question);
             return await answer == MessageResult.Yes;
-        }
-
-        private static void AddMenu(ContextMenu menu, string label, EventHandler<RoutedEventArgs> onClick)
-        {
-            AddMenu(menu, label, null, onClick);
-        }
-
-        /// <summary>ink : l'encre de l'entrée (29/09) — orange pour une
-        /// suppression douce (corbeille), rouge pour une suppression sèche.</summary>
-        private static void AddMenu(ContextMenu menu, string label, IBrush ink, EventHandler<RoutedEventArgs> onClick)
-        {
-            var entry = new MenuItem { Header = label };
-            if (ink != null) entry.Foreground = ink;
-            entry.Click += onClick;
-            menu.Items.Add(entry);
         }
 
         public static readonly IBrush SoftDeleteInk = Chrome.Warn;   // vers la corbeille : se restaure
@@ -1983,7 +2073,10 @@ namespace Marabook.App
         /// <summary>L'image de la tuile d'un écrit ou d'un livre (pack du
         /// 12/09/2026) : au tableau, elle remplace l'extrait du texte ou les
         /// notes. La sélection ne bouge pas (on l'appelle depuis une carte).</summary>
-        public async void ChangeCardImage(BinderItem item)
+        public async void ChangeCardImage(BinderItem item) { await ChangeCardImageAsync(item); }
+
+        /// <summary>La même, attendue (22/11 — la fenêtre « Tuile » se redessine après).</summary>
+        public async Task ChangeCardImageAsync(BinderItem item)
         {
             if (item == null || item.IsCategory || _project == null) return;
             var dialogPath = await Ui.PickOpenFile(this, "", "Images (*.png;*.jpg;*.jpeg;*.gif;*.bmp)|*.png;*.jpg;*.jpeg;*.gif;*.bmp");
@@ -2018,7 +2111,7 @@ namespace Marabook.App
         {
             if (item == null) item = SelectedItem;
             if (item == null || item.IsCategory) return;
-            var chosen = await IconPickerDialog.Ask(Ui.OwnerOf(this));
+            var chosen = await IconPickerDialog.Ask(Ui.OwnerOf(this), _project, item); // l'icône ET sa couleur (22/11)
             if (chosen == null) return; // cancelled
             var icon = chosen.Length == 0 ? null : chosen;
             if (icon == item.Icon) return;
@@ -2453,7 +2546,7 @@ namespace Marabook.App
         private static bool DropAllowed(BinderItem dragged, BinderItem target)
         {
             if (dragged == null || target == null || dragged == target) return false;
-            if (target.IsCategory && target.CategoryKey == MainWindow.GraphKey) return false; // la page du graphe n'est pas un conteneur (28/10)
+            if (target.IsCategory && MainWindow.IsPageKey(target.CategoryKey)) return false; // la page du graphe, l'Atelier ne sont pas des conteneurs (28/10)
             if (dragged.IsOutOfBook) return false; // le dossier Hors-livre ne bouge pas (29/09)
             if (target == dragged.Parent && target.CanHaveChildren) return false; // no-op move
             if (target.IsDescendantOf(dragged)) return false;
@@ -2563,7 +2656,7 @@ namespace Marabook.App
             {
                 if (item.IsCategory)
                 {
-                    if (!withSections || item.Parent != null || item.CategoryKey == Project.KeyTrash || item.CategoryKey == MainWindow.GraphKey) continue;
+                    if (!withSections || item.Parent != null || item.CategoryKey == Project.KeyTrash || MainWindow.IsPageKey(item.CategoryKey)) continue;
                     if (!ContainsLoose(item.Title ?? "", query)) continue;
                     matches.Add(item);
                     if (matches.Count >= cap) break;

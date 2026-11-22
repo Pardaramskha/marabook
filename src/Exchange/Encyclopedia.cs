@@ -29,8 +29,28 @@ namespace Marabook.Exchange
     /// évolution et présence, radar, tags ; puis le Lexique en dictionnaire.
     /// Les liens ([[…]], relations, champs « fiche ») ne pointent que vers
     /// des fiches EXPORTÉES — sinon du texte, jamais un lien mort.</summary>
+    /// <summary>Un lieu d'une carte exportée : un repère ou une zone, et la fiche qu'il désigne.</summary>
+    public class EncyclopediaPlace
+    {
+        public string Name = "";
+        public bool Zone;
+        public string SheetId;   // null = aucun lien, ou fiche hors de l'export
+    }
+
+    /// <summary>Une carte du monde dans l'Encyclopédie (20/11) : son image
+    /// (dessinée par l'application à l'écriture), ses lieux.</summary>
+    public class EncyclopediaMap
+    {
+        public BinderItem Item;
+        public string Title = "";
+        public string File;      // « carte-1.png », posé à l'écriture ; null = image non dessinée
+        public readonly List<EncyclopediaPlace> Places = new List<EncyclopediaPlace>();
+    }
+
     public class EncyclopediaDocument
     {
+        /// <summary>Les cartes du monde (20/11), si l'option les veut.</summary>
+        public readonly List<EncyclopediaMap> Maps = new List<EncyclopediaMap>();
         public string Title = "", Subtitle = "", Author = "";
         public string Date = "";              // la date de l'export, affichée si ShowDates
         public string ProjectName = "";
@@ -168,6 +188,33 @@ namespace Marabook.Exchange
 
         // ================================================================ la collecte
 
+        /// <summary>Qui dessine une carte en PNG (20/11) : l'application le
+        /// pose au démarrage — le cœur n'a pas de quoi peindre. Null : pas
+        /// de page « Cartes ».</summary>
+        public static Func<Project, BinderItem, byte[]> MapRenderer;
+
+        /// <summary>Les cartes à exporter : celles qui ont une image, hors
+        /// Corbeille, hors « sauf ce tag » ; leurs repères et leurs zones
+        /// nommés, liés à leur fiche quand elle est de l'export.</summary>
+        private static void CollectMaps(EncyclopediaDocument document, Project project, EncyclopediaOptions options)
+        {
+            if (!options.IncludeMaps) return;
+            foreach (var item in Marabook.Model.Maps.All(project))
+            {
+                if (item.Map == null || !item.Map.HasImage) continue;
+                if (!string.IsNullOrEmpty(options.ExceptTag) && ExportFilter.HasTag(item, options.ExceptTag)) continue;
+                var map = new EncyclopediaMap { Item = item, Title = item.Title ?? "" };
+                foreach (var marker in item.Map.Markers)
+                    if (!string.IsNullOrEmpty((marker.Name ?? "").Trim()))
+                        map.Places.Add(new EncyclopediaPlace { Name = marker.Name.Trim(), SheetId = marker.LinkId != null && document.ById.ContainsKey(marker.LinkId) ? marker.LinkId : null });
+                foreach (var zone in item.Map.Zones)
+                    if (!string.IsNullOrEmpty((zone.Name ?? "").Trim()))
+                        map.Places.Add(new EncyclopediaPlace { Name = zone.Name.Trim(), Zone = true, SheetId = zone.LinkId != null && document.ById.ContainsKey(zone.LinkId) ? zone.LinkId : null });
+                map.Places.Sort(delegate(EncyclopediaPlace a, EncyclopediaPlace b) { return string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase); });
+                document.Maps.Add(map);
+            }
+        }
+
         public static EncyclopediaDocument Build(Project project, EncyclopediaSelection selection, EncyclopediaOptions options)
         {
             return Build(project, selection, options, null);
@@ -250,6 +297,7 @@ namespace Marabook.Exchange
 
             // 3. Le Lexique.
             if (options.IncludeLexicon) FillLexicon(document, project, options, globalLexicon);
+            CollectMaps(document, project, options);
             return document;
         }
 
@@ -414,6 +462,7 @@ namespace Marabook.Exchange
         private static EncyclopediaField MakeField(string label, string kind, string value, Project project, EncyclopediaDocument document)
         {
             var field = new EncyclopediaField { Label = label ?? "", Kind = FieldKinds.Normalize(kind) };
+            if (field.Kind == FieldKinds.Multi) field.Kind = FieldKinds.List; // un choix multiple se lit comme une liste
             switch (field.Kind)
             {
                 case FieldKinds.List:

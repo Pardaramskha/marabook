@@ -45,6 +45,10 @@ namespace Marabook.App
         public event Action<BinderItem> Navigate;
         public event Action Changed;              // corkboard, métadonnées, format édités
         public event Action<BinderItem> ExportRequested;      // relais corkboard
+        public event Action<BinderItem, int> SceneEditRequested; // le Tableau (21/11)
+        public event Action<BinderItem, int> SceneOpenRequested;
+        public void RefreshOutliner() { _texts.RefreshOutliner(); }
+        internal CorkboardView TextsForProbe { get { return _texts; } }
         public event Action<BinderItem> DeleteRequested;
         public event Action<BinderItem> RenameRequested;      // (b43)
         public event Action<BinderItem, string[]> FilesDropped; // fichiers du système sur le tableau des textes (29/09)
@@ -66,7 +70,7 @@ namespace Marabook.App
         public BookView()
         {
             Focusable = true; // reçoit le focus logique quand la vue s'affiche
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
 
             _tabs = new TabControl { Background = Brushes.Transparent, BorderThickness = new Thickness(0), Margin = new Thickness(0) };
 
@@ -200,6 +204,10 @@ namespace Marabook.App
             };
             corkboard.ExportRequested += delegate(BinderItem item)
             { var h = ExportRequested; if (h != null) h(item); };
+            corkboard.SceneEditRequested += delegate(BinderItem item, int scene)
+            { var h = SceneEditRequested; if (h != null) h(item, scene); };
+            corkboard.SceneOpenRequested += delegate(BinderItem item, int paragraph)
+            { var h = SceneOpenRequested; if (h != null) h(item, paragraph); };
             corkboard.DeleteRequested += delegate(BinderItem item)
             { var h = DeleteRequested; if (h != null) h(item); };
             corkboard.RenameRequested += delegate(BinderItem item)
@@ -316,6 +324,14 @@ namespace Marabook.App
         }
 
         public void ClearSelection() { _texts.ClearSelection(); _templates.ClearSelection(); }
+
+        /// <summary>Les cartes cochées du tableau montré (Textes ou Gabarits).</summary>
+        public List<BinderItem> SelectedItems()
+        {
+            if (_texts.IsEffectivelyVisible) return _texts.SelectedItems();
+            if (_templates.IsEffectivelyVisible) return _templates.SelectedItems();
+            return new List<BinderItem>();
+        }
 
         /// <summary>Le tableau des textes du livre (sonde).</summary>
         internal CorkboardView TextsBoard { get { return _texts; } }

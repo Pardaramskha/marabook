@@ -21,6 +21,9 @@ namespace Marabook.App
         {
             if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
                 System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + path + "\"");
+            else if (System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX))
+                System.Diagnostics.Process.Start("open", new[] { "-R", path }); // le Finder sélectionne le fichier (21/11)
+            // Linux : le gestionnaire de fichiers par défaut de la distribution ouvre le dossier (xdg-open ne sélectionne pas).
             else OpenWithShell(System.IO.Path.GetDirectoryName(path) ?? path);
         }
 
@@ -44,6 +47,8 @@ namespace Marabook.App
             Platform.Init();
             Platform.Current = new AppPlatform();
             Platform.Images = new AvaloniaImageCodec();
+            // Les cartes de l'Encyclopédie (20/11) : le cœur demande l'image, l'interface la dessine.
+            Marabook.Exchange.Encyclopedia.MapRenderer = MapImages.Png;
             Encyclopedia.ShrinkImage = ShrinkForWeb; // les images de l'Encyclopédie HTML, réduites et en JPEG pour les photos (31/10, 1/11)
             Settings.AppSettings.MacKeys = IsMac; // les raccourcis s'écrivent « ⇧⌘S » (02/10)
         }

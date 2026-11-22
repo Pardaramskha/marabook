@@ -336,6 +336,16 @@ namespace Marabook.Print
                             if (!allow) fit = 0;
                         }
                         if (fit <= 0 && pageEmpty) fit = 1;
+                        // Pas de mot coupé d'une page à l'autre (20/11) : la
+                        // ligne qui finit sur un trait d'union ne ferme pas la
+                        // page, elle passe à la suivante — sans laisser pour
+                        // autant une orpheline derrière elle.
+                        if (fit > 0 && paragraph.Lines[lineIndex + fit - 1].Hyphenated)
+                        {
+                            var less = fit - 1;
+                            if (less == 1 && lineIndex == 0 && !allow) less = 0;
+                            if (less > 0 || !pageEmpty) fit = less;
+                        }
                         if (adjusted)
                         {
                             double kept = 0;
@@ -502,7 +512,8 @@ namespace Marabook.Print
                         atoms[index] = new Atom
                         {
                             Text = rest,
-                            Width = MeasureText(rest, atom.Font, atom.Size, atom.Tracking),
+                            Width = MeasureText(rest, atom.Font, atom.Size, atom.Tracking, atom.Shaping),
+                            Shaping = atom.Shaping,
                             SpaceWidth = atom.SpaceWidth,
                             Font = atom.Font,
                             Size = atom.Size,

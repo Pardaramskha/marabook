@@ -138,7 +138,96 @@ namespace Marabook.App
                 Warn.Color = Rgb(0xC4, 0x82, 0x0E);
                 Danger.Color = Rgb(0xCE, 0x46, 0x46);
             }
+            Skin.TunePalette(dark, hue); // le skin retouche la palette (21/11) ; rien pour « modern »
+            if (AppSettings.HighContrast) RaiseContrast(dark, hue); // par-dessus le skin (22/11)
             SyncCompositionPalette();
+        }
+
+        /// <summary>« AUGMENTER LE CONTRASTE » (Préférences › Accessibilité, 22/11/2026, Rémi) —
+        /// pour qui distingue mal les teintes proches. Les encres vont au bout de l'échelle
+        /// (noir franc au clair, blanc au sombre), le texte secondaire et le texte pâle
+        /// foncent jusqu'à tenir 7:1 sur leur fond (le niveau AAA des WCAG), les filets
+        /// et les bordures deviennent de vraies lignes, l'accent se renforce pour porter un
+        /// texte blanc, et les couleurs de sens (vert, orange, rouge) suivent. Appliqué
+        /// APRÈS le skin : il vaut par-dessus n'importe lequel.</summary>
+        private static void RaiseContrast(bool dark, double hue)
+        {
+            if (dark)
+            {
+                WindowBg.Color = Rgb(0x00, 0x00, 0x00);
+                BarBg.Color = Rgb(0x0B, 0x0C, 0x10);
+                var raised = Rgb(0x14, 0x16, 0x1B);
+                BarBgLight.Color = raised;
+                RaisedBg.Color = raised;
+                CardBg.Color = raised;
+                FieldBg.Color = Rgb(0x00, 0x00, 0x00);
+                CanvasBg.Color = Rgb(0x0B, 0x0C, 0x10);
+                Border.Color = Rgb(0x8A, 0x91, 0xA3);
+                BorderStrong.Color = Rgb(0xE7, 0xE9, 0xF0);
+                Ink.Color = Rgb(0xFF, 0xFF, 0xFF);
+                SoftText.Color = Rgb(0xDD, 0xE0, 0xE9);
+                FaintText.Color = Rgb(0xBD, 0xC2, 0xCF);
+                if (!AppSettings.WhitePaperInDark)
+                {
+                    PaperBg.Color = raised;
+                    PaperInk.Color = Ink.Color;
+                    PaperSoftInk.Color = SoftText.Color;
+                }
+                else
+                {
+                    PaperInk.Color = Rgb(0x00, 0x00, 0x00);
+                    PaperSoftInk.Color = Rgb(0x2B, 0x2F, 0x3A);
+                }
+                Accent.Color = Tint(hue, 0.95, 0.80);
+                AccentTint.Color = Tint(hue, 0.50, 0.24);
+                AccentSoft.Color = Tint(hue, 0.60, 0.55);
+                AccentStrong.Color = Tint(hue, 1.0, 0.88);
+                if (!AppSettings.WhitePaperInDark) { Time.Color = Rgb(0x8C, 0xEE, 0xE6); TimeTint.Color = Rgb(0x12, 0x3A, 0x3B); }
+                Ok.Color = Rgb(0x7B, 0xE8, 0xB2);
+                Warn.Color = Rgb(0xFF, 0xC8, 0x62);
+                Danger.Color = Rgb(0xFF, 0x9A, 0x98);
+            }
+            else
+            {
+                FieldBg.Color = Rgb(0xFF, 0xFF, 0xFF);
+                CanvasBg.Color = Rgb(0xFF, 0xFF, 0xFF);
+                PaperBg.Color = Rgb(0xFF, 0xFF, 0xFF);
+                Border.Color = Rgb(0x5A, 0x61, 0x72);
+                BorderStrong.Color = Rgb(0x1E, 0x21, 0x28);
+                Ink.Color = Rgb(0x00, 0x00, 0x00);
+                SoftText.Color = Rgb(0x2B, 0x2F, 0x3A);
+                FaintText.Color = Rgb(0x41, 0x47, 0x55);
+                PaperInk.Color = Ink.Color;
+                PaperSoftInk.Color = SoftText.Color;
+                Accent.Color = Tint(hue, 0.80, 0.34);
+                AccentTint.Color = Tint(hue, 0.85, 0.92);
+                AccentSoft.Color = Tint(hue, 0.80, 0.80); // la ligne choisie de la Pile : assez claire pour porter l'encre noire
+                AccentStrong.Color = Tint(hue, 0.85, 0.24);
+                Time.Color = Rgb(0x06, 0x4F, 0x4E);
+                TimeTint.Color = Rgb(0xCB, 0xEE, 0xEB);
+                Ok.Color = Rgb(0x0E, 0x66, 0x40);
+                Warn.Color = Rgb(0x85, 0x52, 0x00);
+                Danger.Color = Rgb(0xA3, 0x1C, 0x1C);
+            }
+        }
+
+        /// <summary>Le rapport de contraste WCAG entre deux couleurs (1 à 21).</summary>
+        public static double ContrastRatio(Color a, Color b)
+        {
+            var la = Luminance(a);
+            var lb = Luminance(b);
+            return (Math.Max(la, lb) + 0.05) / (Math.Min(la, lb) + 0.05);
+        }
+
+        private static double Luminance(Color color)
+        {
+            return 0.2126 * Linear(color.R) + 0.7152 * Linear(color.G) + 0.0722 * Linear(color.B);
+        }
+
+        private static double Linear(byte channel)
+        {
+            var c = channel / 255.0;
+            return c <= 0.03928 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
         }
 
         /// <summary>Les couleurs que le compositeur fige dans ses pièces.</summary>

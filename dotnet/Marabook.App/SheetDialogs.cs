@@ -880,7 +880,7 @@ namespace Marabook.App
             };
             Grid.SetColumn(remove, 4);
             row.Children.Add(remove);
-            if (FieldKinds.Normalize(field.Kind) != FieldKinds.Choice) return row;
+            if (!FieldKinds.HasOptions(field.Kind)) return row;
 
             // Les options du choix, sous la rangée.
             var stack = new StackPanel();

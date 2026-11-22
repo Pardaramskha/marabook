@@ -33,6 +33,17 @@ namespace Marabook.App
             return geometry;
         }
 
+        /// <summary>La COCHE d'une entrée de menu active (22/11) : un trait, pas une icône du jeu — il n'y
+        /// en a pas (« check-bold » rendait un « ? »).</summary>
+        public static Control Check(double size, IBrush stroke)
+        {
+            return new Avalonia.Controls.Shapes.Path
+            {
+                Data = Geometry.Parse("M 1.5,6.5 L 4.6,9.6 L 10.5,2.6"), Stroke = stroke, StrokeThickness = 1.8, StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round,
+                Width = size, Height = size, Stretch = Stretch.Uniform, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center, Tag = "check"
+            };
+        }
+
         /// <summary>Une icône teintable, rendue depuis son chemin.</summary>
         public static Control Make(string name, double size, IBrush fill)
         {

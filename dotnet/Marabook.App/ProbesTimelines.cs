@@ -198,8 +198,8 @@ namespace Marabook.App
                 {
                     var calendar = view.CalendarForProbe;
                     Func<string, TimePoint> date = delegate(string notation) { TimePoint point; view.System.TryParse(notation, out point); return point; };
-                    Check(view.ModeLabelForProbe == "Frise" && view.ModeChoicesForProbe().Count == 2 && view.ModeChoicesForProbe()[0] == "Frise (icône)" && view.ModeChoicesForProbe()[1] == "Calendrier (icône)"
-                        && Icons.Has("frise") && Icons.Has("fiche-evenement"), "le menu « Mode » offre Frise et Calendrier, chacun avec son icône (" + string.Join(", ", view.ModeChoicesForProbe().ToArray()) + ")");
+                    Check(view.ModeLabelForProbe == "Frise" && view.ModeChoicesForProbe().Count == 3 && view.ModeChoicesForProbe()[0] == "Frise (icône)" && view.ModeChoicesForProbe()[1] == "Calendrier (icône)" && view.ModeChoicesForProbe()[2] == "Liste (icône)"
+                        && Icons.Has("frise") && Icons.Has("fiche-evenement"), "le menu « Mode » offre Frise, Calendrier et Liste, chacun avec son icône (" + string.Join(", ", view.ModeChoicesForProbe().ToArray()) + ")");
                     view.SetCalendarMode(true);
                     await Settle();
                     Check(view.CalendarMode && calendar.IsVisible && !view.SurfaceShownForProbe && view.ModeLabelForProbe == "Calendrier", "« Calendrier » remplace la frise et sa minimap ; le bouton dit le mode");
@@ -669,12 +669,12 @@ namespace Marabook.App
                 Check(eventDialog != null, "la fenêtre d'un nouvel événement s'ouvre");
                 if (eventDialog != null)
                 {
-                    Check(eventDialog.LinkKindCountForProbe == 7 && !eventDialog.LinkItemEnabledForProbe, "assigner : d'abord la SORTE (rien, fiche, écrit, livre, plan, carte, document) — l'élément attend");
+                    Check(eventDialog.LinkKindCountForProbe == 7 && eventDialog.LinkItemEnabledForProbe && eventDialog.LinkSearchEditableForProbe, "relier : un champ où taper le nom, et la sorte pour réduire la liste (tout, fiche, écrit, livre, plan, carte, document)");
                     var keira = FirstTitled(project, "Keira");
                     eventDialog.SetLinkForProbe(TimelineLinks.Sheet, keira == null ? null : keira.Id);
                     await Settle();
                     Check(eventDialog.LinkItemEnabledForProbe && eventDialog.LinkItemCountForProbe == TimelineLinks.ItemsOf(project, TimelineLinks.Sheet).Count,
-                        "…puis l'élément, parmi les seules fiches (" + eventDialog.LinkItemCountForProbe + ")");
+                        "la sorte « Fiche » ne propose que les fiches (" + eventDialog.LinkItemCountForProbe + ")");
                     eventDialog.FillForProbe("Le départ (sonde)", "n'importe quoi", null);
                     eventDialog.AcceptForProbe();
                     await Settle();

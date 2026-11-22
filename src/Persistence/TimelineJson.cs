@@ -530,6 +530,33 @@ namespace Marabook.Persistence
                     e["linkKind"] = entry.LinkKind;
                     e["link"] = entry.LinkId;
                 }
+                // 21/11 — les autres éléments, le lieu, les tags : des clés facultatives.
+                var links = Timelines.LinksOf(entry);
+                if (links.Count > 1)
+                {
+                    var more = new List<object>();
+                    for (var i = 1; i < links.Count; i++)
+                    {
+                        var l = new Dictionary<string, object>();
+                        l["kind"] = links[i].Kind;
+                        l["id"] = links[i].Id;
+                        more.Add(l);
+                    }
+                    e["links"] = more;
+                }
+                if (entry.PlaceMapId != null && entry.PlaceShapeId != null)
+                {
+                    var place = new Dictionary<string, object>();
+                    place["map"] = entry.PlaceMapId;
+                    place["shape"] = entry.PlaceShapeId;
+                    e["place"] = place;
+                }
+                if (entry.Tags != null && entry.Tags.Count > 0)
+                {
+                    var tags = new List<object>();
+                    foreach (var tag in entry.Tags) if (!string.IsNullOrWhiteSpace(tag)) tags.Add(tag);
+                    if (tags.Count > 0) e["tags"] = tags;
+                }
                 events.Add(e);
             }
             o["events"] = events;
@@ -575,6 +602,35 @@ namespace Marabook.Persistence
                     entry.LinkKind = Json.AsString(Json.Field(e, "linkKind"));
                     entry.LinkId = Json.AsString(Json.Field(e, "link"));
                     if (entry.LinkKind == null || entry.LinkId == null) { entry.LinkKind = null; entry.LinkId = null; }
+                    var moreLinks = Json.AsList(Json.Field(e, "links"));
+                    if (moreLinks != null)
+                    {
+                        var all = new List<EventLink>();
+                        if (entry.LinkId != null) all.Add(new EventLink(entry.LinkKind, entry.LinkId));
+                        foreach (var linkNode in moreLinks)
+                        {
+                            var l = Json.AsObject(linkNode);
+                            if (l == null) continue;
+                            var linkKind = Json.AsString(Json.Field(l, "kind"));
+                            if (Array.IndexOf(TimelineLinks.Kinds, linkKind) < 0) continue;
+                            all.Add(new EventLink(linkKind, Json.AsString(Json.Field(l, "id"))));
+                        }
+                        Timelines.SetLinks(entry, all);
+                    }
+                    var placeNode = Json.AsObject(Json.Field(e, "place"));
+                    if (placeNode != null)
+                    {
+                        entry.PlaceMapId = Json.AsString(Json.Field(placeNode, "map"));
+                        entry.PlaceShapeId = Json.AsString(Json.Field(placeNode, "shape"));
+                        if (entry.PlaceMapId == null || entry.PlaceShapeId == null) { entry.PlaceMapId = null; entry.PlaceShapeId = null; }
+                    }
+                    var tagNodes = Json.AsList(Json.Field(e, "tags"));
+                    if (tagNodes != null)
+                    {
+                        var written = new List<string>();
+                        foreach (var tagNode in tagNodes) { var tag = Json.AsString(tagNode); if (tag != null) written.Add(tag); }
+                        entry.Tags = Timelines.ParseTags(string.Join(",", written.ToArray()));
+                    }
                     timeline.Events.Add(entry);
                 }
             timeline.From = ReadPoint(Json.Field(o, "from"));

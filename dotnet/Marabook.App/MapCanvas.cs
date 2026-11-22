@@ -60,6 +60,71 @@ namespace Marabook.App
             Focusable = true;
         }
 
+        // L'EXPORT EN IMAGE (20/11) : le même rendu, dans une image — à la taille de la toile (la vue
+        // à l'écran, deux fois plus fine) ou à celle de la carte entière. Pendant l'export, les tuiles
+        // sont décodées sur-le-champ, et rien de ce qui tient à la souris n'est dessiné.
+        private Size? _exportSize;
+        private double _exportBoost = 1;
+        private bool Exporting { get { return _exportSize.HasValue; } }
+        private double ViewW { get { return _exportSize.HasValue ? _exportSize.Value.Width : Bounds.Width; } }
+        private double ViewH { get { return _exportSize.HasValue ? _exportSize.Value.Height : Bounds.Height; } }
+
+        /// <summary>Le plus grand côté d'une carte entière exportée, et son plafond de pixels.</summary>
+        public const int ExportMaxSide = 6000;
+        public const double ExportMaxPixels = 24e6;
+
+        /// <summary>L'image de la carte (20/11). whole : la carte entière, à
+        /// plat, à la finesse de l'image d'origine (plafonnée) — sinon ce que
+        /// la toile montre (la carte ou le globe, au zoom en cours), deux
+        /// fois plus fin qu'à l'écran. Null s'il n'y a rien à dessiner.</summary>
+        public RenderTargetBitmap ExportBitmap(bool whole, int maxSide = ExportMaxSide)
+        {
+            var map = Map;
+            if (map == null || !map.HasImage || _cache == null) return null;
+            if (whole && Globe) whole = false; // un globe n'a pas de « carte entière » : sa vue
+            var scale = _scale; var viewX = _viewX; var viewY = _viewY;
+            var hover = _hoverId; var cursor = _cursor;
+            try
+            {
+                Size size;
+                double boost;
+                if (whole)
+                {
+                    var s = Math.Min(1.0, Math.Min((double)Math.Max(64, maxSide) / Math.Max(map.Width, map.Height), Math.Sqrt(ExportMaxPixels / ((double)map.Width * map.Height))));
+                    size = new Size(Math.Max(1, Math.Round(map.Width * s)), Math.Max(1, Math.Round(map.Height * s)));
+                    _scale = s; _viewX = 0; _viewY = 0;
+                    boost = 1;
+                }
+                else
+                {
+                    if (Bounds.Width < 2 || Bounds.Height < 2) return null;
+                    size = new Size(Bounds.Width, Bounds.Height);
+                    boost = 2;
+                }
+                _exportSize = size;
+                _exportBoost = boost;
+                _hoverId = null; _cursor = null;
+                _globeKey = null;
+                var pixels = new PixelSize((int)Math.Round(size.Width * boost), (int)Math.Round(size.Height * boost));
+                var bitmap = new RenderTargetBitmap(pixels, new Vector(96, 96));
+                using (var context = bitmap.CreateDrawingContext())
+                using (context.PushTransform(Matrix.CreateScale(boost, boost)))
+                using (context.PushClip(new Rect(size)))
+                    Render(context);
+                return bitmap;
+            }
+            finally
+            {
+                _exportSize = null;
+                _exportBoost = 1;
+                _scale = scale; _viewX = viewX; _viewY = viewY;
+                _hoverId = hover; _cursor = cursor;
+                _globeKey = null; // le globe de l'écran se repeint à sa propre finesse
+                _globeBitmap = null;
+                InvalidateVisual();
+            }
+        }
+
         private MapInfo Map { get { return _owner.Map; } }
         // Le globe ne vaut que pour la carte d'un monde ENTIER (lot 12) : sinon, toujours à plat.
         private bool Globe { get { return Map != null && Map.WholeWorld && Map.View == Maps.ViewGlobe; } }
@@ -113,7 +178,7 @@ namespace Marabook.App
             _globeLat = 0.35;
             _globeZoom = 1;
             _globeKey = null;
-            if (Bounds.Width > 0) FitAll();
+            if (ViewW > 0) FitAll();
         }
 
         public void SetTool(Tool tool)
@@ -185,13 +250,13 @@ namespace Marabook.App
         public void FitAll()
         {
             var map = Map;
-            if (map == null || !map.HasImage || Bounds.Width <= 0) { _fitPending = true; return; }
+            if (map == null || !map.HasImage || ViewW <= 0) { _fitPending = true; return; }
             _fitPending = false;
             _globeZoom = 1;
             _globeKey = null;
             _scale = FitScale;
-            _viewX = map.Width / 2.0 - Bounds.Width / 2 / _scale;
-            _viewY = map.Height / 2.0 - Bounds.Height / 2 / _scale;
+            _viewX = map.Width / 2.0 - ViewW / 2 / _scale;
+            _viewY = map.Height / 2.0 - ViewH / 2 / _scale;
             _owner.ViewChanged();
             InvalidateVisual();
         }
@@ -219,6 +284,40 @@ namespace Marabook.App
             InvalidateVisual();
         }
 
+        /// <summary>Cadre une région de l'image (21/11) : elle tient dans la
+        /// toile avec de l'air autour, jamais en deçà de « floor » fois la vue
+        /// « Tout voir », et à un zoom où son niveau de visibilité la montre.</summary>
+        public void ShowRegion(double minX, double minY, double maxX, double maxY, int level, double floor)
+        {
+            var map = Map;
+            if (map == null || !map.HasImage || ViewW <= 0 || ViewH <= 0) return;
+            var cx = (minX + maxX) / 2;
+            var cy = (minY + maxY) / 2;
+            if (Globe)
+            {
+                CenterOn(cx, cy);
+                _globeZoom = Math.Max(_globeZoom, Math.Max(1, floor));
+                _globeKey = null;
+                _fitPending = false;
+                _owner.ViewChanged();
+                InvalidateVisual();
+                return;
+            }
+            var fit = Math.Max(1e-9, FitScale);
+            var ratio = Math.Min(ViewW / Math.Max(1, maxX - minX), ViewH / Math.Max(1, maxY - minY)) * 0.6 / fit;
+            ratio = Math.Max(floor, ratio);
+            if (level == Maps.LevelFar) ratio = Math.Min(ratio, Maps.MidZoom * 0.95);
+            else if (level == Maps.LevelMid) ratio = Math.Max(ratio, Maps.MidZoom);
+            else if (level == Maps.LevelNear) ratio = Math.Max(ratio, Maps.NearZoom);
+            _scale = Math.Max(fit * 0.5, Math.Min(Math.Max(6, fit * Maps.NearZoom), ratio * fit));
+            _viewX = cx - ViewW / 2 / _scale;
+            _viewY = cy - ViewH / 2 / _scale;
+            Clamp();
+            _fitPending = false;
+            _owner.ViewChanged();
+            InvalidateVisual();
+        }
+
         public void CenterOn(double ix, double iy)
         {
             if (Globe)
@@ -230,8 +329,8 @@ namespace Marabook.App
             }
             else
             {
-                _viewX = ix - Bounds.Width / 2 / _scale;
-                _viewY = iy - Bounds.Height / 2 / _scale;
+                _viewX = ix - ViewW / 2 / _scale;
+                _viewY = iy - ViewH / 2 / _scale;
                 Clamp();
             }
             InvalidateVisual();
@@ -241,8 +340,8 @@ namespace Marabook.App
         {
             var map = Map;
             if (map == null) return;
-            var spanX = Bounds.Width / _scale;
-            var spanY = Bounds.Height / _scale;
+            var spanX = ViewW / _scale;
+            var spanY = ViewH / _scale;
             // La carte ne quitte jamais tout à fait la toile : il en reste au moins un cinquième.
             _viewX = Math.Max(-spanX * 0.8, Math.Min(map.Width - spanX * 0.2, _viewX));
             _viewY = Math.Max(-spanY * 0.8, Math.Min(map.Height - spanY * 0.2, _viewY));
@@ -274,7 +373,7 @@ namespace Marabook.App
 
         public override void Render(DrawingContext context)
         {
-            var bounds = new Rect(0, 0, Bounds.Width, Bounds.Height);
+            var bounds = new Rect(0, 0, ViewW, ViewH);
             context.DrawRectangle(Globe ? new SolidColorBrush(Color.FromRgb(0x12, 0x15, 0x1C)) : Chrome.WindowBg, null, bounds);
             var map = Map;
             if (map == null || !map.HasImage || _cache == null) return;
@@ -293,9 +392,10 @@ namespace Marabook.App
             {
                 if (zone.Points.Count < 2 || !_owner.ShowZones) continue;
                 var chosen = zone == selectedZone;
-                if (!chosen && !Maps.Visible(zone.Level, zoom)) continue;
+                var lit = _owner.IsHighlighted(zone.Id); // elle contient le repère révélé (21/11)
+                if (!chosen && !lit && !Maps.Visible(zone.Level, zoom)) continue;
                 var color = Tint(zone.Color, Chrome.Accent.Color);
-                var hovered = _hoverId == zone.Id;
+                var hovered = _hoverId == zone.Id || lit;
                 var geometry = new StreamGeometry();
                 using (var sink = geometry.Open())
                 {
@@ -307,7 +407,7 @@ namespace Marabook.App
                 var centre = Maps.Centroid(zone.Points);
                 Label(context, zone.Name, ToScreen(centre.X, centre.Y), color, true);
             }
-            if (selectedZone != null && _tool == Tool.Pan)
+            if (selectedZone != null && _tool == Tool.Pan && !Exporting)
             {
                 // Les poignées : un sommet par point, un demi-point au milieu de chaque côté (cliquer l'ajoute).
                 var color = Tint(selectedZone.Color, Chrome.Accent.Color);
@@ -333,9 +433,9 @@ namespace Marabook.App
             }
 
             if (map.ScaleKm > 0) Segment(context, map.ScaleA, map.ScaleB, Chrome.Time, "Échelle : " + (map.ScaleNote ?? Maps.KmLabel(map.ScaleKm)));
-            DrawDraft(context, map);
+            if (!Exporting) DrawDraft(context, map);
             DrawScaleBar(context, map);
-            DrawLatLon(context);
+            if (!Exporting) DrawLatLon(context);
         }
 
         private void DrawTiles(DrawingContext context, MapInfo map, Rect bounds)
@@ -345,7 +445,7 @@ namespace Marabook.App
                 // Le fond de secours : le niveau 0, toute la carte en une tuile.
                 var floor = _cache.Get(map, 0, 0, 0, true);
                 if (floor != null) context.DrawImage(floor, new Rect(ToScreen(0, 0), ToScreen(map.Width, map.Height)));
-                var z = Maps.LevelFor(map, _scale);
+                var z = Maps.LevelFor(map, _scale * _exportBoost);
                 if (z == 0) return;
                 var unit = Math.Pow(2, map.Levels - 1 - z);     // px d'image par px du niveau
                 var tile = map.TileSize * unit;                  // px d'image par tuile
@@ -364,7 +464,7 @@ namespace Marabook.App
                         var b = ToScreen(right, bottom);
                         // Arrondi au pixel, un demi-pixel de recouvrement : pas de couture entre deux tuiles.
                         var dest = new Rect(Math.Floor(a.X), Math.Floor(a.Y), Math.Ceiling(b.X) - Math.Floor(a.X), Math.Ceiling(b.Y) - Math.Floor(a.Y));
-                        var bitmap = _cache.Get(map, z, x, y);
+                        var bitmap = _cache.Get(map, z, x, y, Exporting);
                         if (bitmap != null) { context.DrawImage(bitmap, dest); continue; }
                         // Pas encore décodée : la même région, prise dans un niveau plus grossier déjà prêt.
                         for (var k = 1; z - k >= 1; k++)
@@ -477,7 +577,7 @@ namespace Marabook.App
             if (y < -0.5 || y > map.Height + 0.5) return;
             var a = ToScreen(0, y);
             var b = ToScreen(map.Width, y);
-            if (a.Y < -20 || a.Y > Bounds.Height + 20) return;
+            if (a.Y < -20 || a.Y > ViewH + 20) return;
             context.DrawLine(shadow, a, b);
             context.DrawLine(new Pen(new SolidColorBrush(color, 0.95), 1.5) { DashStyle = new DashStyle(new double[] { 5, 4 }, 0) }, a, b);
             GuideLabel(context, name, new Point(Math.Max(4, a.X + 6), a.Y - 19), color);
@@ -531,8 +631,8 @@ namespace Marabook.App
             if (Globe)
             {
                 var radius = GlobeRadius(GlobeSide);
-                var x = (point.X - Bounds.Width / 2) / radius;
-                var y = (Bounds.Height / 2 - point.Y) / radius;
+                var x = (point.X - ViewW / 2) / radius;
+                var y = (ViewH / 2 - point.Y) / radius;
                 var d = x * x + y * y;
                 if (d > 1) return false;
                 var z = Math.Sqrt(1 - d);
@@ -569,8 +669,8 @@ namespace Marabook.App
             var text = Text(Maps.GeoLabel(latitude, longitude), 11.5, Brushes.White, FontWeight.SemiBold);
             var x = at.X + 16;
             var y = at.Y + 14;
-            if (x + text.Width + 14 > Bounds.Width) x = at.X - 16 - text.Width - 12;
-            if (y + text.Height + 8 > Bounds.Height) y = at.Y - 14 - text.Height - 6;
+            if (x + text.Width + 14 > ViewW) x = at.X - 16 - text.Width - 12;
+            if (y + text.Height + 8 > ViewH) y = at.Y - 14 - text.Height - 6;
             context.DrawRectangle(new SolidColorBrush(Color.FromRgb(20, 24, 34), 0.86), null, new Rect(x, y, text.Width + 12, text.Height + 5), 5, 5);
             context.DrawText(text, new Point(x + 6, y + 2));
         }
@@ -679,7 +779,7 @@ namespace Marabook.App
                 Point at;
                 bool front;
                 if (!SatellitePoint(body, centre, radius, out at, out front) || front != frontPass) continue;
-                if (at.X < -40 || at.Y < -40 || at.X > Bounds.Width + 40 || at.Y > Bounds.Height + 40) continue;
+                if (at.X < -40 || at.Y < -40 || at.X > ViewW + 40 || at.Y > ViewH + 40) continue;
                 _satellitesDrawn++;
                 DotRings(context, body, at, false);
                 DotAccent(context, body, at);
@@ -799,9 +899,9 @@ namespace Marabook.App
             var z = sinP * sinLat + cosP * cosLat * Math.Cos(l);     // vers nous
             at = default(Point);
             if (z > -0.16) return false;
-            var focal = Math.Max(Bounds.Width, Bounds.Height) * 0.62;
-            at = new Point(Bounds.Width / 2 + focal * x / -z, Bounds.Height / 2 - focal * y / -z);
-            return at.X > -30 && at.Y > -30 && at.X < Bounds.Width + 30 && at.Y < Bounds.Height + 30;
+            var focal = Math.Max(ViewW, ViewH) * 0.62;
+            at = new Point(ViewW / 2 + focal * x / -z, ViewH / 2 - focal * y / -z);
+            return at.X > -30 && at.Y > -30 && at.X < ViewW + 30 && at.Y < ViewH + 30;
         }
 
         private bool SkyAnimated { get { return _owner.AnimateSky && Marabook.Settings.AppSettings.Animations; } }
@@ -902,7 +1002,7 @@ namespace Marabook.App
             var start = bucket * every + random.NextDouble() * (every - 1.2);
             var progress = (time - start) / 0.9;
             if (progress < 0 || progress > 1) return;
-            var from = new Point(random.NextDouble() * Bounds.Width, random.NextDouble() * Bounds.Height * 0.7);
+            var from = new Point(random.NextDouble() * ViewW, random.NextDouble() * ViewH * 0.7);
             var angle = Math.PI * (0.12 + random.NextDouble() * 0.3);
             var length = 150 + random.NextDouble() * 160;
             var direction = random.Next(2) == 0 ? 1 : -1;
@@ -929,7 +1029,7 @@ namespace Marabook.App
             if (string.IsNullOrEmpty(name)) return;
             var text = Text(name, 12, Brushes.White, FontWeight.SemiBold);
             var box = new Rect(at.X - text.Width / 2 - 6, centred ? at.Y - text.Height / 2 - 2 : at.Y - 2, text.Width + 12, text.Height + 4);
-            if (box.Right < 0 || box.X > Bounds.Width || box.Bottom < 0 || box.Y > Bounds.Height) return;
+            if (box.Right < 0 || box.X > ViewW || box.Bottom < 0 || box.Y > ViewH) return;
             context.DrawRectangle(new SolidColorBrush(Color.FromRgb((byte)(color.R * 0.55), (byte)(color.G * 0.55), (byte)(color.B * 0.55)), 0.82), null, box, 5, 5);
             context.DrawText(text, new Point(box.X + 6, box.Y + 2));
         }
@@ -984,7 +1084,7 @@ namespace Marabook.App
             var nice = magnitude;
             foreach (var step in new[] { 1.0, 2, 5, 10 }) if (step * magnitude <= target) nice = step * magnitude;
             var width = nice / kmPerScreen;
-            var y = Bounds.Height - 22;
+            var y = ViewH - 22;
             var text = Text(Maps.KmLabel(nice), 11, Chrome.Ink, FontWeight.SemiBold);
             context.DrawRectangle(new SolidColorBrush(Chrome.WindowBg.Color, 0.86), null, new Rect(10, y - text.Height - 8, Math.Max(width, text.Width) + 16, text.Height + 20), 6, 6);
             context.DrawText(text, new Point(18, y - text.Height - 4));
@@ -998,7 +1098,7 @@ namespace Marabook.App
 
         private double GlobeRadius(int side) { return side / 2.0 * 0.92 * _globeZoom; }
 
-        private int GlobeSide { get { return (int)Math.Max(64, Math.Min(640, Math.Min(Bounds.Width, Bounds.Height))); } }
+        private int GlobeSide { get { return (int)Math.Max(64, Math.Min(640, Math.Min(ViewW, ViewH))); } }
 
         /// <summary>Le carré d'écran que couvre l'image du globe, et sa finesse (lot 14, bug « on finit sur
         /// un carré ») : tant que le globe tient dans son cadre, rien ne change ; dès qu'on l'approche, le
@@ -1006,24 +1106,24 @@ namespace Marabook.App
         private void GlobeFrame(out double radius, out double cover, out int pixels)
         {
             radius = GlobeRadius(GlobeSide);
-            cover = Math.Max(GlobeSide, Math.Min(Math.Max(Bounds.Width, Bounds.Height) + 2, 2 * radius + 6));
-            pixels = (int)Math.Max(64, Math.Min(cover, 760));
+            cover = Math.Max(GlobeSide, Math.Min(Math.Max(ViewW, ViewH) + 2, 2 * radius + 6));
+            pixels = (int)Math.Max(64, Math.Min(cover * _exportBoost, 760 * _exportBoost));
         }
 
         private void RenderGlobe(DrawingContext context, MapInfo map)
         {
             int tw, th;
-            var texture = _cache.Texture(map, out tw, out th);
+            var texture = _cache.Texture(map, out tw, out th, Exporting);
             double radius, cover;
             int side;
             GlobeFrame(out radius, out cover, out side);
-            var dest = new Rect((Bounds.Width - cover) / 2, (Bounds.Height - cover) / 2, cover, cover);
-            var centre = new Point(Bounds.Width / 2, Bounds.Height / 2);
+            var dest = new Rect((ViewW - cover) / 2, (ViewH - cover) / 2, cover, cover);
+            var centre = new Point(ViewW / 2, ViewH / 2);
             DrawSky(context);
             if (texture == null)
             {
                 var wait = Text("Le globe se prépare…", 13, Brushes.White, FontWeight.Normal);
-                context.DrawText(wait, new Point((Bounds.Width - wait.Width) / 2, (Bounds.Height - wait.Height) / 2));
+                context.DrawText(wait, new Point((ViewW - wait.Width) / 2, (ViewH - wait.Height) / 2));
                 return;
             }
             // Derrière le globe : son halo, la moitié lointaine de ses anneaux, les satellites passés derrière lui.
@@ -1073,7 +1173,7 @@ namespace Marabook.App
                     Label(context, marker.Name, new Point(at.X, at.Y + 14), color, false);
                 }
             }
-            DrawLatLon(context);
+            if (!Exporting) DrawLatLon(context);
         }
 
         /// <summary>Ce qui, des anneaux du monde, change l'ombre qu'ils portent sur lui (lot 17).</summary>
@@ -1492,7 +1592,7 @@ namespace Marabook.App
                 _viewX = state[1];
                 _viewY = state[2];
                 _fitPending = false;
-                if (Bounds.Width > 0) Clamp();
+                if (ViewW > 0) Clamp();
             }
             _globeLon = state[3];
             _globeLat = Math.Max(-Math.PI / 2, Math.Min(Math.PI / 2, state[4]));
@@ -1652,8 +1752,8 @@ namespace Marabook.App
             int side;
             GlobeFrame(out radius, out cover, out side);
             var k = _globePixels / cover;
-            var bx = (int)((screen.X - (Bounds.Width - cover) / 2) * k);
-            var by = (int)((screen.Y - (Bounds.Height - cover) / 2) * k);
+            var bx = (int)((screen.X - (ViewW - cover) / 2) * k);
+            var by = (int)((screen.Y - (ViewH - cover) / 2) * k);
             if (bx < 0 || by < 0 || bx >= _globePixels || by >= _globePixels) return 0;
             return (_globeBuffer[by * _globePixels + bx] >> 24) & 0xFF;
         }

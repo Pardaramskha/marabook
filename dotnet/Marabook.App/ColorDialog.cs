@@ -20,13 +20,14 @@ namespace Marabook.App
     public class ColorDialog : Window
     {
         private readonly Border _preview;
-        private readonly TextBox _hexBox;
+        private readonly TextBox _hexBox, _nameBox;
         private readonly Slider _r, _g, _b;
         private bool _accepted, _syncing;
 
-        private ColorDialog(Window owner)
+        /// <summary>22/11 (la palette) : un champ NOM, facultatif — sans nom, la couleur s'affiche par son code.</summary>
+        private ColorDialog(Window owner, string title, string startHex, string name, string okLabel)
         {
-            Title = "Nouvelle couleur";
+            Title = title;
             Owner = owner;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             SizeToContent = SizeToContent.WidthAndHeight;
@@ -54,7 +55,7 @@ namespace Marabook.App
                     Height = 24,
                     Margin = new Thickness(2),
                     Background = new SolidColorBrush(Ink.Parse(hex).ToColor()),
-                    [ToolTip.TipProperty] = hex
+                    [ToolTip.TipProperty] = ColorPalette.Describe(hex)
                 };
                 var hexRef = hex;
                 swatch.Click += delegate { SetColor(hexRef); };
@@ -83,13 +84,21 @@ namespace Marabook.App
             hexRow.Children.Add(_hexBox);
             panel.Children.Add(hexRow);
 
+            var nameRow = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+            var nameLabel = new TextBlock { Text = "Nom", Width = 40, Foreground = Chrome.SoftText, VerticalAlignment = VerticalAlignment.Center };
+            DockPanel.SetDock(nameLabel, Dock.Left);
+            nameRow.Children.Add(nameLabel);
+            _nameBox = new TextBox { Text = name ?? "", Watermark = "Facultatif", Tag = "color-name" };
+            nameRow.Children.Add(_nameBox);
+            panel.Children.Add(nameRow);
+
             var buttons = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
                 Margin = new Thickness(0, 14, 0, 0)
             };
-            var ok = new Button { Content = "Ajouter", IsDefault = true, MinWidth = 90 };
+            var ok = new Button { Content = okLabel, IsDefault = true, MinWidth = 90 };
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)
@@ -99,7 +108,7 @@ namespace Marabook.App
             panel.Children.Add(buttons);
 
             Content = panel;
-            SetColor("#5B67D8");
+            SetColor(ColorPalette.Normalize(startHex) ?? "#5B67D8");
         }
 
         private Slider MakeSlider(StackPanel panel, string label)
@@ -156,14 +165,26 @@ namespace Marabook.App
             _syncing = false;
         }
 
+        /// <summary>« Nouvelle couleur… » : la couleur choisie rejoint la PALETTE de l'auteur
+        /// (Model.ColorPalette — avec son nom s'il en donne un), et son code est rendu.
+        /// null si annulé.</summary>
         public static async Task<string> Ask(Window owner)
         {
-            var dialog = new ColorDialog(owner);
+            var picked = await Edit(owner, "Nouvelle couleur", null, null, "Ajouter");
+            if (picked == null) return null;
+            ColorPalette.Add(picked[0], picked[1]);
+            Marabook.Settings.AppSettings.Save();
+            return picked[0];
+        }
+
+        /// <summary>Le dialogue seul : { code, nom } — rien n'est rangé. null si annulé.</summary>
+        public static async Task<string[]> Edit(Window owner, string title, string hex, string name, string okLabel)
+        {
+            var dialog = new ColorDialog(owner, title, hex, name, okLabel);
             await Dialogs.ShowModal(dialog, owner);
             if (!dialog._accepted) return null;
-            var text = (dialog._hexBox.Text ?? "").Trim();
-            if (!text.StartsWith("#")) text = "#" + text;
-            return text.Length == 7 ? text.ToUpperInvariant() : null;
+            var text = ColorPalette.Normalize(dialog._hexBox.Text);
+            return text == null ? null : new[] { text, (dialog._nameBox.Text ?? "").Trim() };
         }
     }
 }

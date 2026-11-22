@@ -25,7 +25,7 @@ namespace Marabook.Exchange
         public const string StyleType = "export-level-type", StyleBook = "export-level-book",
             StyleFolder = "export-level-folder", StyleSubfolder = "export-level-subfolder";
 
-        public const string TitleTexts = "Écrits", TitleSheets = "Fiches", TitlePlans = "Plans", TitleMindMaps = "Cartes mentales";
+        public const string TitleTexts = "Écrits", TitleSheets = "Fiches", TitlePlans = "Plans", TitleMindMaps = "Cartes mentales", TitleMaps = "Cartes";
 
         public static bool IsLevelStyle(string styleId)
         {

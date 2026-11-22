@@ -39,7 +39,7 @@ namespace Marabook.Settings
     {
         public static readonly ActionDefinition[] Actions =
         {
-            new ActionDefinition("new", "Fichier", "Nouveau projet", "Ctrl+N"),
+            new ActionDefinition("new", "Fichier", "Nouveau projet", null), // plus de Ctrl+N d'office (21/11, Rémi) : un faux mouvement coûtait trop cher
             new ActionDefinition("open", "Fichier", "Ouvrir", "Ctrl+O"),
             new ActionDefinition("save", "Fichier", "Enregistrer", "Ctrl+S"),
             new ActionDefinition("save-as", "Fichier", "Enregistrer sous", "Ctrl+Shift+S"),
@@ -54,6 +54,7 @@ namespace Marabook.Settings
             // de l'onglet, ou un autre raccourci), PageDown/PageUp circulent.
             new ActionDefinition("new-tab", "Onglets", "Nouvel onglet", "Ctrl+T"),
             new ActionDefinition("close-tab", "Onglets", "Fermer l'onglet", "Ctrl+W"),
+            new ActionDefinition("split-view", "Affichage", "Vue scindée", null), // 21/11
             new ActionDefinition("next-tab", "Onglets", "Onglet suivant", "Ctrl+PageDown"),
             new ActionDefinition("previous-tab", "Onglets", "Onglet précédent", "Ctrl+PageUp"),
             new ActionDefinition("new-folder", "Pile", "Nouveau dossier", "Ctrl+Shift+T"),
@@ -72,6 +73,8 @@ namespace Marabook.Settings
             new ActionDefinition("search-next", "Édition", "Occurrence suivante", "F3"),
             new ActionDefinition("search-previous", "Édition", "Occurrence précédente", "Shift+F3"),
             new ActionDefinition("versions-panel", "Édition", "Versions de l'écrit", "Ctrl+Shift+H"),
+            new ActionDefinition("conjugator", "Édition", "Conjugueur", null), // 20/11
+            new ActionDefinition("read-aloud", "Édition", "Lire à voix haute", null), // 21/11
             new ActionDefinition("new-sheet", "Pile", "Nouvelle fiche", "Ctrl+Shift+K"),
             new ActionDefinition("import-media", "Pile", "Importer dans Recherche", null),
             new ActionDefinition("insert-link", "Format", "Lien vers une fiche", "Ctrl+K"),
@@ -199,6 +202,10 @@ namespace Marabook.Settings
         // le mode classique (RichTextBox) a été retiré le 13/09.
         public static bool DraftView; // axe d'affichage : Brouillon plutôt que Pages
         public static string AccentColor;    // "#RRGGBB", null = default indigo
+        /// <summary>Le skin de l'application (2.0.0, 21/11) : une clé de Model.Skins ; null = « modern ».</summary>
+        public static string Skin;
+        /// <summary>La seconde couleur de « Gradient Garden » : "#RRGGBB", null = automatique.</summary>
+        public static string SkinAccent2;
         // Les styles globaux (22/09) : la feuille de Préférences › Styles
         // globaux (séparateur de scène compris) et son empreinte — null tant
         // qu'aucun projet ne l'a semée (Settings.GlobalStyles).
@@ -226,6 +233,31 @@ namespace Marabook.Settings
         public static bool ShowLinks;
         public static bool LoadedFromFile; // vrai quand Load a lu un fichier (la sonde distingue un défaut d'un choix enregistré)
         public static bool CalculatorPinned;     // le Calculateur de dates tient un onglet du rail (14/11) — à la demande par défaut
+        // La bibliothèque des fiches (21/11) : en liste compacte plutôt qu'en tuiles, et le tri
+        // retenu PAR CATÉGORIE (clé = id de la catégorie d'ensemble ; "" = le tri d'office).
+        // Les forces du Graphe relationnel (21/11) : 1 = d'office.
+        public static double GraphSpacing = 1, GraphRepulsion = 1, GraphGravity = 1;
+        public static GraphForces GraphForcesNow { get { return new GraphForces { Spacing = GraphSpacing, Repulsion = GraphRepulsion, Gravity = GraphGravity }.Clean(); } }
+        public static bool LibraryList;
+        // LE TABLEAU (outliner, 21/11) : montré à la place des cartes ; une ligne par scène.
+        public static bool OutlinerShown;
+        public static bool OutlinerScenes = true;
+        public static Dictionary<string, int> LibrarySorts = new Dictionary<string, int>();
+        public const int LibrarySortsKept = 200;
+
+        public static int LibrarySortFor(string categoryId)
+        {
+            int index;
+            if (categoryId != null && LibrarySorts.TryGetValue(categoryId, out index)) return index;
+            return LibrarySorts.TryGetValue("", out index) ? index : 0;
+        }
+
+        public static void RememberLibrarySort(string categoryId, int index)
+        {
+            if (index < 0) return;
+            if (LibrarySorts.Count >= LibrarySortsKept && !LibrarySorts.ContainsKey(categoryId ?? "")) return;
+            LibrarySorts[categoryId ?? ""] = index;
+        }
         public static bool LexiconPinned = true; // le panneau Lexique tient un onglet du rail (18/09) — épinglé par défaut (1.0.5-a)
         public static bool ProofEnabled = true; // vérification continue (Révision)
         public static int SnapshotCap = 20;        // instantanés gardés par item (b38, 5–100)
@@ -280,6 +312,10 @@ namespace Marabook.Settings
             while (MapStateOrder.Count > MapStatesKept) { MapStates.Remove(MapStateOrder[0]); MapStateOrder.RemoveAt(0); }
         }
         public static bool SoundsEnabled = true; // les trois sons (succès, enregistrement, rapport d'erreur) — 1.1.0, 31/10
+        /// <summary>« Augmenter le contraste » (Préférences › Accessibilité, 22/11) : encres, filets et accent renforcés.</summary>
+        public static bool HighContrast;
+        /// <summary>Les « Liens utiles » ajoutés par l'auteur dans WGYC (Atelier, 22/11) : { titre, adresse }.</summary>
+        public static List<string[]> UsefulLinks = new List<string[]>();
         // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
         public static List<string> RecentSpecialChars = new List<string>();
 
@@ -659,6 +695,10 @@ namespace Marabook.Settings
                 ShowRulers = Json.AsBool(Json.Field(root, "rulers"), false);
                 DraftView = Json.AsBool(Json.Field(root, "draftView"), false);
                 AccentColor = Json.AsString(Json.Field(root, "accentColor"));
+                Skin = Json.AsString(Json.Field(root, "skin"));
+                if (Skin != null && Model.Skins.Normalize(Skin) == Model.Skins.Modern) Skin = null;
+                SkinAccent2 = Json.AsString(Json.Field(root, "skinAccent2"));
+                if (!Model.Skins.IsHex(SkinAccent2)) SkinAccent2 = null;
                 var globalStyles = Json.Field(root, "globalStyles");
                 GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
                 if (GlobalStyles != null) GlobalStyles.EnsureFootnoteStyle(); // réglages d'avant la 0.50.0
@@ -689,9 +729,34 @@ namespace Marabook.Settings
                         MapStateOrder.Add(mapId);
                     }
                 SoundsEnabled = Json.AsBool(Json.Field(root, "sounds"), true);
+                HighContrast = Json.AsBool(Json.Field(root, "highContrast"), false);
+                Model.ColorPalette.FromJson(Json.Field(root, "palette"), Json.Field(root, "paletteDismissed"));
+                UsefulLinks = new List<string[]>();
+                var usefulLinks = Json.AsList(Json.Field(root, "usefulLinks"));
+                if (usefulLinks != null)
+                    foreach (var link in usefulLinks)
+                    {
+                        var linkTitle = Json.AsString(Json.Field(link, "title"));
+                        var linkUrl = Json.AsString(Json.Field(link, "url"));
+                        if (!string.IsNullOrWhiteSpace(linkTitle) && !string.IsNullOrWhiteSpace(linkUrl)) UsefulLinks.Add(new[] { linkTitle.Trim(), linkUrl.Trim() });
+                    }
                 ImageGrid = Json.AsBool(Json.Field(root, "imageGrid"), false);
                 LexiconPinned = Json.AsBool(Json.Field(root, "lexiconPinned"), true);
                 CalculatorPinned = Json.AsBool(Json.Field(root, "calculatorPinned"), false);
+                LibraryList = Json.AsBool(Json.Field(root, "libraryList"), false);
+                OutlinerShown = Json.AsBool(Json.Field(root, "outlinerShown"), false);
+                OutlinerScenes = Json.AsBool(Json.Field(root, "outlinerScenes"), true);
+                GraphSpacing = GraphForces.Clamp(Json.AsDouble(Json.Field(root, "graphSpacing"), 1));
+                GraphRepulsion = GraphForces.Clamp(Json.AsDouble(Json.Field(root, "graphRepulsion"), 1));
+                GraphGravity = GraphForces.Clamp(Json.AsDouble(Json.Field(root, "graphGravity"), 1));
+                LibrarySorts = new Dictionary<string, int>();
+                var librarySorts = Json.AsObject(Json.Field(root, "librarySorts"));
+                if (librarySorts != null)
+                    foreach (var pair in librarySorts)
+                    {
+                        var sortIndex = (int)Json.AsDouble(pair.Value, 0);
+                        if (sortIndex >= 0 && sortIndex < 16 && LibrarySorts.Count < LibrarySortsKept) LibrarySorts[pair.Key] = sortIndex;
+                    }
                 LoadedFromFile = true;
                 ProofEnabled = Json.AsBool(Json.Field(root, "proofEnabled"), true);
                 SnapshotCap = (int)Json.AsDouble(Json.Field(root, "snapshotCap"), 20);
@@ -850,6 +915,8 @@ namespace Marabook.Settings
                 root["rulers"] = ShowRulers;
                 root["draftView"] = DraftView;
                 if (AccentColor != null) root["accentColor"] = AccentColor;
+                if (Skin != null) root["skin"] = Skin;
+                if (SkinAccent2 != null) root["skinAccent2"] = SkinAccent2;
                 if (GlobalStyles != null) root["globalStyles"] = Persistence.PlotFile.BuildStyles(GlobalStyles);
                 if (GlobalStylesStamp.Length > 0) root["globalStylesStamp"] = GlobalStylesStamp;
                 if (Profile != null) root["profile"] = Profile;
@@ -877,9 +944,28 @@ namespace Marabook.Settings
                     root["mapStates"] = mapStates;
                 }
                 root["sounds"] = SoundsEnabled;
+                if (HighContrast) root["highContrast"] = true;
+                if (Model.ColorPalette.Custom.Count > 0) root["palette"] = Model.ColorPalette.ToJson();
+                if (Model.ColorPalette.Dismissed.Count > 0) root["paletteDismissed"] = new List<object>(new List<string>(Model.ColorPalette.Dismissed).ToArray());
+                if (UsefulLinks.Count > 0)
+                {
+                    var usefulLinks = new List<object>();
+                    foreach (var link in UsefulLinks) usefulLinks.Add(new Dictionary<string, object> { { "title", link[0] }, { "url", link[1] } });
+                    root["usefulLinks"] = usefulLinks;
+                }
                 root["imageGrid"] = ImageGrid;
                 root["lexiconPinned"] = LexiconPinned;
                 if (CalculatorPinned) root["calculatorPinned"] = true;
+                if (LibraryList) root["libraryList"] = true;
+                if (OutlinerShown) root["outlinerShown"] = true;
+                if (!OutlinerScenes) root["outlinerScenes"] = false;
+                if (!GraphForcesNow.IsDefault) { root["graphSpacing"] = GraphSpacing; root["graphRepulsion"] = GraphRepulsion; root["graphGravity"] = GraphGravity; }
+                if (LibrarySorts.Count > 0)
+                {
+                    var librarySorts = new Dictionary<string, object>();
+                    foreach (var pair in LibrarySorts) librarySorts[pair.Key] = pair.Value;
+                    root["librarySorts"] = librarySorts;
+                }
                 root["proofEnabled"] = ProofEnabled;
                 root["snapshotCap"] = SnapshotCap;
                 root["tabsEnabled"] = TabsEnabled;

@@ -53,7 +53,7 @@ namespace Marabook.App
         public TimelineHubView(bool chronology)
         {
             _chronology = chronology;
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
             var head = new Border
             {

@@ -10,6 +10,29 @@ namespace Marabook.Model
     /// connues (retenues par le projet, ou épinglées) servent de départ ; les
     /// épinglées ne bougent pas ; les nœuds neufs naissent près de leurs
     /// voisins déjà placés, sinon sur un cercle.</summary>
+    /// <summary>LES FORCES de la disposition (21/11) : trois réglages, tous
+    /// à 1 d'office. Écartement = la distance naturelle entre deux nœuds
+    /// reliés ; Répulsion = ce qui écarte les nœuds entre eux ; Gravité =
+    /// ce qui ramène tout vers le centre.</summary>
+    public class GraphForces
+    {
+        public const double Min = 0.3, Max = 3;
+        public double Spacing = 1, Repulsion = 1, Gravity = 1;
+
+        public bool IsDefault { get { return Math.Abs(Spacing - 1) < 0.005 && Math.Abs(Repulsion - 1) < 0.005 && Math.Abs(Gravity - 1) < 0.005; } }
+
+        public static double Clamp(double value)
+        {
+            if (double.IsNaN(value) || double.IsInfinity(value)) return 1;
+            return value < Min ? Min : value > Max ? Max : value;
+        }
+
+        public GraphForces Clean()
+        {
+            return new GraphForces { Spacing = Clamp(Spacing), Repulsion = Clamp(Repulsion), Gravity = Clamp(Gravity) };
+        }
+    }
+
     public static class GraphLayout
     {
         public const double Spacing = 110; // la distance « naturelle » entre deux nœuds reliés (90 → 110 le 31/10 : plus d'air)
@@ -17,6 +40,12 @@ namespace Marabook.Model
 
         public static Dictionary<string, GraphPosition> Arrange(RelationGraph graph, Dictionary<string, GraphPosition> known, int iterations, int seed)
         {
+            return Arrange(graph, known, iterations, seed, null);
+        }
+
+        public static Dictionary<string, GraphPosition> Arrange(RelationGraph graph, Dictionary<string, GraphPosition> known, int iterations, int seed, GraphForces forces)
+        {
+            forces = (forces ?? new GraphForces()).Clean();
             var result = new Dictionary<string, GraphPosition>();
             var n = graph.Nodes.Count;
             if (n == 0) return result;
@@ -31,7 +60,7 @@ namespace Marabook.Model
             // Départ : positions connues, puis les autres près d'un voisin
             // placé, sinon sur un cercle dont le rayon suit le nombre de nœuds.
             var placed = new bool[n];
-            var radius = Spacing * Math.Max(1, Math.Sqrt(n)) * 0.6;
+            var radius = Spacing * forces.Spacing * Math.Max(1, Math.Sqrt(n)) * 0.6;
             var knownCount = 0;
             for (var i = 0; i < n; i++)
             {
@@ -76,8 +105,9 @@ namespace Marabook.Model
                 neighbours[b].Add(new KeyValuePair<int, double>(a, weight));
             }
 
-            var k = Spacing;
-            var k2 = k * k;
+            var k = Spacing * forces.Spacing;
+            var k2 = k * k * forces.Repulsion;
+            var gravity = 0.008 * forces.Gravity;
             // Le POIDS de répulsion d'un nœud (31/10, Rémi : « un empilement
             // massif » sur le Serment) : les nœuds très reliés — les écrits
             // où tout le monde paraît, les personnages centraux — repoussent
@@ -124,7 +154,7 @@ namespace Marabook.Model
                     }
                 // Gravité douce vers le centre : les îlots ne dérivent pas à
                 // l'infini — plus douce qu'avant (31/10), le cadre suffit.
-                for (var i = 0; i < n; i++) { dx[i] -= x[i] * 0.008; dy[i] -= y[i] * 0.008; }
+                for (var i = 0; i < n; i++) { dx[i] -= x[i] * gravity; dy[i] -= y[i] * gravity; }
                 // Déplacement borné par la température.
                 for (var i = 0; i < n; i++)
                 {

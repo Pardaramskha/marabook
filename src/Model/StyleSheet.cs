@@ -67,6 +67,7 @@ namespace Marabook.Model
         }
         public string Color;              // "#RRGGBB", null = automatic
         public bool Ligatures = true;
+        public bool Kerning = true;       // le crénage de la police (20/11)
         public double LineHeight = 19.2;  // px: 14,4 pt — leading, InDesign-style
 
         // --- Paragraphe ---
@@ -232,6 +233,7 @@ namespace Marabook.Model
                 LineHeight = reference.LineHeight > 1 ? Math.Round(reference.LineHeight * 0.85 * 100) / 100 : 0,
                 Color = reference.Color,
                 Ligatures = reference.Ligatures,
+                Kerning = reference.Kerning,
                 Align = "justify",
                 FirstLineIndent = 0,
                 SpaceBefore = 0,

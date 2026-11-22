@@ -18,7 +18,7 @@ namespace Marabook.Exchange
     /// comme l'EPUB. Les liens internes ne visent que des fiches exportées.</summary>
     public static class HtmlEncyclopedia
     {
-        public const string IndexFile = "index.html", LexiconFile = "lexique.html", CssFile = "encyclopedie.css", JsFile = "encyclopedie.js", PreviewsFile = "apercus.js", SheetsFolder = "fiches", ImagesFolder = "images";
+        public const string IndexFile = "index.html", LexiconFile = "lexique.html", MapsFile = "cartes.html", CssFile = "encyclopedie.css", JsFile = "encyclopedie.js", PreviewsFile = "apercus.js", SheetsFolder = "fiches", ImagesFolder = "images";
         public const int ExcerptChars = 260;
 
         /// <summary>Écrit le dossier ; rend les chemins écrits (index en tête).
@@ -31,9 +31,38 @@ namespace Marabook.Exchange
             var written = new List<string>();
             var all = document.AllSheets();
             var images = PrepareImages(document, project, all);
+            // Les cartes (20/11) se dessinent AVANT l'accueil, qui dit combien il y en a.
+            var number = 0;
+            foreach (var map in document.Maps)
+            {
+                map.File = null;
+                byte[] png = null;
+                try { png = Encyclopedia.MapRenderer == null ? null : Encyclopedia.MapRenderer(project, map.Item); }
+                catch { png = null; }
+                if (png == null || png.Length == 0) continue;
+                number++;
+                map.File = "carte-" + number.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".png";
+                var imagesDir = Path.Combine(folder, ImagesFolder);
+                Directory.CreateDirectory(imagesDir);
+                var mapPath = Path.Combine(imagesDir, map.File);
+                File.WriteAllBytes(mapPath, png);
+                written.Add(mapPath);
+            }
+            if (number > 0)
+            {
+                var maps = Path.Combine(folder, MapsFile);
+                File.WriteAllText(maps, Maps(document), new UTF8Encoding(false));
+                written.Add(maps);
+            }
             var index = Path.Combine(folder, IndexFile);
             File.WriteAllText(index, Index(document), new UTF8Encoding(false));
             written.Add(index);
+            if (Skins.Normalize(document.Options.Skin) == Skins.Eden && document.Options.SkinTexture != null && document.Options.SkinTexture.Length > 0)
+            {
+                var texture = Path.Combine(folder, Skins.TextureFile);
+                File.WriteAllBytes(texture, document.Options.SkinTexture);
+                written.Add(texture);
+            }
             var css = Path.Combine(folder, CssFile);
             File.WriteAllText(css, Css(document.Options), new UTF8Encoding(false));
             written.Add(css);
@@ -155,6 +184,8 @@ namespace Marabook.Exchange
             if (document.Author.Length > 0) sb.Append("<p class=\"author\">").Append(Esc(document.Author)).Append("</p>\n");
             sb.Append("<p class=\"count\">").Append(document.SheetCount).Append(document.SheetCount > 1 ? " fiches" : " fiche");
             if (document.Options.IncludeLexicon && document.Lexicon.Count > 0) sb.Append(" · <a href=\"").Append(LexiconFile).Append("\">Lexique</a> (").Append(document.Lexicon.Count).Append(document.Lexicon.Count > 1 ? " mots)" : " mot)");
+            var drawn = DrawnMaps(document);
+            if (drawn > 0) sb.Append(" · <a href=\"").Append(MapsFile).Append("\">Cartes</a> (").Append(drawn).Append(drawn > 1 ? " cartes)" : " carte)");
             sb.Append("</p>\n");
             // La recherche instantanée (1/11) : un champ que le script révèle ; sans JavaScript, rien ne manque.
             if (document.SheetCount > 1) sb.Append("<p class=\"find\" hidden><input type=\"search\" class=\"search\" placeholder=\"Chercher une fiche…\" aria-label=\"Chercher une fiche\" autocomplete=\"off\"></p>\n");
@@ -351,6 +382,49 @@ namespace Marabook.Exchange
             sb.Append("</svg></section>\n");
         }
 
+        // ================================================================ les Cartes (20/11)
+
+        /// <summary>Les cartes dont l'image a été dessinée.</summary>
+        public static int DrawnMaps(EncyclopediaDocument document)
+        {
+            var count = 0;
+            foreach (var map in document.Maps) if (map.File != null) count++;
+            return count;
+        }
+
+        /// <summary>La page « Cartes » : chaque carte en image, puis ses
+        /// lieux — un lien vers la fiche quand elle est de l'export.</summary>
+        public static string Maps(EncyclopediaDocument document)
+        {
+            var sb = new StringBuilder();
+            Head(sb, document, "Cartes — " + document.Title, "", "maps");
+            sb.Append("<nav class=\"crumbs\"><a href=\"").Append(IndexFile).Append("\">").Append(Esc(document.Title)).Append("</a> › Cartes</nav>\n<main class=\"maps-page\">\n<h1>Cartes</h1>\n");
+            foreach (var map in document.Maps)
+            {
+                if (map.File == null) continue;
+                sb.Append("<section class=\"map\"><h2>").Append(Esc(map.Title)).Append("</h2>\n");
+                sb.Append("<a href=\"").Append(ImagesFolder).Append('/').Append(Esc(map.File)).Append("\"><img src=\"").Append(ImagesFolder).Append('/').Append(Esc(map.File)).Append("\" alt=\"").Append(Esc(map.Title)).Append("\"></a>\n");
+                if (map.Places.Count > 0)
+                {
+                    sb.Append("<ul class=\"places\">");
+                    foreach (var place in map.Places)
+                    {
+                        EncyclopediaSheet sheet = null;
+                        if (place.SheetId != null) document.ById.TryGetValue(place.SheetId, out sheet);
+                        sb.Append("<li>");
+                        if (sheet != null) sb.Append("<a href=\"").Append(Esc(SheetPath(sheet))).Append("\">").Append(Esc(place.Name)).Append("</a>");
+                        else sb.Append(Esc(place.Name));
+                        sb.Append("</li>");
+                    }
+                    sb.Append("</ul>\n");
+                }
+                sb.Append("</section>\n");
+            }
+            sb.Append("</main>\n");
+            Foot(sb, document);
+            return sb.ToString();
+        }
+
         // ================================================================ le Lexique
 
         public static string Lexicon(EncyclopediaDocument document)
@@ -534,7 +608,7 @@ namespace Marabook.Exchange
 
         private static void Head(StringBuilder sb, EncyclopediaDocument document, string title, string root, string bodyClass)
         {
-            sb.Append("<!doctype html>\n<html lang=\"fr\"").Append(document.Options.Dark ? " data-theme=\"dark\"" : "").Append(">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
+            sb.Append("<!doctype html>\n<html lang=\"fr\"").Append(document.Options.Dark || Skins.HtmlStartsDark(document.Options.Skin) ? " data-theme=\"dark\"" : "").Append(">\n<head>\n<meta charset=\"utf-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
             sb.Append("<title>").Append(Esc(title)).Append("</title>\n");
             sb.Append("<meta name=\"generator\" content=\"Marabook ").Append(Esc(AppInfo.Version)).Append("\">\n");
             sb.Append("<link rel=\"stylesheet\" href=\"").Append(root).Append(CssFile).Append("\">\n");
@@ -695,10 +769,14 @@ namespace Marabook.Exchange
             sb.Append(".body img{max-width:100%;height:auto;border-radius:8px}.body blockquote{margin:1em 0;padding:.2em 1em;border-left:3px solid var(--accent);color:var(--soft)}.body pre{background:var(--tint);padding:10px 12px;border-radius:8px;overflow:auto}.body table{border-collapse:collapse;margin:1em 0}.body th,.body td{border:1px solid var(--line);padding:4px 10px}.body .c{text-align:center}.body .r{text-align:right}.body .task .box{color:var(--accent)}.body .done{color:var(--soft);text-decoration:line-through}\n");
             sb.Append(".relations ul,.presence ul{padding-left:1.2em}.evolution dt{font-weight:700;margin-top:.4em}.evolution dd{margin:0 0 0 1em;color:var(--soft)}\n");
             sb.Append(".pager{display:flex;justify-content:space-between;gap:16px;margin:36px 0 0;padding-top:14px;border-top:1px solid var(--line);font-family:var(--heading);font-size:.95rem}.pager .up{color:var(--soft)}\n");
+            sb.Append(".maps-page .map{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:6px 22px 18px;margin:0 0 20px}.maps-page .map h2{border:0}.maps-page .map img{display:block;max-width:100%;height:auto;border-radius:8px;border:1px solid var(--line)}.maps-page .places{list-style:none;display:flex;flex-wrap:wrap;gap:4px 18px;padding:0;margin:14px 0 0;font-family:var(--heading);font-size:.9em}\n");
             sb.Append(".letters{display:flex;flex-wrap:wrap;gap:6px 12px;font-family:var(--heading);margin:0 0 18px}.letter{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:6px 22px 14px;margin:0 0 16px}.letter h2{border:0;color:var(--accent)}.letter dl{margin:0}.letter .entry{padding:8px 12px;margin:2px -12px;border-radius:10px;transition:background-color .18s ease}.letter .entry:hover{background:var(--tint)}.letter dt{margin:0;line-height:1.3}.letter dt b{display:block;font-size:1.05em}.letter .class{display:block;color:var(--soft);font-size:.8em;font-family:var(--heading);font-style:normal}.letter dd{margin:.15em 0 0}\n");
             // La carte d'aperçu (1/11) : texte à gauche, portrait à droite, cinq lignes au plus.
             sb.Append(".apercu{position:absolute;z-index:5;display:flex;gap:12px;width:min(380px,calc(100vw - 24px));padding:12px 14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.18);font-size:.88rem;line-height:1.4;pointer-events:auto}.apercu[hidden]{display:none}.apercu-text{flex:1;min-width:0}.apercu b{display:block;font-family:var(--heading);font-size:1rem}.apercu i{display:block;color:var(--soft);font-style:normal;font-size:.78rem;font-family:var(--heading)}.apercu p{margin:.35em 0 0;display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden}.apercu img{width:96px;max-height:130px;object-fit:cover;border-radius:8px;align-self:flex-start}\n");
             sb.Append("footer{text-align:center;color:var(--soft);font-size:.85rem;padding:24px 20px 40px;font-family:var(--heading)}\n");
+            // Le skin de l'application (21/11) : rien pour « modern ».
+            sb.Append(Skins.HtmlCss(options.Skin, accent, options.SkinAccent2, options.SkinTexture != null && options.SkinTexture.Length > 0,
+                (options.BodyFont ?? "").Trim().Length > 0 || (options.HeadingFont ?? "").Trim().Length > 0));
             // À l'impression (1/11) : papier blanc, l'encart en marge droite, sans navigation ni bouton.
             sb.Append("@media print{:root{--bg:#FFF;--paper:#FFF;--ink:#000;--soft:#444;--line:#BBB;--tint:#F3F3F3}body{color:#000}.crumbs,.pager,button.theme,.find,.toc,.apercu,footer{display:none}a{color:inherit}main{max-width:none;padding:0}.sheet-page article{display:block}.infobox{float:right;width:38%;margin:0 0 14px 20px;page-break-inside:avoid}.body{overflow:hidden}.category,.letter{page-break-inside:avoid;border:0;padding:0}.sheets{columns:2}}\n");
             return sb.ToString();

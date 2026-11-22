@@ -587,12 +587,52 @@ namespace Marabook.Model
             return null;
         }
 
+        // L'INDEX PAR IDENTIFIANT (21/11). Avant : chaque recherche parcourait tout le projet —
+        // des milliers d'éléments, des dizaines de fois par écran (liens, relations, frises,
+        // rétroliens). Maintenant : une table id → élément, bâtie au premier besoin.
+        // L'arbre se modifie librement (parent.Children.Add, sans passer par ici) : la table
+        // n'est donc jamais crue sur parole. Une réponse n'est rendue que si l'élément porte
+        // encore cet identifiant ET tient encore à l'arbre (chaque parent le compte parmi ses
+        // enfants, jusqu'à une racine) ; sinon, et pour tout identifiant inconnu, la table est
+        // refaite d'un seul parcours. Un identifiant introuvable coûte donc un parcours,
+        // comme avant ; tous les autres, presque rien.
+        private Dictionary<string, BinderItem> _byId;
+        private readonly object _byIdLock = new object();
+        /// <summary>Combien de fois la table a été refaite (tests, mesures).</summary>
+        public int IndexRebuilds { get; private set; }
+
         public BinderItem FindById(string id)
         {
-            foreach (var item in AllItems())
-                if (item.Id == id) return item;
-            return null;
+            if (id == null) return null;
+            lock (_byIdLock)
+            {
+                BinderItem found;
+                if (_byId != null && _byId.TryGetValue(id, out found) && found.Id == id && IsAttached(found)) return found;
+                var index = new Dictionary<string, BinderItem>(StringComparer.Ordinal);
+                foreach (var item in AllItems())
+                    if (item.Id != null && !index.ContainsKey(item.Id)) index[item.Id] = item; // le premier rencontré, comme le parcours d'avant
+                _byId = index;
+                IndexRebuilds++;
+                return index.TryGetValue(id, out found) ? found : null;
+            }
         }
+
+        /// <summary>L'élément tient-il encore à l'arbre du projet ?</summary>
+        private bool IsAttached(BinderItem item)
+        {
+            var node = item;
+            for (var depth = 0; depth < 256; depth++)
+            {
+                var parent = node.Parent;
+                if (parent == null) return Roots.Contains(node);
+                if (!parent.Children.Contains(node)) return false;
+                node = parent;
+            }
+            return false;
+        }
+
+        /// <summary>Oublie la table (un projet rechargé, des identifiants réattribués en masse).</summary>
+        public void ForgetIndex() { lock (_byIdLock) _byId = null; }
 
         public IEnumerable<BinderItem> AllItems()
         {

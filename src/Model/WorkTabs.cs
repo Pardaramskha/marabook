@@ -23,8 +23,15 @@ namespace Marabook.Model
             Paragraph = paragraph; Offset = offset; ScrollY = scrollY;
         }
 
-        public void Forget() { Paragraph = -1; Offset = 0; ScrollY = -1; }
+        public void Forget() { Paragraph = -1; Offset = 0; ScrollY = -1; ViewPane = -1; ViewScroll = -1; }
         public bool HasPosition { get { return Paragraph >= 0; } }
+
+        // La position d'une FICHE (21/11) : son onglet (Général, Texte libre…) et le
+        // défilement de son Général — de la session seulement, comme le caret d'un écrit.
+        public int ViewPane = -1;
+        public double ViewScroll = -1;
+        public bool HasView { get { return ViewPane >= 0; } }
+        public void RememberView(int pane, double scroll) { ViewPane = pane; ViewScroll = scroll; }
     }
 
     /// <summary>La RANGÉE D'ONGLETS (1.1.0) : une liste ordonnée, un actif,

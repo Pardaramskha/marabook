@@ -19,8 +19,41 @@ namespace Marabook.App
     /// Les métriques sont en unités de dessin de la face, ramenées au
     /// cadratin comme WPF les donnait ; l'ascendante d'Avalonia est
     /// négative (au-dessus de la ligne de base), on la redresse.</summary>
-    public sealed class AvaloniaFontEngine : IFontEngine
+    public sealed class AvaloniaFontEngine : IFontEngine, IFontShaper
     {
+        private static readonly Dictionary<string, OpenTypeLayout> _layouts = new Dictionary<string, OpenTypeLayout>();
+
+        /// <summary>Les tables typographiques de la face (20/11) : crénage,
+        /// ligatures, petites capitales, lues une fois dans son fichier.
+        /// Null si le fichier ne se laisse pas lire, ou s'il n'apporte rien.</summary>
+        public OpenTypeLayout Layout(FaceInfo face)
+        {
+            if (face == null || !face.HasGlyphs || face.File == null) return null;
+            OpenTypeLayout layout;
+            lock (_layouts)
+            {
+                if (_layouts.TryGetValue(face.File, out layout)) return layout;
+            }
+            layout = null;
+            try
+            {
+                int index;
+                string name;
+                var bytes = FontFile(face, out index, out name);
+                if (bytes != null)
+                {
+                    layout = OpenTypeLayout.Load(bytes, index);
+                    if (!layout.HasKerning && !layout.HasLigatures && !layout.HasSmallCaps) layout = null;
+                }
+            }
+            catch { layout = null; }
+            lock (_layouts)
+            {
+                _layouts[face.File] = layout;
+            }
+            return layout;
+        }
+
         /// <summary>La poignée Avalonia d'une face : le IGlyphTypeface (GlyphRun)
         /// et le Typeface (FormattedText).</summary>
         public sealed class Handle
@@ -49,6 +82,7 @@ namespace Marabook.App
         public static void InvalidateFaces()
         {
             lock (_faces) { _faces.Clear(); }
+            lock (_layouts) { _layouts.Clear(); }
         }
 
         public FaceInfo Resolve(string family, int weight, bool italic)

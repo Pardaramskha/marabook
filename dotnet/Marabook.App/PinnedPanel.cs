@@ -119,7 +119,7 @@ namespace Marabook.App
             // l'ascenseur vertical apparaît, le viseur rétrécit, mais un bloc
             // réutilisé gardait sa largeur mesurée d'avant et passait sous
             // l'ascenseur (texte rogné à droite). Largeurs posées, pas déduites.
-            _scroller.ScrollChanged += delegate { FitMirror(); };
+            _scroller.ScrollChanged += delegate { FitMirror(); RealizeVisible(); };
             Children.Add(_scroller);
         }
 
@@ -219,6 +219,8 @@ namespace Marabook.App
             if (_mirrorStack == null) _mirrorStack = new StackPanel { Margin = new Thickness(18, 14, 18, 18) };
             var fresh = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, Control>>();
             var count = Math.Max(1, document.Paragraphs.Count);
+            // Ce qui est bâti d'emblée : de quoi remplir le viseur, et un peu plus.
+            var budget = Math.Max(900, _scroller.Viewport.Height * 1.5);
             for (var from = 0; from < count; from += Ui.MirrorChunk)
             {
                 var to = Math.Min(count, from + Ui.MirrorChunk);
@@ -231,7 +233,18 @@ namespace Marabook.App
                     foreach (var f in fresh) if (ReferenceEquals(f.Value, old.Value)) { taken = true; break; }
                     if (!taken) { block = old.Value; break; }
                 }
-                if (block == null) block = Ui.MirrorBlock(document, from, to, 12.5, Chrome.PaperInk);
+                // LE MIROIR NE BÂTIT QUE CE QU'ON VOIT (21/11). Avant : un bloc de texte par tranche,
+                // TOUS bâtis et mesurés à l'épinglage — quatre secondes pour un écrit de 250 pages.
+                // Maintenant : les tranches qui ne tiennent pas dans le premier écran sont des
+                // EMPLACEMENTS de hauteur estimée ; le défilement les remplit quand elles approchent.
+                if (block == null)
+                {
+                    var estimate = EstimateHeight(document, from, to);
+                    if (budget > 0) block = Ui.MirrorBlock(document, from, to, MirrorFontSize, Chrome.PaperInk);
+                    else block = new MirrorPlaceholder { From = from, To = to, Height = estimate, Tag = "mirror-placeholder" };
+                    budget -= estimate;
+                }
+                else budget -= block.Bounds.Height > 0 ? block.Bounds.Height : EstimateHeight(document, from, to);
                 fresh.Add(new System.Collections.Generic.KeyValuePair<string, Control>(key, block));
             }
             var same = fresh.Count == _mirrorStack.Children.Count;
@@ -243,7 +256,73 @@ namespace Marabook.App
             }
             _mirrorBlocks.Clear();
             _mirrorBlocks.AddRange(fresh);
+            Ui.Post(Avalonia.Threading.DispatcherPriority.Background, new Action(RealizeVisible));
             return _mirrorStack;
+        }
+
+        private const double MirrorFontSize = 12.5;
+
+        /// <summary>Une tranche du miroir pas encore bâtie : elle tient sa place, à hauteur estimée.</summary>
+        private sealed class MirrorPlaceholder : Border
+        {
+            public int From, To;
+        }
+
+        /// <summary>La hauteur qu'aura une tranche, à vue de nez : ses signes
+        /// rapportés à la largeur de la colonne. Une estimation — le bloc bâti
+        /// prend ensuite sa vraie hauteur.</summary>
+        private double EstimateHeight(TextDocument document, int from, int to)
+        {
+            var width = _mirrorStack != null && !double.IsNaN(_mirrorStack.Width) && _mirrorStack.Width > 40 ? _mirrorStack.Width : 300;
+            var perLine = Math.Max(12, width / (MirrorFontSize * 0.48));
+            var lineHeight = MirrorFontSize * 1.36;
+            double height = 0;
+            for (var i = from; i < to && i < document.Paragraphs.Count; i++)
+            {
+                var chars = PivotEdit.FlatLength(document.Paragraphs[i]);
+                height += Math.Max(1, Math.Ceiling(chars / perLine)) * lineHeight + MirrorFontSize * 0.55 * 1.36;
+            }
+            return Math.Max(lineHeight, height);
+        }
+
+        /// <summary>Bâtit les tranches qui entrent dans le viseur (et une marge
+        /// autour) : appelé au défilement, au redimensionnement, après un rendu.</summary>
+        private void RealizeVisible()
+        {
+            if (_item == null || _item.Kind != ItemKind.Text || _mirrorStack == null || _mirrorStack.Children.Count == 0) return;
+            var top = _scroller.Offset.Y - 700;
+            var bottom = _scroller.Offset.Y + _scroller.Viewport.Height + 700;
+            var document = _item.Document;
+            var built = 0;
+            for (var i = 0; i < _mirrorStack.Children.Count && built < 6; i++)
+            {
+                var placeholder = _mirrorStack.Children[i] as MirrorPlaceholder;
+                if (placeholder == null) continue;
+                var y = placeholder.Bounds.Y + _mirrorStack.Margin.Top;
+                if (placeholder.Bounds.Height <= 0 || y + placeholder.Bounds.Height < top || y > bottom) continue;
+                if (placeholder.From >= document.Paragraphs.Count) continue;
+                var block = Ui.MirrorBlock(document, placeholder.From, placeholder.To, MirrorFontSize, Chrome.PaperInk);
+                _mirrorStack.Children[i] = block;
+                for (var k = 0; k < _mirrorBlocks.Count; k++)
+                    if (ReferenceEquals(_mirrorBlocks[k].Value, placeholder))
+                        _mirrorBlocks[k] = new System.Collections.Generic.KeyValuePair<string, Control>(_mirrorBlocks[k].Key, block);
+                built++;
+            }
+            // Une tranche bâtie change de hauteur : d'autres ont pu entrer dans le viseur.
+            if (built > 0) Ui.Post(Avalonia.Threading.DispatcherPriority.Background, new Action(RealizeVisible));
+        }
+
+        /// <summary>Sonde : combien de tranches sont bâties, combien attendent.</summary>
+        internal void MirrorCountsForProbe(out int built, out int waiting)
+        {
+            built = 0; waiting = 0;
+            if (_mirrorStack == null) return;
+            foreach (var child in _mirrorStack.Children) { if (child is MirrorPlaceholder) waiting++; else built++; }
+        }
+        internal void ScrollMirrorForProbe(double fraction)
+        {
+            _scroller.Offset = new Vector(0, Math.Max(0, (_scroller.Extent.Height - _scroller.Viewport.Height) * fraction));
+            RealizeVisible();
         }
     }
 }

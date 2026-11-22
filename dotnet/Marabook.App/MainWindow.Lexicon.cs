@@ -55,6 +55,40 @@ namespace Marabook.App
 
         /// <summary>Clic droit sur un mot du dictionnaire personnel : le
         /// panneau montre l'entrée et prend la colonne.</summary>
+        private MenuItem _conjugatorMenu;
+        private MenuItem _readAloudMenu;
+
+        /// <summary>Édition › Lire à voix haute (21/11) : la voix du système lit
+        /// la sélection, ou la suite de l'écrit depuis le curseur ; la même
+        /// commande l'arrête.</summary>
+        private void ToggleReadAloud()
+        {
+            if (ReadAloud.IsReading) { ReadAloud.Stop(); return; }
+            if (_editor == null || !TextActive()) return;
+            var prepared = Correction.ReadAloudText.Prepare(_editor.TextToRead());
+            var problem = ReadAloud.Start(prepared);
+            if (problem != null) { ShowToast(null, "Lecture à voix haute", null, problem, 5); return; }
+            ShowToast(null, "Lecture à voix haute", _current == null ? null : _current.Title,
+                Correction.ReadAloudText.Duration(prepared) + " — Édition › « Arrêter la lecture » pour l'interrompre.", 4);
+        }
+
+        private void UpdateReadAloudMenu()
+        {
+            if (_readAloudMenu != null) _readAloudMenu.Header = ReadAloud.IsReading ? "Arrêter la lecture" : "Lire à voix haute";
+        }
+
+        internal string ReadAloudHeaderForProbe { get { return _readAloudMenu == null ? null : _readAloudMenu.Header as string; } }
+        internal void ToggleReadAloudForProbe() { ToggleReadAloud(); UpdateReadAloudMenu(); }
+
+        /// <summary>Le conjugueur (20/11) : une fenêtre à côté du texte, sur
+        /// ce mot — ou vide, à remplir.</summary>
+        private void OpenConjugator(string word)
+        {
+            ConjugatorDialog.Open(this, _editor == null ? null : _editor.GrammarBridge, word);
+        }
+
+        internal ConjugatorDialog OpenConjugatorForProbe(string word) { return ConjugatorDialog.Open(this, _editor == null ? null : _editor.GrammarBridge, word); }
+
         private void ShowDefinition(LexiconEntry entry, bool projectScope)
         {
             if (_project == null || entry == null) return;

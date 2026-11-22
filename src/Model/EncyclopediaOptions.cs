@@ -12,6 +12,9 @@ namespace Marabook.Model
     public class EncyclopediaOptions
     {
         public const string FormatHtml = "html", FormatPdf = "pdf";
+        // 21/11 — les fiches en données : un fichier Markdown par fiche, ou un tableau CSV par catégorie.
+        public const string FormatMarkdown = "md", FormatCsv = "csv";
+        public static bool IsData(string format) { return format == FormatMarkdown || format == FormatCsv; }
 
         public string Format = FormatHtml;
         public string Title = "";
@@ -30,11 +33,18 @@ namespace Marabook.Model
         public bool LexiconAllProjects;          // les mots du dictionnaire de tous les projets en plus
         public bool IncludeEmptySheets = true;  // une fiche sans champ ni texte : son titre seul
         public string ExceptTag = "";           // « sauf ce tag » (20/11) : les fiches qui le portent restent dehors
+        public bool IncludeMaps = true;         // les cartes du monde en image, sur une page « Cartes » (20/11)
         public string CoverImageId;             // null = pas de couverture
         /// <summary>Les fiches cochées au dernier export (1/11, Rémi : « ce qui
         /// est entré dans la fenêtre est gardé ») ; vide = toutes.</summary>
         public List<string> SheetIds = new List<string>();
         public bool OpenAfter = true;           // ouvrir l'accueil dans le navigateur après l'export
+        // LE SKIN de l'application au moment de l'export (21/11) : posé par
+        // l'application, jamais écrit dans le projet ni compté dans l'empreinte —
+        // c'est un réglage de la machine, pas de l'œuvre.
+        public string Skin = "";
+        public string SkinAccent2 = "";         // la seconde couleur de Gradient Garden ; vide = automatique
+        public byte[] SkinTexture;              // le papier d'Eden Scriptis (un JPEG), ou null
 
         public EncyclopediaOptions Clone()
         {
@@ -52,7 +62,7 @@ namespace Marabook.Model
                 Format, Title, Subtitle, Author, BodyFont, HeadingFont, BaseSize.ToString(System.Globalization.CultureInfo.InvariantCulture), Accent,
                 Dark ? "1" : "0", PortraitSide, ShowInfobox ? "1" : "0", ShowRelations ? "1" : "0", ShowPresence ? "1" : "0", ShowRadar ? "1" : "0",
                 ShowTags ? "1" : "0", ShowDates ? "1" : "0", IncludeLexicon ? "1" : "0", LexiconUndefined ? "1" : "0", LexiconExcludeNames ? "1" : "0", LexiconAllProjects ? "1" : "0",
-                IncludeEmptySheets ? "1" : "0", ExceptTag ?? "", CoverImageId ?? "", OpenAfter ? "1" : "0", string.Join(",", (SheetIds ?? new List<string>()).ToArray())
+                IncludeEmptySheets ? "1" : "0", IncludeMaps ? "1" : "0", ExceptTag ?? "", CoverImageId ?? "", OpenAfter ? "1" : "0", string.Join(",", (SheetIds ?? new List<string>()).ToArray())
             });
         }
 

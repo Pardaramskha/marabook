@@ -49,6 +49,7 @@ namespace Marabook.App
             Styles.Add(new SimpleTheme());
             Theme.OverrideResources(Resources);
             Styles.Add(Theme.Build());
+            Skin.Install(this, Styles.Count - 1); // le fond et l'habillage du skin (21/11)
             SmoothScroll.Install(); // le défilement fluide à la molette, partout (0.50.0)
         }
 
@@ -58,6 +59,7 @@ namespace Marabook.App
             Chrome.Toggle(dark);
             if (Current != null)
                 Current.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+            Skin.Apply(); // le fond, les styles et l'habillage du skin suivent (21/11)
         }
 
         /// <summary>La fenêtre principale, propriétaire des dialogues (null

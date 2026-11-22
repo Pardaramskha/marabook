@@ -76,7 +76,7 @@ namespace Marabook.App
 
         public PlanView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
 
             // ================================================== en-tête
@@ -860,7 +860,7 @@ namespace Marabook.App
                     Background = value == null ? Brushes.Transparent : new SolidColorBrush(Ink.Parse(value).ToColor()),
                     BorderBrush = active ? (IBrush)Chrome.Ink : Chrome.Border,
                     BorderThickness = new Thickness(active ? 2.4 : 1),
-                    [ToolTip.TipProperty] = value == null ? "Neutre" : value,
+                    [ToolTip.TipProperty] = value == null ? "Neutre" : ColorPalette.Describe(value),
                     Cursor = new Cursor(StandardCursorType.Hand)
                 };
                 chip.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) { _color = value; RebuildSwatches(); };

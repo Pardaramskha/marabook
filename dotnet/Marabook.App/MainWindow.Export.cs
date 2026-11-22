@@ -89,9 +89,9 @@ namespace Marabook.App
         private static void CollectScope(BinderItem item, List<string> ids, bool top)
         {
             if (!top && item.IsOutOfBook) return;
-            if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.Plan || item.Kind == ItemKind.MindMap) ids.Add(item.Id);
+            if (item.Kind == ItemKind.Text || item.Kind == ItemKind.Sheet || item.Kind == ItemKind.Plan || item.Kind == ItemKind.MindMap || item.Kind == ItemKind.Map) ids.Add(item.Id);
             if (item.Kind == ItemKind.Category && item.CategoryKey != Project.KeyWritings && item.CategoryKey != Project.KeySheets
-                && item.CategoryKey != Project.KeyPlans && item.CategoryKey != Project.KeyMindMaps) return;
+                && item.CategoryKey != Project.KeyPlans && item.CategoryKey != Project.KeyMindMaps && item.CategoryKey != Project.KeyMaps) return;
             foreach (var child in item.Children) CollectScope(child, ids, false);
         }
 
@@ -186,15 +186,18 @@ namespace Marabook.App
                 return false;
             }
             var format = ExportFormats.Normalize(request.Preset.Format);
+            if (ExportFiles.Applies(request.Preset, plan)) return await RunExportPerFile(request, plan);
             var name = SafeFileName(plan.DefaultName(_project, request.Meta)) + ExportFormats.Extension(format);
             var path = await Ui.PickSaveFile(this, "Exporter — " + request.Preset.Name, ExportFormats.Filter(format), name);
             if (path == null) return false;
             try
             {
                 var notes = WriteExport(request, plan, path);
-                // Le contrôle de l'EPUB écrit (20/11) : ce que les librairies en ligne refuseraient.
-                var problems = format == ExportFormats.Epub ? EpubCheck.Verify(path) : new List<string>();
-                if (format == ExportFormats.Epub && problems.Count == 0) notes.Add("Structure de l'EPUB vérifiée.");
+                // Le contrôle de l'EPUB écrit (20/11) : ce que les librairies en ligne refuseraient —
+                // par EPUBCheck, l'outil officiel, quand il est installé ; sinon par le contrôle maison.
+                var problems = new List<string>();
+                var checker = "son contrôle";
+                if (format == ExportFormats.Epub) problems = await VerifyEpub(path, notes, delegate(string by) { checker = by; });
                 if (format == ExportFormats.Epub) UnlockAchievement(Achievements.GenZ); // « Gen Zer »
                 // « Complétionniste », « Minimaliste » (12/09) : le PDF d'un livre entier, à son gabarit.
                 if (format == ExportFormats.Pdf && plan.Book != null && request.Preset.Pages == ExportPages.Book && IsWholeBook(plan))
@@ -209,7 +212,7 @@ namespace Marabook.App
                     var lines = new List<string>();
                     for (var i = 0; i < problems.Count && i < 8; i++) lines.Add("— " + problems[i]);
                     if (problems.Count > 8) lines.Add("… et " + (problems.Count - 8) + " de plus.");
-                    await MessageDialog.Show(this, "L'EPUB est écrit, mais son contrôle relève " + (problems.Count > 1 ? problems.Count + " défauts" : "un défaut") + " qu'une librairie en ligne pourrait refuser :\n\n" + string.Join("\n", lines.ToArray()),
+                    await MessageDialog.Show(this, "L'EPUB est écrit, mais " + checker + " relève " + (problems.Count > 1 ? problems.Count + " défauts" : "un défaut") + " qu'une librairie en ligne pourrait refuser :\n\n" + string.Join("\n", lines.ToArray()),
                         AppName, MessageButtons.OK, MessageIcon.Warning);
                 }
                 if (request.OpenAfter)
@@ -224,6 +227,105 @@ namespace Marabook.App
                 await MessageDialog.Show(this, "Export impossible :\n" + error.Message, AppName, MessageButtons.OK, MessageIcon.Error);
                 return false;
             }
+        }
+
+        /// <summary>Contrôle un EPUB écrit : EPUBCheck s'il est installé
+        /// (hors du fil de l'interface : Java met une à deux secondes à
+        /// partir), le contrôle maison sinon — ou si l'outil ne répond pas.
+        /// Rend les défauts ; dit dans les notes ce qui a été vérifié.</summary>
+        private async Task<List<string>> VerifyEpub(string path, List<string> notes, Action<string> checkedBy)
+        {
+            var tool = EpubCheckTool.Find();
+            if (tool != null)
+            {
+                var report = await Task.Run(delegate { return EpubCheckTool.Run(tool, path); });
+                if (report.Ran)
+                {
+                    if (checkedBy != null) checkedBy("EPUBCheck" + (report.Version.Length > 0 ? " " + report.Version : ""));
+                    if (report.Errors.Count == 0)
+                        notes.Add("Validé par EPUBCheck" + (report.Version.Length > 0 ? " " + report.Version : "") + (report.Warnings.Count > 0 ? " (" + report.Warnings.Count + (report.Warnings.Count > 1 ? " avertissements" : " avertissement") + ")." : "."));
+                    return report.Errors;
+                }
+                notes.Add(report.Failure + " Contrôle maison à la place.");
+            }
+            var problems = EpubCheck.Verify(path);
+            if (problems.Count == 0) notes.Add("Structure de l'EPUB vérifiée.");
+            return problems;
+        }
+
+        /// <summary>« Un fichier par écrit » (20/11) : demande un dossier, y
+        /// écrit un fichier par élément, nommé d'après le modèle du préréglage.</summary>
+        private async Task<bool> RunExportPerFile(ExportRequest request, ExportPlan plan)
+        {
+            var files = ExportFiles.Split(_project, plan, request.Preset, request.Meta, DateTime.Today);
+            var folder = await Ui.PickFolder(this, "Exporter — " + request.Preset.Name + " : le dossier des " + files.Count + " fichiers");
+            if (folder == null) return false;
+            var existing = ExportFiles.Existing(folder, files);
+            if (existing.Count > 0)
+            {
+                var answer = await MessageDialog.Show(this, (existing.Count > 1 ? existing.Count + " fichiers de ce nom existent" : "Un fichier de ce nom existe") + " déjà dans ce dossier (« " + existing[0] + " »" + (existing.Count > 1 ? "…" : "") + ").\n\nLes remplacer ?",
+                    AppName, MessageButtons.YesNo, MessageIcon.Warning);
+                if (answer != MessageResult.Yes) return false;
+            }
+            var notes = new List<string>();
+            var faults = new List<string>();
+            var written = await WriteExportFiles(request, files, folder, notes, faults);
+            var format = ExportFormats.Normalize(request.Preset.Format);
+            if (written == 0)
+            {
+                await MessageDialog.Show(this, "Export impossible :\n" + (faults.Count > 0 ? faults[0] : "aucun fichier n'a pu être écrit."), AppName, MessageButtons.OK, MessageIcon.Error);
+                return false;
+            }
+            if (format == ExportFormats.Epub) UnlockAchievement(Achievements.GenZ);
+            ShowToast(null, "Export terminé", written + (written > 1 ? " fichiers" : " fichier"),
+                plan.Summary() + " → " + written + " " + ExportFormats.Short(format) + (notes.Count > 0 ? " — " + string.Join(" ", notes.ToArray()) : "") + " — " + folder, 6);
+            if (faults.Count > 0)
+            {
+                var lines = new List<string>();
+                for (var i = 0; i < faults.Count && i < 8; i++) lines.Add("— " + faults[i]);
+                if (faults.Count > 8) lines.Add("… et " + (faults.Count - 8) + " de plus.");
+                await MessageDialog.Show(this, written + (written > 1 ? " fichiers sont écrits" : " fichier est écrit") + ", mais :\n\n" + string.Join("\n", lines.ToArray()), AppName, MessageButtons.OK, MessageIcon.Warning);
+            }
+            if (request.OpenAfter)
+            {
+                try { AppPlatform.OpenWithShell(folder); }
+                catch { }
+            }
+            return true;
+        }
+
+        /// <summary>Écrit ces fichiers dans ce dossier. Rend combien ont été
+        /// écrits ; ce qui a manqué rejoint faults, un par ligne.</summary>
+        internal async Task<int> WriteExportFiles(ExportRequest request, List<ExportFile> files, string folder, List<string> notes, List<string> faults)
+        {
+            var format = ExportFormats.Normalize(request.Preset.Format);
+            var written = 0;
+            foreach (var file in files)
+            {
+                var path = System.IO.Path.Combine(folder, file.Name);
+                try
+                {
+                    if (file.Plan.IsEmpty) continue;
+                    var single = new ExportRequest { Preset = request.Preset, Meta = file.Meta, OpenAfter = false };
+                    single.ItemIds.Add(file.Item.Id);
+                    // Un écrit d'un livre garde le folio qu'il a dans son livre.
+                    if (format == ExportFormats.Pdf && file.Item.Kind == ItemKind.Text && request.Preset.Pages != ExportPages.A4) single.FolioOffset = ComputeFolioOffset(file.Item);
+                    foreach (var note in WriteExport(single, file.Plan, path))
+                        if (!notes.Contains(note)) notes.Add(note);
+                    written++;
+                    if (format == ExportFormats.Epub)
+                    {
+                        var perFile = new List<string>();
+                        foreach (var problem in await VerifyEpub(path, perFile, null)) faults.Add(file.Name + " : " + problem);
+                        foreach (var note in perFile) if (!notes.Contains(note)) notes.Add(note);
+                    }
+                }
+                catch (Exception error)
+                {
+                    faults.Add(file.Name + " : " + error.Message);
+                }
+            }
+            return written;
         }
 
         private static bool IsWholeBook(ExportPlan plan)
@@ -381,11 +483,27 @@ namespace Marabook.App
             var bleed = preset.BleedMm;
             if (preset.BookBleed && plan.Book != null && plan.Book.Book != null) bleed = plan.Book.Book.BleedMm;
             var title = (meta.Title ?? "").Trim();
-            Print.PdfWriter.Write(path, parts, new Print.PdfExportOptions
+            // En CMJN, le profil FOGRA39 livré avec Marabook est incorporé (21/11 ; à défaut, celui de la machine).
+            var icc = preset.Cmyk ? Print.IccProfiles.FindFogra39() : null;
+            var pdfx = preset.PdfX && preset.Cmyk;
+            var bytes = Print.PdfWriter.Build(parts, new Print.PdfExportOptions
             {
                 BleedMm = Math.Max(0, Math.Min(20, bleed)), CropMarks = preset.CropMarks, BleedGuides = preset.BleedGuides, Cmyk = preset.Cmyk, Booklet = preset.Booklet,
-                Title = title.Length > 0 ? title : plan.DefaultName(_project, meta), Author = (meta.Author ?? "").Trim()
+                Title = title.Length > 0 ? title : plan.DefaultName(_project, meta), Author = (meta.Author ?? "").Trim(),
+                PdfX = pdfx, IccProfile = icc == null ? null : icc.Bytes,
+                // Le skin n'habille QUE le « PDF Encyclopédique » (21/11, Rémi) : jamais un BAT, jamais un texte.
+                Skin = preset.Id == ExportPresets.EncyclopediaPdf && !preset.Cmyk ? Skin.PdfSkin() : null
             });
+            File.WriteAllBytes(path, bytes);
+            if (pdfx)
+            {
+                // Le contrôle du PDF/X écrit : ce qu'un imprimeur vérifie d'abord.
+                // Depuis le 21/11, le contrôle LIT le fichier (objets, ressources, flux des pages) et dit ce qu'il a regardé.
+                var report = Print.PdfXInspector.Inspect(bytes);
+                if (report.Conforms) notes.Add("PDF/X-1a contrôlé par Marabook : " + report.Summary() + (icc != null ? " ; profil « " + icc.Description + " » incorporé." : " ; condition FOGRA39 déclarée par son nom."));
+                else notes.Add("PDF/X à revoir : " + string.Join(" ", report.Problems.ToArray()));
+                if (report.Notes.Count > 0) notes.Add("Contrôle PDF/X, à savoir : " + string.Join(" ", report.Notes.ToArray()));
+            }
         }
 
         /// <summary>Les parties du PDF, composées : chaque flux sur sa mise
@@ -459,6 +577,7 @@ namespace Marabook.App
             try
             {
                 Control view = null;
+                if (item.Kind == ItemKind.Map) return MapPart(item, project);
                 if (item.Kind == ItemKind.Plan) view = PlanSheet(item, project);
                 else if (item.Kind == ItemKind.MindMap)
                 {
@@ -477,6 +596,32 @@ namespace Marabook.App
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>Une carte du monde (20/11) : la carte entière, à plat,
+        /// avec ses zones et ses repères, sur une page à ses proportions —
+        /// son grand côté fait celui d'un A4.</summary>
+        private static Print.PdfPart MapPart(BinderItem item, Project project)
+        {
+            if (item.Map == null || !item.Map.HasImage) return null;
+            var view = new MapView();
+            try
+            {
+                view.Load(item, project);
+                using (var bitmap = view.Capture(true, (int)MaxSidePx))
+                {
+                    if (bitmap == null) return null;
+                    int width, height;
+                    var rgb = AvaloniaFontEngine.Rgb24OverWhite(bitmap, out width, out height);
+                    if (rgb == null) return null;
+                    var mm = 297.0 / Math.Max(width, height);
+                    return new Print.PdfPart { ImageRgb = rgb, ImageWidth = width, ImageHeight = height, PageWidthMm = width * mm, PageHeightMm = height * mm };
+                }
+            }
+            finally
+            {
+                view.Clear();
             }
         }
 

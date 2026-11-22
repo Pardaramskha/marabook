@@ -175,6 +175,10 @@ namespace Marabook.App
         public event Action Edited; // any content or footnote change
         public event Action<string> LinkClicked; // Ctrl+click on a [[wiki link]]
         public event Action<LexiconEntry, bool> DefinitionRequested; // clic droit › « Afficher la définition » (18/09)
+        public event Action<string> ConjugateRequested;              // clic droit › « Conjuguer… » (20/11)
+        public event Action ReadAloudRequested;                      // clic droit › « Lire à voix haute » (21/11)
+        /// <summary>Le pont Grammalecte de l'éditeur : le conjugueur s'en sert aussi.</summary>
+        internal Correction.Grammalecte.GrammalecteBridge GrammarBridge { get { return _grammarBridge; } }
 
         public EditorView()
         {
@@ -350,8 +354,12 @@ namespace Marabook.App
                 _composed.IsVisible = true;
                 _composed.SetFormattingMarks(_showMarks); // l'état du ¶ suit la surface
                 _composed.FocusSurface();
+                var perf = Perf.Begin();
                 RebuildAnnotationsPanel();
+                Perf.End("ouverture : annotations", perf);
+                perf = Perf.Begin();
                 RunCheck(); // la surface composée s'ouvre vérifiée
+                Perf.End("ouverture : correction", perf);
             }
             catch (Exception error)
             {
@@ -1799,6 +1807,7 @@ namespace Marabook.App
         /// <summary>Résout/rouvre : la teinte s'éteint ou revient, l'ancre reste.</summary>
         private void ToggleAnnotationResolved(Annotation annotation)
         {
+            if (ComposedActive) _composed.PushUndoPoint(false); // Ctrl+Z rend l'état d'avant (21/11)
             annotation.Resolved = !annotation.Resolved;
             if (ComposedActive) _composed.RefreshAnnotation(annotation.Id);
             NotifyEdited();
@@ -1809,8 +1818,10 @@ namespace Marabook.App
         private void DeleteAnnotation(Annotation annotation)
         {
             if (_activeBubbleId == annotation.Id) _activeBubbleId = null;
-            _item.Document.Annotations.Remove(annotation);
+            // Les ancres d'abord : leur cran d'annulation garde encore le commentaire (21/11),
+            // Ctrl+Z rend donc l'annotation entière, pas ses seules ancres.
             if (ComposedActive) _composed.ClearAnnotation(annotation.Id);
+            _item.Document.Annotations.Remove(annotation);
             NotifyEdited();
             RebuildAnnotationsPanel();
         }
@@ -1970,6 +1981,8 @@ namespace Marabook.App
                 };
                 comment.TextChanged += delegate
                 {
+                    if (annotation.Text == (comment.Text ?? "")) return; // la pose du texte à l'ouverture de la bulle
+                    if (ComposedActive) _composed.PushUndoPoint(true); // les frappes rapprochées : un seul cran (21/11)
                     annotation.Text = comment.Text;
                     NotifyEdited();
                 };
@@ -2111,6 +2124,8 @@ namespace Marabook.App
                 var handler = LinksChanged;
                 if (handler != null) handler();
             };
+            _composed.ConjugateRequested += delegate(string word) { var handler = ConjugateRequested; if (handler != null) handler(word); };
+            _composed.ReadAloudRequested += delegate { var handler = ReadAloudRequested; if (handler != null) handler(); };
             _composed.DefinitionRequested += delegate(LexiconEntry entry, bool projectScope)
             {
                 var handler = DefinitionRequested;
@@ -2346,12 +2361,24 @@ namespace Marabook.App
         /// text first and to the Binder history otherwise.</summary>
         public bool TryUndo()
         {
-            return _item != null && ComposedActive && _composed.Undo();
+            if (_item == null || !ComposedActive || !_composed.Undo()) return false;
+            AfterHistoryStep();
+            return true;
         }
 
         public bool TryRedo()
         {
-            return _item != null && ComposedActive && _composed.Redo();
+            if (_item == null || !ComposedActive || !_composed.Redo()) return false;
+            AfterHistoryStep();
+            return true;
+        }
+
+        /// <summary>Un Ctrl+Z ou un Ctrl+Y a pu rendre ou reprendre une
+        /// annotation (21/11) : les bulles sont refaites sur celles du document.</summary>
+        private void AfterHistoryStep()
+        {
+            if (_activeBubbleId != null && _item.Document.FindAnnotation(_activeBubbleId) == null) _activeBubbleId = null;
+            RebuildAnnotationsPanel();
         }
 
         /// <summary>Un Ctrl+Z (ou Ctrl+Y) a rendu une feuille de styles : la
@@ -2761,6 +2788,12 @@ namespace Marabook.App
 
         public event Action LinkEditRequested; // « Modifier le lien… » (07/10) : la coquille ouvre le dialogue
         public event Action LinksChanged;      // un lien posé, réécrit ou retiré (07/10)
+
+        /// <summary>Ce que la voix lira (21/11) : la sélection, sinon la suite de l'écrit depuis le curseur.</summary>
+        public string TextToRead()
+        {
+            return _item == null ? "" : ComposedActive ? _composed.TextToRead() : _item.Document.ToPlainText();
+        }
 
         /// <summary>L'expression sélectionnée (un seul paragraphe), sinon null.</summary>
         public string SelectedPlainText()

@@ -29,7 +29,7 @@ namespace Marabook.App
     public static class SheetWiki
     {
         public static Control Build(BinderItem item, SheetTemplate template, Project project, string body,
-            bool column, Action<BinderItem> navigate, Action<string> linkClicked, Action<int> taskToggled)
+            bool column, Action<BinderItem> navigate, Action<string> linkClicked, Action<int> taskToggled, Action<Backlink> backlink = null)
         {
             SheetPreview.Project = project; // les aperçus au survol des liens (1/11)
             SheetPreview.Hide();
@@ -44,6 +44,9 @@ namespace Marabook.App
                 MaxWidth = column ? double.PositiveInfinity : 900
             };
             var papers = BuildPapers(item, template, project, navigate, linkClicked);
+            // Les rétroliens (20/11) : sans demandeur précis, un clic ouvre la source.
+            var cited = BuildBacklinks(item, project, backlink ?? (navigate == null ? (Action<Backlink>)null : delegate(Backlink link) { navigate(link.Item); }));
+            if (cited != null) papers.Add(Frame(cited));
             if (column)
             {
                 // En colonne : le titre, les papers, puis le corps — empilés.
@@ -133,6 +136,40 @@ namespace Marabook.App
             var graph = BuildGraph(item, template);
             if (graph != null) papers.Add(Frame(graph));
             return papers;
+        }
+
+        /// <summary>« Rétroliens » : ce qui cite la fiche. Null s'il n'y a rien.</summary>
+        private static StackPanel BuildBacklinks(BinderItem item, Project project, Action<Backlink> open)
+        {
+            if (item == null || project == null || item.Kind != ItemKind.Sheet) return null;
+            var links = Backlinks.Of(project, item);
+            if (links.Count == 0) return null;
+            var paper = new StackPanel { Tag = "wiki-backlinks" };
+            paper.Children.Add(PaperCaption("Rétroliens"));
+            FillBacklinks(paper, links, open);
+            return paper;
+        }
+
+        /// <summary>Les lignes des rétroliens, rangées par genre (partagées
+        /// avec le paper de la fiche) : le nom cliquable, puis par quoi la
+        /// fiche est citée.</summary>
+        internal static void FillBacklinks(StackPanel panel, List<Backlink> links, Action<Backlink> open)
+        {
+            foreach (var group in Backlink.Groups)
+            {
+                var mine = Backlinks.In(links, group);
+                if (mine.Count == 0) continue;
+                panel.Children.Add(new TextBlock { Text = Backlink.GroupLabel(group), Tag = "backlink-group", Foreground = Chrome.SoftText, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, panel.Children.Count > 0 ? 8 : 0, 0, 0) });
+                foreach (var link in mine)
+                {
+                    var linkRef = link;
+                    var line = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+                    line.Inlines.Add(Anchor(line, link.Label, link.Item, open == null ? (Action<BinderItem>)null : delegate { open(linkRef); }));
+                    var reason = link.Reason;
+                    if (reason.Length > 0) line.Inlines.Add(new Run(" (" + reason + ")") { Foreground = Chrome.SoftText });
+                    panel.Children.Add(line);
+                }
+            }
         }
 
         /// <summary>Le cadre commun des papers : le dessin de l'infobox.</summary>
@@ -381,7 +418,19 @@ namespace Marabook.App
             infobox.Children.Add(new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeight.Bold, Foreground = Chrome.SoftText, Margin = new Thickness(0, 4, 0, 0) }); // gras franc (29/09) : le demi-gras se lisait comme du maigre
             switch (FieldKinds.Normalize(kind))
             {
+                case FieldKinds.Color:
+                {
+                    // Une couleur : sa pastille, puis son code.
+                    var hex = FieldKinds.ColorOf(value);
+                    if (hex == null) { infobox.Children.Add(LinkedText(value ?? "", project, navigate, linkClicked)); return; }
+                    var swatch = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 0) };
+                    swatch.Children.Add(new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(7), Background = new SolidColorBrush(Ink.Parse(hex).ToColor()), BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0), Tag = "wiki-color" });
+                    swatch.Children.Add(new TextBlock { Text = hex, FontSize = 12, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center });
+                    infobox.Children.Add(swatch);
+                    return;
+                }
                 case FieldKinds.List:
+                case FieldKinds.Multi:
                 {
                     // Une liste à puces (refonte 07/10 : plus de pastilles en
                     // lecture), chaque élément avec ses [[liens]] cliquables.

@@ -20,7 +20,11 @@ namespace Marabook.Print
         public double EmSize;         // le corps de la pièce (px)
         public string Text;           // le texte rendu (glyphes ou repli)
         public ushort[] GlyphIndices; // null = repli (texte hors police, ou sans moteur)
-        public double[] Advances;     // avances FINALES px, approche et interlettrage inclus
+        public double[] Advances;     // avances FINALES px, approche, crénage et interlettrage inclus
+        /// <summary>Le nombre de caractères du texte que chaque glyphe porte
+        /// (20/11) : 2 ou 3 pour une ligature, 1 sinon. Null = un glyphe par
+        /// caractère, comme avant le façonnage.</summary>
+        public byte[] GlyphChars;
         public double FallbackWidth, FallbackHeight, FallbackBaseline; // la mesure du repli
         /// <summary>L'objet de dessin natif du rendu (GlyphRun, FormattedText…),
         /// posé par lui ; remis à null par le compositeur quand les avances
@@ -319,24 +323,60 @@ namespace Marabook.Print
             _appendNotes = appendNotes;
             _metrics = metrics;
             _fonts = FallbackFontEngine.Wrap(metrics);
+            _shaper = _fonts as IFontShaper;
         }
+
+        /// <summary>Les tables typographiques des faces (crénage, ligatures,
+        /// petites capitales) quand le moteur de polices sait les lire ; null
+        /// dans les tests console, où la composition reste nue.</summary>
+        private readonly IFontShaper _shaper;
+
+        // Le façonnage d'une pièce (20/11), en drapeaux.
+        internal const int ShapeLigatures = 1, ShapeKerning = 2, ShapeSmallCaps = 4;
 
         // Exceptions de césure du projet (mots à ne jamais couper) — figées à
         // chaque ComposeAll, comparaison insensible à la casse.
         private HashSet<string> _hyphenExceptions;
+
+        /// <summary>Les coupes CHOISIES à la main (20/11) : une exception
+        /// écrite avec ses traits (« ma-ra-bout ») ne se coupe que là.</summary>
+        private Dictionary<string, List<int>> _hyphenExplicit;
 
         private bool IsHyphenException(string word)
         {
             return _hyphenExceptions != null && _hyphenExceptions.Contains(word);
         }
 
+        /// <summary>Les points de coupe d'un mot : ceux choisis à la main,
+        /// aucun pour un mot à ne pas couper, sinon ceux du français.</summary>
+        private List<int> BreaksFor(string word, ParagraphStyle style)
+        {
+            List<int> chosen;
+            if (_hyphenExplicit != null && _hyphenExplicit.TryGetValue(word, out chosen)) return chosen;
+            if (IsHyphenException(word)) return null;
+            return FrenchHyphenator.BreakPoints(word, style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter);
+        }
+
         /// <summary>Full composition of every paragraph plus pagination.</summary>
         public void ComposeAll()
         {
-            _hyphenExceptions = _project != null && _project.HyphenExceptions.Count > 0
-                ? new HashSet<string>(_project.HyphenExceptions,
-                    StringComparer.OrdinalIgnoreCase)
-                : null;
+            _hyphenExceptions = null;
+            _hyphenExplicit = null;
+            if (_project != null)
+                foreach (var entry in _project.HyphenExceptions)
+                {
+                    var points = FrenchHyphenator.ExplicitPoints(entry);
+                    if (points == null)
+                    {
+                        if (_hyphenExceptions == null) _hyphenExceptions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        _hyphenExceptions.Add(entry ?? "");
+                    }
+                    else
+                    {
+                        if (_hyphenExplicit == null) _hyphenExplicit = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+                        _hyphenExplicit[FrenchHyphenator.ExceptionWord(entry)] = points;
+                    }
+                }
             Current = new Composition
             {
                 Setup = _setup,
@@ -365,20 +405,44 @@ namespace Marabook.Print
         {
             var oldList = _listNumbers;
             var oldNotes = _noteBases;
+            var firstLine = 0; // la première ligne refaite du paragraphe édité (0 = tout)
+            var perf = Perf.Begin();
             RefreshContexts();
+            Perf.End("composition : contextes", perf);
+            perf = Perf.Begin();
             for (var i = 0; i < _document.Paragraphs.Count; i++)
             {
                 var changed = i == index
                     || i >= oldList.Count
                     || _listNumbers[i] != oldList[i]
                     || _noteBases[i] != oldNotes[i];
-                if (changed)
+                if (!changed) continue;
+                // Le paragraphe édité, s'il est très gros : seules les lignes touchées sont refaites (21/11).
+                var partial = i == index && i < Current.Paragraphs.Count ? ComposeIncremental(Current.Paragraphs[i], _document.Paragraphs[i]) : null;
+                if (partial != null) { Current.Paragraphs[i] = partial; firstLine = LastIncrementalLine; }
+                else
                     Current.Paragraphs[i] = ComposeParagraph(_document.Paragraphs[i],
                         _listNumbers[i], _noteBases[i]);
             }
+            Perf.End("composition : paragraphe", perf);
+            perf = Perf.Begin();
             var noteChanges = RefreshNoteLayouts();
-            var first = Math.Min(Repaginate(), FirstPageOf(index));
+            Perf.End("composition : notes", perf);
+            perf = Perf.Begin();
+            var first = Math.Min(Repaginate(), firstLine > 0 ? FirstPageOfLine(index, firstLine) : FirstPageOf(index));
+            Perf.End("composition : pagination", perf);
             return Math.Min(first, NotesFirstChangedPage(noteChanges));
+        }
+
+        /// <summary>La première page qui porte la ligne <paramref name="line"/>
+        /// (ou une suivante) de ce paragraphe : là où le dessin doit reprendre
+        /// quand le début du paragraphe n'a pas bougé.</summary>
+        public int FirstPageOfLine(int paragraphIndex, int line)
+        {
+            for (var k = 0; k < Current.Pages.Count; k++)
+                foreach (var placed in Current.Pages[k].Lines)
+                    if (placed.ParagraphIndex == paragraphIndex && placed.LineIndex >= line) return k;
+            return FirstPageOf(paragraphIndex);
         }
 
         /// <summary>First page carrying a line of this paragraph.</summary>
@@ -639,8 +703,15 @@ namespace Marabook.Print
         /// passent par _metrics — l'unique couture entre la composition et
         /// les polices réelles.</summary>
         private double MeasureText(string text, FaceInfo font, double size,
-            double tracking = 0)
+            double tracking = 0, int shaping = 0)
         {
+            // Le texte façonné (20/11) : crénage, ligatures, petites capitales —
+            // la même route que la pièce rendue, pour que coupure et rendu s'accordent.
+            if (shaping != 0 && _shaper != null && font != null && font.HasGlyphs && text.Length > 0)
+            {
+                var shaped = Shape(text, font, size, tracking, shaping);
+                if (shaped != null) return shaped.Width;
+            }
             // Un blanc typographique absent de la face : la largeur suit le
             // même chemin que la pièce rendue (TryGlyphOrBlank), sinon la
             // plate-forme mesurait le mot en repli et la coupure divergeait.
@@ -687,6 +758,7 @@ namespace Marabook.Print
             public Ink? Highlight;
             public HighlightRole HighlightRole;
             public double Tracking; // approche (em/1000)
+            public int Shaping;     // crénage, ligatures, petites capitales (20/11)
             // Marque de [[lien]] masquée (18/09) : occupe ses offsets plats
             // (le curseur les traverse), aucune largeur, rien de dessiné —
             // le texte masqué de Word.
@@ -696,6 +768,9 @@ namespace Marabook.Print
             // réduites) qui restent SOUDÉS — la ligne ne casse jamais entre
             // eux (FillLine mesure le groupe entier avant de le placer).
             public bool GluedToPrevious;
+            // Une coupe de ligne est permise AVANT cet atome bien qu'aucune espace ne le
+            // précède (21/11) : entre deux idéogrammes. Il n'est donc jamais soudé au précédent.
+            public bool BreakBefore;
         }
 
         private ComposedParagraphLayout ComposeParagraph(TextParagraph paragraph,
@@ -745,7 +820,10 @@ namespace Marabook.Print
             };
 
             var contentWidth = _setup.ContentWidthPx;
+            var perfAtoms = Perf.Begin();
             var atoms = BuildAtoms(paragraph, style, listNumber, noteBase);
+            Perf.End("paragraphe : atomes", perfAtoms);
+            var perfLines = Perf.Begin();
             // Les atomes sont gardés avec le paragraphe composé (0.50.0) : la
             // pagination les rejoue ligne à ligne autour des images.
             _atomsOf.Remove(layout);
@@ -767,7 +845,12 @@ namespace Marabook.Print
             layout.ListHang = paragraph.ListKind != null ? hang : (double?)null;
             // Une copie : FillLine remplace les atomes coupés (césure), la
             // liste gardée pour la pagination doit rester intacte.
+            var original = atoms;
             atoms = new List<Atom>(atoms);
+            // Un très gros paragraphe retient où commence chaque ligne (21/11) : la frappe
+            // suivante ne recomposera que les lignes touchées (Composer.Incremental.cs).
+            var flat = layout.FlatLength >= IncrementalThreshold ? PivotEdit.FlatText(paragraph) : null;
+            var lineStarts = flat != null && IncrementalEligible(paragraph, flat) ? new List<int>() : null;
 
             var index = 0;
             var cursor = 0;
@@ -775,34 +858,47 @@ namespace Marabook.Print
             var consecutiveHyphens = 0;
             while (index < atoms.Count || first)
             {
-                var lineLeft = first ? firstX : hang;
-                var avail = Math.Max(40, contentWidth - lineLeft - style.RightIndent);
-                var line = FillLine(atoms, ref index, ref cursor, avail, style, ref consecutiveHyphens);
-                line.EndsParagraph = index >= atoms.Count;
-                if (line.EndsParagraph) line.End = layout.FlatLength;
-
-                var lineAvail = avail - (line.EndsParagraph ? style.LastLineIndent : 0);
-                if (!line.ForcedBreak) JustifyLine(line, lineAvail, align, style);
-
-                var x = lineLeft;
-                if (align == "center") x += Math.Max(0, (lineAvail - LineWidth(line)) / 2);
-                else if (align == "right") x += Math.Max(0, lineAvail - LineWidth(line));
-                OffsetLine(line, x);
-                FinalizeCharRights(line);
-                if (first && paragraph.ListKind != null)
-                {
-                    // La marque posée (justification comprise) : le retrait
-                    // suspendu exact, là où le texte commence vraiment.
-                    var textX = FirstSourceX(line);
-                    if (textX.HasValue) { hang = textX.Value; layout.ListHang = hang; }
-                }
-
-                line.Height = line.Height < 1 ? leading : Math.Max(line.Height, leading);
-                layout.Lines.Add(line);
+                if (lineStarts != null) lineStarts.Add(index);
+                layout.Lines.Add(NextLine(atoms, ref index, ref cursor, ref consecutiveHyphens, first, paragraph, style, layout, contentWidth, firstX, ref hang, align, leading));
                 first = false;
                 if (index >= atoms.Count) break;
             }
+            if (lineStarts != null) RememberIncremental(layout, paragraph, style, original, lineStarts, flat, contentWidth);
+            Perf.End("paragraphe : lignes", perfLines);
             return layout;
+        }
+
+        /// <summary>La ligne suivante d'un paragraphe : remplie, justifiée,
+        /// posée à son abscisse. Le corps de la boucle de ComposeWithStyle,
+        /// sorti le 21/11 pour que la recomposition partielle d'un très gros
+        /// paragraphe passe par le MÊME code que la composition entière.</summary>
+        private ComposedLine NextLine(List<Atom> atoms, ref int index, ref int cursor, ref int consecutiveHyphens, bool first,
+            TextParagraph paragraph, ParagraphStyle style, ComposedParagraphLayout layout, double contentWidth, double firstX, ref double hang, string align, double leading)
+        {
+            var lineLeft = first ? firstX : hang;
+            var avail = Math.Max(40, contentWidth - lineLeft - style.RightIndent);
+            var line = FillLine(atoms, ref index, ref cursor, avail, style, ref consecutiveHyphens);
+            line.EndsParagraph = index >= atoms.Count;
+            if (line.EndsParagraph) line.End = layout.FlatLength;
+
+            var lineAvail = avail - (line.EndsParagraph ? style.LastLineIndent : 0);
+            if (!line.ForcedBreak) JustifyLine(line, lineAvail, align, style);
+
+            var x = lineLeft;
+            if (align == "center") x += Math.Max(0, (lineAvail - LineWidth(line)) / 2);
+            else if (align == "right") x += Math.Max(0, lineAvail - LineWidth(line));
+            OffsetLine(line, x);
+            FinalizeCharRights(line);
+            if (first && paragraph.ListKind != null)
+            {
+                // La marque posée (justification comprise) : le retrait
+                // suspendu exact, là où le texte commence vraiment.
+                var textX = FirstSourceX(line);
+                if (textX.HasValue) { hang = textX.Value; layout.ListHang = hang; }
+            }
+
+            line.Height = line.Height < 1 ? leading : Math.Max(line.Height, leading);
+            return line;
         }
 
         private List<Atom> BuildAtoms(TextParagraph paragraph, ParagraphStyle style,
@@ -869,7 +965,7 @@ namespace Marabook.Print
             {
                 if (atom.IsHidden || atom.IsAnchor) continue; // transparents
                 if (atom.IsSpace || atom.IsForcedBreak || atom.IsRule) { previous = null; continue; }
-                if (previous != null && !atom.GluedToPrevious && atom.Text != null && atom.Text.Length > 0)
+                if (previous != null && !atom.GluedToPrevious && !atom.BreakBefore && atom.Text != null && atom.Text.Length > 0)
                     atom.GluedToPrevious = true;
                 previous = atom;
             }
@@ -995,13 +1091,48 @@ namespace Marabook.Print
 
             var spaceWidth = MeasureText(" ", font, size, tracking);
             var smallCaps = run != null && run.SmallCaps == true && !superscript;
+            // Le façonnage (20/11) : le crénage et les ligatures de la police, réglés par style ;
+            // une approche posée à la main défait les ligatures (les lettres s'écartent).
+            var layout = _shaper != null && font.HasGlyphs ? _shaper.Layout(font) : null;
+            var shaping = 0;
+            if (layout != null)
+            {
+                if (style.Kerning && layout.HasKerning) shaping |= ShapeKerning;
+                if (style.Ligatures && layout.HasLigatures && Math.Abs(tracking) < 0.01) shaping |= ShapeLigatures;
+            }
+            // Les VRAIES petites capitales, quand la police les dessine : le mot reste un seul
+            // atome, à son corps, ses bas-de-casse remplacés par les glyphes de la police.
+            var realSmallCaps = smallCaps && layout != null && layout.HasSmallCaps && HasSmallCapFor(layout, font, 'a');
             var start = 0;
             for (var i = 0; i <= text.Length; i++)
             {
                 var isSpace = i < text.Length && text[i] == ' ';
                 if (i == text.Length || isSpace)
                 {
-                    if (i > start && smallCaps)
+                    if (i > start && realSmallCaps)
+                    {
+                        var word = text.Substring(start, i - start);
+                        var caps = (shaping & ShapeKerning) | ShapeSmallCaps;
+                        atoms.Add(new Atom
+                        {
+                            Text = word,
+                            Width = MeasureText(word, font, size, tracking, caps),
+                            Shaping = caps,
+                            SpaceWidth = spaceWidth,
+                            Font = font,
+                            Size = size,
+                            Ink = ink,
+                            InkRole = inkRole,
+                            Tracking = tracking,
+                            SourceStart = sourceBase < 0 ? -1 : sourceBase + start,
+                            SourceLength = word.Length,
+                            Underline = underline,
+                            Strike = strike,
+                            Highlight = highlight,
+                            HighlightRole = highlightKind
+                        });
+                    }
+                    else if (i > start && smallCaps)
                     {
                         // Petites majuscules (0.50.0) : le mot en segments —
                         // les capitales à leur taille, les bas-de-casse mis en
@@ -1023,7 +1154,8 @@ namespace Marabook.Print
                             atoms.Add(new Atom
                             {
                                 Text = rendered,
-                                Width = MeasureText(rendered, font, segmentSize, tracking),
+                                Width = MeasureText(rendered, font, segmentSize, tracking, shaping & ShapeKerning),
+                                Shaping = shaping & ShapeKerning,
                                 SpaceWidth = spaceWidth,
                                 Font = font,
                                 Size = segmentSize,
@@ -1044,34 +1176,44 @@ namespace Marabook.Print
                     }
                     else if (i > start)
                     {
-                        var word = text.Substring(start, i - start);
-                        atoms.Add(new Atom
+                        var whole = text.Substring(start, i - start);
+                        // LES IDÉOGRAMMES (21/11) : le chinois et le japonais s'écrivent sans espaces —
+                        // un paragraphe entier ne faisait qu'UN mot, qui débordait de la page sans
+                        // jamais passer à la ligne. Un « mot » qui en porte est découpé : la ligne
+                        // peut se couper entre deux idéogrammes (CjkBreaks dit où, ponctuation comprise).
+                        var cuts = !superscript && sourceBase >= 0 ? CjkBreaks.Split(whole) : null;
+                        var parts = cuts == null ? 1 : cuts.Count;
+                        for (var part = 0; part < parts; part++)
                         {
-                            Text = word,
-                            Width = MeasureText(word, font, size, tracking),
-                            SpaceWidth = spaceWidth,
-                            Font = font,
-                            Size = size,
-                            Ink = ink,
-                            InkRole = inkRole,
-                            Tracking = tracking,
-                            Superscript = superscript,
-                            SourceStart = sourceBase < 0 ? -1 : (superscript ? sourceBase : sourceBase + start),
-                            SourceLength = superscript ? 1 : word.Length,
-                            Underline = underline,
-                            Strike = strike,
-                            Highlight = highlight,
-                            HighlightRole = highlightKind,
-                            // La césure se règle PAR STYLE (09/10 : le bouton du
-                            // document est retiré, deux commandes qui s'additionnaient
-                            // pour un seul effet) — et jamais sur un mot des
-                            // exceptions du projet.
-                            Breaks = style.HyphenationEnabled
-                                && !superscript && !IsHyphenException(word)
-                                ? FrenchHyphenator.BreakPoints(word,
-                                    style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
-                                : null
-                        });
+                            var from = cuts == null ? 0 : cuts[part];
+                            var to = cuts == null || part + 1 >= cuts.Count ? whole.Length : cuts[part + 1];
+                            var word = cuts == null ? whole : whole.Substring(from, to - from);
+                            atoms.Add(new Atom
+                            {
+                                Text = word,
+                                Width = MeasureText(word, font, size, tracking, shaping),
+                                Shaping = shaping,
+                                SpaceWidth = spaceWidth,
+                                Font = font,
+                                Size = size,
+                                Ink = ink,
+                                InkRole = inkRole,
+                                Tracking = tracking,
+                                Superscript = superscript,
+                                SourceStart = sourceBase < 0 ? -1 : (superscript ? sourceBase : sourceBase + start + from),
+                                SourceLength = superscript ? 1 : word.Length,
+                                Underline = underline,
+                                Strike = strike,
+                                Highlight = highlight,
+                                HighlightRole = highlightKind,
+                                BreakBefore = part > 0, // une coupe permise ici, sans espace
+                                // La césure se règle PAR STYLE (09/10 : le bouton du
+                                // document est retiré, deux commandes qui s'additionnaient
+                                // pour un seul effet) — et jamais sur un mot des
+                                // exceptions du projet.
+                                Breaks = style.HyphenationEnabled && !superscript && cuts == null ? BreaksFor(word, style) : null
+                            });
+                        }
                     }
                     if (isSpace)
                         atoms.Add(new Atom
@@ -1215,7 +1357,7 @@ namespace Marabook.Print
                     foreach (var cut in atom.Breaks)
                     {
                         var prefix = CutPrefix(atom.Text, cut);
-                        if (x + MeasureText(prefix, atom.Font, atom.Size, atom.Tracking) <= avail + 0.05)
+                        if (x + MeasureText(prefix, atom.Font, atom.Size, atom.Tracking, atom.Shaping) <= avail + 0.05)
                             bestCut = cut;
                     }
                     if (bestCut != 0)
@@ -1227,7 +1369,8 @@ namespace Marabook.Print
                         atoms[index] = new Atom
                         {
                             Text = rest,
-                            Width = MeasureText(rest, atom.Font, atom.Size, atom.Tracking),
+                            Width = MeasureText(rest, atom.Font, atom.Size, atom.Tracking, atom.Shaping),
+                            Shaping = atom.Shaping,
                             SpaceWidth = atom.SpaceWidth,
                             Font = atom.Font,
                             Size = atom.Size,
@@ -1240,8 +1383,10 @@ namespace Marabook.Print
                             HighlightRole = atom.HighlightRole,
                             SourceStart = atom.SourceStart < 0 ? -1 : atom.SourceStart + cutLength,
                             SourceLength = atom.SourceLength - cutLength,
-                            Breaks = FrenchHyphenator.BreakPoints(rest,
-                                style.HyphenMinWordLength, style.HyphenMinBefore, style.HyphenMinAfter)
+                            // Le reste du mot garde SES points (20/11) : ceux du mot
+                            // entier, décalés — recalculés sur le tronçon, les motifs
+                            // le prendraient pour un début de mot.
+                            Breaks = FrenchHyphenator.ShiftPoints(atom.Breaks, cutLength, rest.Length, style.HyphenMinBefore, style.HyphenMinAfter)
                         };
                         line.Hyphenated = true;
                         consecutiveHyphens++;
@@ -1301,7 +1446,7 @@ namespace Marabook.Print
                 && consecutiveHyphens < style.HyphenConsecutiveLimit)
             {
                 var prefix = CutPrefix(next.Text, next.Breaks[0]);
-                if (x + MeasureText(prefix, next.Font, next.Size, next.Tracking) <= avail + 0.05) return true;
+                if (x + MeasureText(prefix, next.Font, next.Size, next.Tracking, next.Shaping) <= avail + 0.05) return true;
             }
             return false;
         }
@@ -1341,7 +1486,7 @@ namespace Marabook.Print
         {
             var y = atom.Superscript ? -atom.Size * 0.35 : 0;
             var piece = BuildTextPiece(text, atom.Font, atom.Size, atom.Ink,
-                new Pos(x, y), atom.Tracking);
+                new Pos(x, y), atom.Tracking, atom.Shaping);
             piece.SourceStart = atom.SourceStart;
             piece.SourceLength = atom.SourceStart < 0 ? 0 : sourceLength;
             piece.Underline = atom.Underline;
@@ -1359,7 +1504,7 @@ namespace Marabook.Print
         /// même règle que les largeurs (MeasureText), pour que rendu et
         /// coupure de ligne suivent le même chemin.</summary>
         private ComposedPiece BuildTextPiece(string text, FaceInfo font, double size,
-            Ink ink, Pos origin, double tracking = 0)
+            Ink ink, Pos origin, double tracking = 0, int shaping = 0)
         {
             var piece = new ComposedPiece
             {
@@ -1369,6 +1514,17 @@ namespace Marabook.Print
                 Origin = origin,
                 Ink = ink
             };
+            if (shaping != 0 && _shaper != null && font.HasGlyphs && text.Length > 0)
+            {
+                var shaped = Shape(text, font, size, tracking, shaping);
+                if (shaped != null)
+                {
+                    piece.GlyphIndices = (ushort[])shaped.Glyphs.Clone();
+                    piece.Advances = (double[])shaped.Advances.Clone(); // la justification les retouche : jamais celles du cache
+                    piece.GlyphChars = shaped.Chars;
+                    return piece;
+                }
+            }
             if (font.HasGlyphs && text.Length > 0)
             {
                 var extra = size * tracking / 1000.0; // approche par caractère
@@ -1396,6 +1552,93 @@ namespace Marabook.Print
             piece.FallbackHeight = extent.Height;
             piece.FallbackBaseline = extent.Baseline;
             return piece;
+        }
+
+        // ------------------------------------------------- façonnage
+
+        /// <summary>Un texte façonné : ses glyphes, leurs avances (approche et
+        /// crénage compris), et le nombre de caractères que chacun porte
+        /// (null si chaque glyphe en porte un).</summary>
+        private sealed class ShapedText
+        {
+            public ushort[] Glyphs;
+            public double[] Advances;
+            public byte[] Chars;
+            public double Width;
+        }
+
+        private readonly Dictionary<string, ShapedText> _shapedCache = new Dictionary<string, ShapedText>();
+
+        private bool HasSmallCapFor(OpenTypeLayout layout, FaceInfo font, char c)
+        {
+            ushort glyph, small;
+            return _fonts.TryGlyph(font, c, out glyph) && layout.TrySmallCap(glyph, out small);
+        }
+
+        /// <summary>Façonne un mot dans une face : chaque caractère en glyphe,
+        /// puis les petites capitales de la police, ses ligatures, son
+        /// crénage. Null si un caractère n'est pas dans la face (le mot part
+        /// alors en repli, comme avant) ou si la face n'a pas de tables.</summary>
+        private ShapedText Shape(string text, FaceInfo font, double size, double tracking, int shaping)
+        {
+            var key = font.Key + "|" + size.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "|" + tracking.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "|" + shaping + "|" + text;
+            ShapedText known;
+            if (_shapedCache.TryGetValue(key, out known)) return known;
+            var layout = _shaper.Layout(font);
+            ShapedText result = null;
+            if (layout != null)
+            {
+                var extra = size * tracking / 1000.0;
+                var glyphs = new List<ushort>(text.Length);
+                var advances = new List<double>(text.Length);
+                var chars = new List<byte>(text.Length);
+                var complete = true;
+                var changed = false;
+                for (var i = 0; i < text.Length && complete; i++)
+                {
+                    ushort glyph;
+                    double advance;
+                    if (!TryGlyphOrBlank(font, text[i], size, extra, out glyph, out advance)) { complete = false; break; }
+                    ushort small;
+                    if ((shaping & ShapeSmallCaps) != 0 && !IsTypographicBlank(text[i]) && layout.TrySmallCap(glyph, out small))
+                    {
+                        glyph = small;
+                        advance = _fonts.GlyphAdvance(font, glyph) * size + extra;
+                        changed = true;
+                    }
+                    glyphs.Add(glyph);
+                    advances.Add(advance);
+                    chars.Add(1);
+                }
+                if (complete)
+                {
+                    if ((shaping & ShapeLigatures) != 0)
+                        for (var i = 0; i < glyphs.Count - 1; i++)
+                        {
+                            ushort ligature;
+                            int count;
+                            if (!layout.TryLigature(glyphs, i, out ligature, out count)) continue;
+                            glyphs[i] = ligature;
+                            advances[i] = _fonts.GlyphAdvance(font, ligature) * size + extra;
+                            chars[i] = (byte)count;
+                            glyphs.RemoveRange(i + 1, count - 1);
+                            advances.RemoveRange(i + 1, count - 1);
+                            chars.RemoveRange(i + 1, count - 1);
+                            changed = true;
+                        }
+                    if ((shaping & ShapeKerning) != 0)
+                        for (var i = 0; i < glyphs.Count - 1; i++)
+                        {
+                            var kern = layout.Kern(glyphs[i], glyphs[i + 1]);
+                            if (kern != 0) advances[i] += kern * size / layout.UnitsPerEm;
+                        }
+                    result = new ShapedText { Glyphs = glyphs.ToArray(), Advances = advances.ToArray(), Chars = changed ? chars.ToArray() : null };
+                    foreach (var advance in result.Advances) result.Width += advance;
+                }
+            }
+            if (_shapedCache.Count > 30000) _shapedCache.Clear();
+            _shapedCache[key] = result;
+            return result;
         }
 
         // ------------------------------------------------- blancs typographiques
@@ -1631,7 +1874,23 @@ namespace Marabook.Print
                     continue;
                 }
                 var rights = new double[piece.SourceLength];
-                if (piece.GlyphIndices != null)
+                if (piece.GlyphIndices != null && piece.GlyphChars != null)
+                {
+                    // Une ligature porte plusieurs caractères (20/11) : son avance se partage
+                    // entre eux ; un glyphe sans caractère source (le trait de coupe) s'ajoute au dernier.
+                    double total = 0;
+                    var c = 0;
+                    for (var g = 0; g < piece.Advances.Length; g++)
+                    {
+                        var advance = piece.Advances[g];
+                        var n = Math.Min(g < piece.GlyphChars.Length ? piece.GlyphChars[g] : 1, piece.SourceLength - c);
+                        for (var k = 1; k <= n; k++) rights[c++] = (total + advance * k / n) * piece.ScaleX;
+                        total += advance;
+                        if (n <= 0 && c > 0) rights[c - 1] = total * piece.ScaleX;
+                    }
+                    for (; c < piece.SourceLength; c++) rights[c] = total * piece.ScaleX;
+                }
+                else if (piece.GlyphIndices != null)
                 {
                     // Glyph count may exceed source length (hyphen appended):
                     // spread the visible advances over the source characters.

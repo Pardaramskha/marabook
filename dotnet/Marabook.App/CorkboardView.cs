@@ -157,7 +157,7 @@ namespace Marabook.App
         public CorkboardView()
         {
             Focusable = true; // le focus logique quitte la Pile à l'affichage
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             _templateCards = new WrapPanel { Margin = new Thickness(16, 12, 16, 4), IsVisible = false };
             _templateSeparator = new Border
             {
@@ -307,6 +307,7 @@ namespace Marabook.App
             layout.Children.Add(BuildFilterHeader());
             layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
+            layout.Children.Add(BuildOutliner());
 
             // Barre d'insertion pendant le glisser : un trait vertical accent
             // là où la carte sera déposée (avant la carte survolée).
@@ -404,16 +405,71 @@ namespace Marabook.App
             // Icône + libellé (batch 40) : le tri seul ne dit pas « filtrer ».
             _filterToggle = Buttons.IconTextToggle("sort-descending-bold", "Filtres",
                 null, Buttons.Bar);
-            _filterToggle.HorizontalAlignment = HorizontalAlignment.Right;
-            _filterToggle.Margin = new Thickness(24, 8, 24, 0);
+            _filterToggle.Margin = new Thickness(8, 0, 0, 0);
             _filterToggle.IsVisible = false;
             _filterToggle.Click += delegate
             {
                 _filterBar.IsVisible = _filterToggle.IsChecked == true
                     ? true : false;
             };
-            return _filterToggle;
+            // LE TABLEAU (outliner, 21/11) : les mêmes écrits, en lignes et en colonnes.
+            _outlineToggle = Buttons.IconTextToggle("list-dashes-bold", "Tableau",
+                "Les écrits en tableau : état, mots, point de vue, lieu, moment, personnages et synopsis, ligne à ligne. Recliquez pour revenir aux cartes.", Buttons.Bar);
+            _outlineToggle.Tag = "outline-toggle";
+            _outlineToggle.IsVisible = false;
+            _outlineToggle.IsChecked = Marabook.Settings.AppSettings.OutlinerShown;
+            _outlineToggle.Click += delegate
+            {
+                var shown = _outlineToggle.IsChecked == true;
+                SetOutliner(shown);
+                // Un écran à part entière : « Précédent » ramène aux cartes (21/11, Rémi).
+                ScreenSteps.Record(this, delegate { SetOutliner(!shown); }, delegate { SetOutliner(shown); });
+            };
+            var header = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(24, 8, 24, 0) };
+            header.Children.Add(_outlineToggle);
+            header.Children.Add(_filterToggle);
+            return header;
         }
+
+        private ToggleButton _outlineToggle;
+        private OutlinerView _outliner;
+
+        /// <summary>Le Tableau à la place des cartes, ou l'inverse.</summary>
+        internal void SetOutliner(bool shown)
+        {
+            _outlineToggle.IsChecked = shown;
+            Marabook.Settings.AppSettings.OutlinerShown = shown;
+            Marabook.Settings.AppSettings.Save();
+            Rebuild();
+        }
+        /// <summary>Tableau : renseigner une scène (écrit, numéro) ; ouvrir un écrit au début d'une scène (écrit, paragraphe).</summary>
+        public event Action<BinderItem, int> SceneEditRequested;
+        public event Action<BinderItem, int> SceneOpenRequested;
+
+        private Control BuildOutliner()
+        {
+            _outliner = new OutlinerView { IsVisible = false };
+            _outliner.Navigate += delegate(BinderItem item) { var handler = Navigate; if (handler != null) handler(item); };
+            _outliner.NavigateScene += delegate(BinderItem item, int paragraph) { var handler = SceneOpenRequested; if (handler != null) handler(item, paragraph); };
+            _outliner.SceneEditRequested += delegate(BinderItem item, int scene) { var handler = SceneEditRequested; if (handler != null) handler(item, scene); };
+            _outliner.ItemChanged += delegate { var handler = Changed; if (handler != null) handler(); };
+            return _outliner;
+        }
+
+        /// <summary>Le Tableau vaut pour un manuscrit : un livre, la racine Écrits, un de ses dossiers.</summary>
+        private bool OutlinerAllowed()
+        {
+            if (_folder == null || !BookTexts) return false;
+            if (_folder.Kind == ItemKind.Book) return true;
+            var root = _folder.RootCategory();
+            return root != null && root.CategoryKey == Project.KeyWritings;
+        }
+
+        internal bool OutlinerShownForProbe { get { return _outliner != null && _outliner.IsVisible; } }
+        internal OutlinerView OutlinerForProbe { get { return _outliner; } }
+        internal ToggleButton OutlineToggleForProbe { get { return _outlineToggle; } }
+        /// <summary>Les fiches de scène ont changé ailleurs (rail, annulation) : le Tableau se relit.</summary>
+        public void RefreshOutliner() { if (_outliner != null && _outliner.IsVisible) _outliner.Refresh(); }
 
         /// <summary>Le bandeau déroulé : tri, statut, annotations, extras, et
         /// le bouton qui efface tout.</summary>
@@ -790,7 +846,7 @@ namespace Marabook.App
                         menu.Items.Add(clear);
                     }
                 }
-                if (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Sheet)
+                if (provided == null && (itemRef.Kind == ItemKind.Text || itemRef.Kind == ItemKind.Sheet)) // le menu commun a son « Exporter… » (22/11)
                 {
                     var export = new MenuItem { Header = "Exporter…" };
                     export.Click += delegate
@@ -800,7 +856,7 @@ namespace Marabook.App
                     };
                     menu.Items.Add(export);
                 }
-                if (IsDivergent(itemRef) && Profiles.Enabled(Profiles.BookFormat))
+                if (provided == null && IsDivergent(itemRef) && Profiles.Enabled(Profiles.BookFormat)) // idem : « Appliquer le gabarit du livre »
                 {
                     var bookRef = _folder.EnclosingBook();
                     var applyBook = new MenuItem { Header = "Appliquer le gabarit du livre au document" };
@@ -838,7 +894,7 @@ namespace Marabook.App
                     {
                         Header = "Marquer comme page extra",
                         Icon = itemRef.IsExtraPage
-                            ? Icons.Make("check-bold", 12, Chrome.Ink) : null
+                            ? Icons.Check(12, Chrome.Ink) : null
                     };
                     extra.Click += delegate
                     {
@@ -912,7 +968,10 @@ namespace Marabook.App
         {
             _cards.Children.Clear();
             _templateCards.Children.Clear();
-            if (_folder == null) return;
+            _cards.IsVisible = true;
+            _outliner.IsVisible = false;
+            _outlineToggle.IsVisible = false;
+            if (_folder == null) { _outliner.Clear(); return; }
             _bookActions.IsVisible = _folder.Kind == ItemKind.Book && BookTexts ? true : false;
             // Le profil (1.1.0) peut cacher les pages éditeur : leurs boutons et leur filtre.
             var extraPages = Profiles.Enabled(Profiles.BookExtraPages);
@@ -964,6 +1023,18 @@ namespace Marabook.App
             if (!hasTexts) _filterBar.IsVisible = false;
             else if (_filterToggle.IsChecked == true)
                 _filterBar.IsVisible = true;
+            // Le Tableau prend la place des cartes (et de leurs filtres : il a les siens).
+            _outlineToggle.IsVisible = hasTexts && OutlinerAllowed() && Outline.HasTexts(_folder);
+            _outlineToggle.IsChecked = Marabook.Settings.AppSettings.OutlinerShown;
+            if (_outlineToggle.IsVisible && Marabook.Settings.AppSettings.OutlinerShown)
+            {
+                _filterToggle.IsVisible = false;
+                _filterBar.IsVisible = false;
+                _cards.IsVisible = false;
+                _outliner.IsVisible = true;
+                _outliner.Load(_folder, _project);
+                return;
+            }
 
             var documents = 0;
             var arranged = ArrangeChildren(_folder.Children);

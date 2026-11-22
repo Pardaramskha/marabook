@@ -21,6 +21,17 @@ namespace Marabook.Print
                                     // multiple de 4 ; fond perdu/traits ignorés)
         public string Title = "";   // métadonnées du document
         public string Author = "";
+        // --- PDF/X (20/11)
+        /// <summary>Le fichier se déclare PDF/X-1a:2003 (ne vaut qu'en CMJN) :
+        /// version, piégeage, condition d'impression, pas de lien cliquable.</summary>
+        public bool PdfX;
+        /// <summary>Le profil ICC de la condition d'impression, à embarquer
+        /// (null : la condition n'est déclarée que par son nom enregistré,
+        /// ce que PDF/X-1a admet pour FOGRA39).</summary>
+        public byte[] IccProfile;
+        /// <summary>L'habillage d'un skin (21/11) — le « PDF Encyclopédique »
+        /// seulement ; null partout ailleurs : rien ne change alors.</summary>
+        public PdfSkin Skin;
     }
 
     /// <summary>Un repère d'une partie de PDF (gestionnaire d'export, 18/11) :
@@ -150,6 +161,8 @@ namespace Marabook.Print
             public FaceInfo Face;
             public TrueTypeFont Data;
             public HashSet<ushort> Used = new HashSet<ushort>();
+            /// <summary>Le texte que porte un glyphe posé par le façonnage (ligature, petite capitale).</summary>
+            public Dictionary<ushort, string> Carried = new Dictionary<ushort, string>();
             public string Res;                       // /F1
             public int Type0Id, CidId, DescId, FileId, ToUnicodeId;
 
@@ -195,6 +208,7 @@ namespace Marabook.Print
         // Réglages effectifs : l'imposition en cahier neutralise fond perdu et
         // traits (le livret plié se coupe au format fini, dos au pli).
         private readonly bool _booklet;
+        private readonly bool _x;                 // PDF/X-1a:2003
         private readonly double _bleedPt;
         private readonly bool _cropMarks, _bleedGuides;
 
@@ -216,6 +230,7 @@ namespace Marabook.Print
                 if (_fonts == null) _fonts = part.Composition.Fonts;
             }
             // Le cahier ne vaut que pour UN texte composé, sans liens : il replie les pages deux à deux.
+            _x = options.PdfX && options.Cmyk;
             _booklet = options.Booklet && _parts.Count == 1 && !_parts[0].IsImage && _parts[0].Links.Count == 0;
             _bleedPt = _booklet ? 0 : options.BleedMm * MmToPt;
             _cropMarks = !_booklet && options.CropMarks;
@@ -264,7 +279,8 @@ namespace Marabook.Print
                 var pageOps = new List<string>();
                 for (var k = 0; k < composedCount; k++)
                     pageOps.Add(BuildPageContent(k, null));
-                var sheetBoxes = " /MediaBox [0 0 " + N(2 * _trimW) + " " + N(_trimH) + "]";
+                var sheetBoxes = " /MediaBox [0 0 " + N(2 * _trimW) + " " + N(_trimH) + "]"
+                    + " /TrimBox [0 0 " + N(2 * _trimW) + " " + N(_trimH) + "]"; // PDF/X veut une boîte de coupe à chaque page
                 var padded = ((composedCount + 3) / 4) * 4;
                 for (var s = 0; s < padded / 4; s++)
                 {
@@ -298,8 +314,10 @@ namespace Marabook.Print
             var pageCount = _pages.Count;
 
             // Les liens : une annotation par rectangle, vers la destination de la cible.
+            // (PDF/X interdit toute annotation dans la page : les liens y tombent.)
             foreach (var link in _links)
             {
+                if (_x) break;
                 DestOut dest;
                 if (!_dests.TryGetValue(link.Target, out dest)) continue;
                 _pages[link.Page].Annots.Add("<< /Type /Annot /Subtype /Link /Rect [" + N(link.X1) + " " + N(link.Y1) + " " + N(link.X2) + " " + N(link.Y2)
@@ -319,6 +337,8 @@ namespace Marabook.Print
                 font.ToUnicodeId = next++;
             }
             var infoId = next++;
+            var metadataId = next++;
+            var iccId = _options.Cmyk && _options.IccProfile != null && _options.IccProfile.Length > 128 ? next++ : 0;
             var outlineRootId = 0;
             if (_outline.Count > 0)
             {
@@ -340,8 +360,11 @@ namespace Marabook.Print
                 ? " /OutputIntents [<< /Type /OutputIntent /S /GTS_PDFX"
                     + " /OutputConditionIdentifier (FOGRA39)"
                     + " /OutputCondition (Coated FOGRA39 \\(ISO 12647-2:2004\\))"
-                    + " /RegistryName (http://www.color.org) >>]"
+                    + " /Info (Coated FOGRA39 \\(ISO 12647-2:2004\\))"
+                    + " /RegistryName (http://www.color.org)"
+                    + (iccId > 0 ? " /DestOutputProfile " + iccId + " 0 R" : "") + " >>]"
                 : "";
+            intent += " /Metadata " + metadataId + " 0 R";
             var outlines = outlineRootId > 0 ? " /Outlines " + outlineRootId + " 0 R /PageMode /UseOutlines" : "";
             WriteRaw(output, "1 0 obj\n<< /Type /Catalog /Pages 2 0 R" + intent + outlines + " >>\nendobj\n");
 
@@ -356,6 +379,9 @@ namespace Marabook.Print
             // 3 — shared resources
             offsets[3] = output.Position;
             var resources = new StringBuilder("3 0 obj\n<< /ProcSet [/PDF /Text /ImageC]");
+            // La couleur de repérage (20/11) : les traits de coupe sortent sur TOUTES les plaques.
+            if (_options.Cmyk && _cropMarks)
+                resources.Append(" /ColorSpace << /Reg [/Separation /All /DeviceCMYK << /FunctionType 2 /Domain [0 1] /C0 [0 0 0 0] /C1 [1 1 1 1] /N 1 >>] >>");
             if (_fontList.Count > 0)
             {
                 resources.Append(" /Font <<");
@@ -418,10 +444,30 @@ namespace Marabook.Print
             foreach (var font in _fontList)
                 WriteFont(output, offsets, font);
 
+            // Les informations du fichier : dates, piégeage, version PDF/X — et leur double XMP.
+            var now = DateTime.Now;
+            var zone = TimeZoneInfo.Local.GetUtcOffset(now);
+            var sign = zone < TimeSpan.Zero ? "-" : "+";
+            var pdfDate = "D:" + now.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture) + sign + Math.Abs(zone.Hours).ToString("00") + "'" + Math.Abs(zone.Minutes).ToString("00") + "'";
+            var xmpDate = now.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture) + sign + Math.Abs(zone.Hours).ToString("00") + ":" + Math.Abs(zone.Minutes).ToString("00");
             offsets[infoId] = output.Position;
             WriteRaw(output, infoId + " 0 obj\n<< /Title " + Utf16String(_options.Title ?? "")
                 + (string.IsNullOrEmpty(_options.Author) ? "" : " /Author " + Utf16String(_options.Author))
-                + " /Producer " + Utf16String("Marabook") + " >>\nendobj\n");
+                + " /Producer " + Utf16String("Marabook") + " /Creator " + Utf16String("Marabook")
+                + " /CreationDate (" + pdfDate + ") /ModDate (" + pdfDate + ") /Trapped /False"
+                + (_x ? " /GTS_PDFXVersion (PDF/X-1a:2003)" : "") + " >>\nendobj\n");
+
+            offsets[metadataId] = output.Position;
+            var xmp = new UTF8Encoding(false).GetBytes(Xmp(xmpDate));
+            WriteRaw(output, metadataId + " 0 obj\n<< /Type /Metadata /Subtype /XML /Length " + xmp.Length + " >>\nstream\n");
+            output.Write(xmp, 0, xmp.Length);
+            WriteRaw(output, "\nendstream\nendobj\n");
+
+            if (iccId > 0)
+            {
+                offsets[iccId] = output.Position;
+                WriteStream(output, iccId, " /N 4 /Alternate /DeviceCMYK", _options.IccProfile);
+            }
 
             // Les signets : la racine, puis un objet par entrée.
             if (outlineRootId > 0)
@@ -455,8 +501,12 @@ namespace Marabook.Print
             for (var id = 1; id < next; id++)
                 sb.Append(offsets[id].ToString("0000000000", CultureInfo.InvariantCulture))
                     .Append(" 00000 n \n");
+            // L'identifiant du fichier : l'empreinte de tout ce qui précède.
+            string fileId;
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+                fileId = BitConverter.ToString(md5.ComputeHash(output.ToArray())).Replace("-", "");
             sb.Append("trailer\n<< /Size ").Append(next)
-                .Append(" /Root 1 0 R /Info ").Append(infoId).Append(" 0 R >>\n")
+                .Append(" /Root 1 0 R /Info ").Append(infoId).Append(" 0 R /ID [<").Append(fileId).Append("> <").Append(fileId).Append(">] >>\n")
                 .Append("startxref\n").Append(xref).Append("\n%%EOF\n");
             WriteRaw(output, sb.ToString());
             return output.ToArray();
@@ -580,6 +630,7 @@ namespace Marabook.Print
             var left = _composition.LeftPxFor(index); // marges en miroir
             var ops = new StringBuilder();
 
+            if (_options.Skin != null) EmitSkinPaper(ops, setup.PageWidthPx, setup.PageHeightMm * PageSetup.PxPerMm);
             if (_cropMarks) EmitCropMarks(ops);
             if (_bleedGuides) EmitBleedGuides(ops);
 
@@ -855,10 +906,22 @@ namespace Marabook.Print
                 ops.Append(N(x)).Append(" ").Append(N(y)).Append(" Td\n[<");
 
             var indices = piece.GlyphIndices;
+            var textAt = 0;
             for (var i = 0; i < indices.Length; i++)
             {
                 var glyph = indices[i];
                 font.Used.Add(glyph);
+                if (piece.GlyphChars != null && piece.Text != null && i < piece.GlyphChars.Length)
+                {
+                    var carried = Math.Min(piece.GlyphChars[i], piece.Text.Length - textAt);
+                    // Seuls les glyphes SUBSTITUÉS : une ligature (plusieurs caractères), ou un
+                    // glyphe qui n'est pas celui que la police donne à ce caractère (petite capitale).
+                    ushort plain;
+                    var substituted = carried > 1 || (carried == 1 && !char.IsWhiteSpace(piece.Text[textAt])
+                        && _fonts.TryGlyph(piece.Face, piece.Text[textAt], out plain) && plain != glyph);
+                    if (substituted && !font.Carried.ContainsKey(glyph)) font.Carried[glyph] = piece.Text.Substring(textAt, carried);
+                    textAt += Math.Max(0, carried);
+                }
                 ops.Append(glyph.ToString("X4"));
                 var natural = Math.Round(_fonts.GlyphAdvance(piece.Face, glyph) * 1000);
                 var wanted = piece.Advances[i] * 1000.0 / sizePx;
@@ -923,6 +986,51 @@ namespace Marabook.Print
                 .Append(" re f\n");
         }
 
+        private ImageEntry _skinTexture;
+        private bool _skinTextureTried;
+
+        /// <summary>Le papier d'un skin, sous tout le reste de la page : une
+        /// texture, un dégradé en bandes ou un aplat ; puis le filet de cadre.
+        /// Les couleurs passent par les couleurs BRUTES (le papier n'est pas de l'encre à traduire).</summary>
+        private void EmitSkinPaper(StringBuilder ops, double widthPx, double heightPx)
+        {
+            var skin = _options.Skin;
+            if (skin.Texture && skin.TextureRgb != null && !_skinTextureTried)
+            {
+                _skinTextureTried = true;
+                _skinTexture = AddImage(skin.TextureRgb, skin.TextureWidth, skin.TextureHeight);
+            }
+            if (skin.Texture && _skinTexture != null) EmitImage(ops, _skinTexture, 0, 0, widthPx, heightPx);
+            else if (skin.Banded)
+            {
+                const int bands = 32;
+                for (var i = 0; i < bands; i++)
+                {
+                    var t = i / (double)(bands - 1);
+                    var color = Ink.Rgb((byte)(skin.Paper.R + (skin.PaperEnd.R - skin.Paper.R) * t), (byte)(skin.Paper.G + (skin.PaperEnd.G - skin.Paper.G) * t), (byte)(skin.Paper.B + (skin.PaperEnd.B - skin.Paper.B) * t));
+                    RawRect(ops, 0, heightPx * i / bands, widthPx, heightPx / bands + 0.6, color);
+                }
+            }
+            else RawRect(ops, 0, 0, widthPx, heightPx, skin.Paper);
+            if (skin.HasFrame)
+            {
+                const double inset = 22, thick = 1.1;
+                RawRect(ops, inset, inset, widthPx - 2 * inset, thick, skin.Frame);
+                RawRect(ops, inset, heightPx - inset - thick, widthPx - 2 * inset, thick, skin.Frame);
+                RawRect(ops, inset, inset, thick, heightPx - 2 * inset, skin.Frame);
+                RawRect(ops, widthPx - inset - thick, inset, thick, heightPx - 2 * inset, skin.Frame);
+            }
+            _fill = Sentinel; // la première encre de la page se réécrit
+        }
+
+        private void RawRect(StringBuilder ops, double xPx, double yPx, double wPx, double hPx, Ink color)
+        {
+            ops.Append(RawColorOps(color, false));
+            ops.Append(N(XPt(xPx))).Append(" ").Append(N(YPt(yPx + hPx))).Append(" ")
+                .Append(N(wPx * PxToPt)).Append(" ").Append(N(hPx * PxToPt))
+                .Append(" re f\n");
+        }
+
         private void EmitImage(StringBuilder ops, ImageEntry image,
             double xPx, double yPx, double wPx, double hPx)
         {
@@ -941,7 +1049,7 @@ namespace Marabook.Print
             var x1 = _margin + _trimW;
             var y0 = _margin;
             var y1 = _margin + _trimH;
-            ops.Append("0.25 w ").Append(_options.Cmyk ? "0 0 0 1 K\n" : "0 G\n");
+            ops.Append("0.25 w ").Append(_options.Cmyk ? "/Reg CS 1 SCN\n" : "0 G\n");
             _stroke = Sentinel; // tracker invalidated
             // horizontal marks (left/right of the trim corners)
             AppendMark(ops, x0 - gap - len, y0, x0 - gap, y0);
@@ -997,6 +1105,12 @@ namespace Marabook.Print
         /// conversion keeps true black on the K channel alone (0 0 0 1) —
         /// what a printer expects for text.</summary>
         private string ColorOps(Ink color, bool stroke)
+        {
+            // Sous un skin, le noir et les gris du texte prennent son encre (21/11).
+            return RawColorOps(_options.Skin == null ? color : _options.Skin.Map(color), stroke);
+        }
+
+        private string RawColorOps(Ink color, bool stroke)
         {
             if (!_options.Cmyk)
                 return N(color.R / 255.0) + " " + N(color.G / 255.0) + " "
@@ -1174,6 +1288,16 @@ namespace Marabook.Print
             var entries = new List<string>();
             foreach (var glyph in font.Used)
             {
+                // Une ligature ou une petite capitale (20/11) : le texte qu'elle porte — sans quoi
+                // la recherche et le copier-coller du PDF perdraient « fi », « fl »…
+                string carried;
+                if (font.Carried.TryGetValue(glyph, out carried) && carried.Length > 0)
+                {
+                    var hex = new StringBuilder();
+                    foreach (var c in carried) hex.Append(((int)c).ToString("X4"));
+                    entries.Add("<" + glyph.ToString("X4") + "> <" + hex + ">");
+                    continue;
+                }
                 int code;
                 if (!reverse.TryGetValue(glyph, out code) || code > 0xFFFF) continue;
                 entries.Add("<" + glyph.ToString("X4") + "> <" + code.ToString("X4") + ">");
@@ -1227,6 +1351,42 @@ namespace Marabook.Print
         }
 
         // ============================================================ low level
+
+        private static string XmlText(string text)
+        {
+            var sb = new StringBuilder();
+            foreach (var c in text ?? "")
+            {
+                if (c == '&') sb.Append("&amp;");
+                else if (c == '<') sb.Append("&lt;");
+                else if (c == '>') sb.Append("&gt;");
+                else if (c >= 0x20 || c == '\t') sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>Les métadonnées XMP : le double des informations du
+        /// fichier, que les contrôles d'imprimeur lisent en premier.</summary>
+        private string Xmp(string date)
+        {
+            var sb = new StringBuilder();
+            sb.Append("<?xpacket begin=\"\uFEFF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n");
+            sb.Append("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
+            sb.Append("<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:pdf=\"http://ns.adobe.com/pdf/1.3/\"");
+            if (_x) sb.Append(" xmlns:pdfx=\"http://ns.adobe.com/pdfx/1.3/\" xmlns:pdfxid=\"http://www.npes.org/pdfx/ns/id/\"");
+            sb.Append(">\n");
+            sb.Append("<dc:format>application/pdf</dc:format>\n");
+            sb.Append("<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">").Append(XmlText(_options.Title)).Append("</rdf:li></rdf:Alt></dc:title>\n");
+            if (!string.IsNullOrEmpty(_options.Author))
+                sb.Append("<dc:creator><rdf:Seq><rdf:li>").Append(XmlText(_options.Author)).Append("</rdf:li></rdf:Seq></dc:creator>\n");
+            sb.Append("<xmp:CreateDate>").Append(date).Append("</xmp:CreateDate>\n<xmp:ModifyDate>").Append(date).Append("</xmp:ModifyDate>\n<xmp:MetadataDate>").Append(date).Append("</xmp:MetadataDate>\n");
+            sb.Append("<xmp:CreatorTool>Marabook</xmp:CreatorTool>\n<pdf:Producer>Marabook</pdf:Producer>\n<pdf:Trapped>False</pdf:Trapped>\n");
+            if (_x) sb.Append("<pdfx:GTS_PDFXVersion>PDF/X-1a:2003</pdfx:GTS_PDFXVersion>\n<pdfxid:GTS_PDFXVersion>PDF/X-1a:2003</pdfxid:GTS_PDFXVersion>\n");
+            sb.Append("</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n");
+            for (var i = 0; i < 12; i++) sb.Append("                                                                                \n"); // la marge que la norme réserve aux retouches
+            sb.Append("<?xpacket end=\"w\"?>");
+            return sb.ToString();
+        }
 
         private static void WriteRaw(MemoryStream output, string text)
         {

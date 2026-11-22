@@ -240,7 +240,58 @@ namespace Marabook.Persistence
         //      "dissonances" ({id, kind "exclusion" | "reference", system,
         //      from, to ou age} ; omise si vide). Un vieux
         //      Marabook ouvre le fichier en lecture seule (version supérieure).
+        //      (21/11, même v46, jamais publiée) — FICHES DE SCÈNE : sur un
+        //      écrit, "scenes" = une entrée par scène, dans l'ordre du texte
+        //      (le découpage suit les séparateurs de scène) : {pov, place,
+        //      placeMap, placeShape, timeline, when, characters [ids], note,
+        //      anchor = les premiers mots de la scène} ; chaque clé omise si
+        //      vide, la liste omise si rien n'est renseigné.
         private const int FormatVersion = 46;
+
+        private static List<object> SceneNodes(List<SceneMeta> scenes)
+        {
+            var list = new List<object>();
+            foreach (var scene in scenes)
+            {
+                var node = new Dictionary<string, object>();
+                if (!string.IsNullOrEmpty(scene.PovId)) node["pov"] = scene.PovId;
+                if (!string.IsNullOrEmpty(scene.PlaceSheetId)) node["place"] = scene.PlaceSheetId;
+                if (!string.IsNullOrEmpty(scene.PlaceShapeId)) { node["placeMap"] = scene.PlaceMapId ?? ""; node["placeShape"] = scene.PlaceShapeId; }
+                if (!string.IsNullOrEmpty(scene.TimelineId)) node["timeline"] = scene.TimelineId;
+                if (!string.IsNullOrWhiteSpace(scene.When)) node["when"] = scene.When;
+                if (scene.CharacterIds.Count > 0) node["characters"] = new List<object>(scene.CharacterIds.ToArray());
+                if (!string.IsNullOrWhiteSpace(scene.Note)) node["note"] = scene.Note;
+                if (!string.IsNullOrEmpty(scene.Anchor)) node["anchor"] = scene.Anchor;
+                list.Add(node);
+            }
+            return list;
+        }
+
+        private static void ReadScenes(BinderItem item, List<object> list)
+        {
+            if (list == null) return;
+            foreach (var entry in list)
+            {
+                var node = entry as Dictionary<string, object>;
+                if (node == null) continue;
+                var scene = new SceneMeta
+                {
+                    PovId = Json.AsString(Json.Field(node, "pov")),
+                    PlaceSheetId = Json.AsString(Json.Field(node, "place")),
+                    PlaceMapId = Json.AsString(Json.Field(node, "placeMap")),
+                    PlaceShapeId = Json.AsString(Json.Field(node, "placeShape")),
+                    TimelineId = Json.AsString(Json.Field(node, "timeline")),
+                    When = Json.AsString(Json.Field(node, "when")) ?? "",
+                    Note = Json.AsString(Json.Field(node, "note")) ?? "",
+                    Anchor = Json.AsString(Json.Field(node, "anchor")) ?? ""
+                };
+                if (string.IsNullOrEmpty(scene.PlaceShapeId)) { scene.PlaceShapeId = null; scene.PlaceMapId = null; }
+                var characters = Json.AsList(Json.Field(node, "characters"));
+                if (characters != null)
+                    foreach (var id in characters) { var text = Json.AsString(id); if (!string.IsNullOrEmpty(text) && !scene.CharacterIds.Contains(text)) scene.CharacterIds.Add(text); }
+                item.Scenes.Add(scene);
+            }
+        }
 
         // La voie d'une nature de relation dans le .plot (1.1.0, schéma des relations).
         private static string LaneName(RelationLane lane)
@@ -367,6 +418,7 @@ namespace Marabook.Persistence
 
             var plan = new SavePlan { SaveId = project.SaveId };
             plan.Entries.Add(Text("manifest.json", Json.Write(BuildManifest(project))));
+            plan.Entries.Add(Text(PlotReadme.EntryName, PlotReadme.Text(FormatVersion))); // 21/11 : comment relire le projet sans Marabook
             plan.Entries.Add(Text("styles.json", Json.Write(BuildStyles(project.Styles))));
             plan.Entries.Add(Text("sheets/templates.json", Json.Write(BuildTemplates(project))));
             foreach (var kv in project.Images)
@@ -917,6 +969,7 @@ namespace Marabook.Persistence
                 o["lexiconAllProjects"] = e.LexiconAllProjects;
                 o["includeEmptySheets"] = e.IncludeEmptySheets;
                 if (!string.IsNullOrEmpty(e.ExceptTag)) o["exceptTag"] = e.ExceptTag; // 20/11
+                if (!e.IncludeMaps) o["includeMaps"] = false; // 20/11 : clé facultative, vraie d'office
                 if (!string.IsNullOrEmpty(e.CoverImageId)) o["coverImageId"] = e.CoverImageId;
                 o["openAfter"] = e.OpenAfter; // 1/11 : ce qui est entré dans la fenêtre est gardé (clés additives)
                 if (e.SheetIds != null && e.SheetIds.Count > 0) o["sheetIds"] = new List<object>(e.SheetIds.ToArray());
@@ -1101,6 +1154,7 @@ namespace Marabook.Persistence
             if (!string.IsNullOrEmpty(item.LimitUnit) && item.LimitUnit != TextGoal.Words) node["limitUnit"] = item.LimitUnit;
             if (item.Tags.Count > 0) node["tags"] = new List<object>(item.Tags.ToArray()); // v41 — les fiches, mais rien ne se perd ailleurs
             if (item.ProofIgnored.Count > 0) node["proofIgnored"] = new List<object>(item.ProofIgnored.ToArray()); // v44
+            if (item.Kind == ItemKind.Text && Scenes.HasAny(item)) node["scenes"] = SceneNodes(item.Scenes); // v46, 21/11
             if (item.Kind == ItemKind.Sheet)
             {
                 if (item.TemplateId != null) node["template"] = item.TemplateId;
@@ -1229,6 +1283,7 @@ namespace Marabook.Persistence
                 if (style.LastLineIndent != 0) s["lastIndent"] = style.LastLineIndent;
                 s["lineHeight"] = style.LineHeight;
                 if (!style.Ligatures) s["ligatures"] = false;
+                if (!style.Kerning) s["kerning"] = false; // 20/11
                 if (!style.HyphenationEnabled) s["hyphen"] = false;
                 if (style.HyphenMinWordLength != 5) s["hyphenWord"] = (double)style.HyphenMinWordLength;
                 if (style.HyphenMinBefore != 2) s["hyphenBefore"] = (double)style.HyphenMinBefore;
@@ -1439,6 +1494,10 @@ namespace Marabook.Persistence
                 var manifest = Json.AsObject(Json.Parse(ReadEntry(manifestEntry, index)));
                 if (manifest == null)
                     throw new InvalidDataException("Le manifeste du projet est illisible.");
+                // Le LISEZMOI (21/11) n'est pas relu pour ce qu'il dit, seulement pour son empreinte :
+                // identique d'un enregistrement à l'autre, il sera recopié au lieu d'être recompressé.
+                var readmeEntry = archive.GetEntry(PlotReadme.EntryName);
+                if (readmeEntry != null) ReadEntry(readmeEntry, index);
 
                 var project = new Project();
 
@@ -1546,6 +1605,7 @@ namespace Marabook.Persistence
                         LexiconAllProjects = Json.AsBool(Json.Field(encyclopedia, "lexiconAllProjects"), false),
                         IncludeEmptySheets = Json.AsBool(Json.Field(encyclopedia, "includeEmptySheets"), true),
                         ExceptTag = Json.AsString(Json.Field(encyclopedia, "exceptTag")) ?? "",
+                        IncludeMaps = Json.AsBool(Json.Field(encyclopedia, "includeMaps"), true),
                         CoverImageId = Json.AsString(Json.Field(encyclopedia, "coverImageId")),
                         OpenAfter = Json.AsBool(Json.Field(encyclopedia, "openAfter"), true)
                     };
@@ -1838,6 +1898,7 @@ namespace Marabook.Persistence
                     // preserving their look; new sheets get the 14.4 pt default.
                     style.LineHeight = Json.AsDouble(Json.Field(s, "lineHeight"), 0);
                     style.Ligatures = Json.AsBool(Json.Field(s, "ligatures"), true);
+                    style.Kerning = Json.AsBool(Json.Field(s, "kerning"), true);
                     style.HyphenationEnabled = Json.AsBool(Json.Field(s, "hyphen"), true);
                     style.HyphenMinWordLength = (int)Json.AsDouble(Json.Field(s, "hyphenWord"), 5);
                     style.HyphenMinBefore = (int)Json.AsDouble(Json.Field(s, "hyphenBefore"), 2);
@@ -2105,6 +2166,7 @@ namespace Marabook.Persistence
             if (tags != null)
                 foreach (var tagNode in tags)
                     SheetTags.Add(item, tagNode as string);
+            ReadScenes(item, Json.AsList(Json.Field(obj, "scenes")));
             var proofIgnored = Json.AsList(Json.Field(obj, "proofIgnored")); // v44
             if (proofIgnored != null)
                 foreach (var entry in proofIgnored)

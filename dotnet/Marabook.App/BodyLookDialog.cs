@@ -28,7 +28,7 @@ namespace Marabook.App
     internal sealed class BodyLookDialog : Window
     {
         public const int SunKind = 0, MoonKind = 1, WorldKind = 2;
-        private static readonly string[] Palette = { "#F5C542", "#E8873A", "#D9503A", "#E7E3D8", "#9DB7E8", "#6FC3C0", "#B48EE0", "#8FCB7A" };
+        private static readonly string[] Palette = MapShapeDialog.HexOf(ColorPalette.Bodies); // le nuancier des astres, nommé dans la palette (22/11)
         private static readonly CultureInfo French = CultureInfo.GetCultureInfo("fr-FR");
 
         private readonly BodyLook _look;
@@ -283,6 +283,7 @@ namespace Marabook.App
             none.Click += delegate { if (accent) _look.Accent = null; else _look.RingColor = null; FillSwatches(host, accent); Live(); };
             host.Children.Add(none);
             var colors = new List<string>(Palette);
+            foreach (var custom in ColorMenus.Customs(null)) if (!colors.Exists(delegate(string c) { return string.Equals(c, custom, StringComparison.OrdinalIgnoreCase); })) colors.Add(custom); // la palette de l'auteur (22/11)
             if (!string.IsNullOrEmpty(current) && !colors.Exists(delegate(string c) { return string.Equals(c, current, StringComparison.OrdinalIgnoreCase); })) colors.Add(current);
             foreach (var value in colors)
             {
@@ -293,7 +294,8 @@ namespace Marabook.App
                 var swatch = new Border
                 {
                     Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Background = new SolidColorBrush(parsed), VerticalAlignment = VerticalAlignment.Center,
-                    BorderBrush = chosen ? Chrome.Ink : Chrome.Border, BorderThickness = new Thickness(chosen ? 2.5 : 1), Cursor = new Cursor(StandardCursorType.Hand)
+                    BorderBrush = chosen ? Chrome.Ink : Chrome.Border, BorderThickness = new Thickness(chosen ? 2.5 : 1), Cursor = new Cursor(StandardCursorType.Hand),
+                    [ToolTip.TipProperty] = ColorPalette.Describe(color)
                 };
                 swatch.PointerPressed += delegate { if (accent) _look.Accent = color; else _look.RingColor = color; FillSwatches(host, accent); Live(); };
                 host.Children.Add(swatch);

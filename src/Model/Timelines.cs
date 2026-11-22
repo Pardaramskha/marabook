@@ -767,6 +767,12 @@ namespace Marabook.Model
         public TimePoint End;
         public string LinkKind;
         public string LinkId;
+        // 21/11 : D'AUTRES éléments après le premier (Timelines.LinksOf les rend tous),
+        // UN lieu — un repère ou une zone d'une carte — et des tags libres.
+        public List<EventLink> More = new List<EventLink>();
+        public string PlaceMapId;
+        public string PlaceShapeId;
+        public List<string> Tags = new List<string>();
 
         // EN ATTENTE (1.2.0, lot 2) : la temporalité a changé et la date de la
         // brique ne s'y lit plus. On garde ce qui était écrit (le début, la fin)
@@ -783,12 +789,16 @@ namespace Marabook.Model
 
         public TimelineEvent Clone()
         {
-            return new TimelineEvent
+            var copy = new TimelineEvent
             {
                 Id = Id, Title = Title, Description = Description, TypeId = TypeId,
                 Start = Start == null ? new TimePoint() : Start.Clone(), End = End == null ? null : End.Clone(),
-                LinkKind = LinkKind, LinkId = LinkId, PendingStart = PendingStart, PendingEnd = PendingEnd, Derived = Derived
+                LinkKind = LinkKind, LinkId = LinkId, PendingStart = PendingStart, PendingEnd = PendingEnd, Derived = Derived,
+                PlaceMapId = PlaceMapId, PlaceShapeId = PlaceShapeId
             };
+            if (More != null) foreach (var link in More) if (link != null) copy.More.Add(new EventLink(link.Kind, link.Id));
+            if (Tags != null) copy.Tags.AddRange(Tags);
+            return copy;
         }
     }
 
@@ -1111,7 +1121,7 @@ namespace Marabook.Model
             foreach (var timeline in All(project))
                 if (timeline.Timeline != null)
                     foreach (var entry in timeline.Timeline.Events)
-                        if (entry.LinkId == itemId) found.Add(new KeyValuePair<BinderItem, TimelineEvent>(timeline, entry));
+                        if (HasLink(entry, itemId)) found.Add(new KeyValuePair<BinderItem, TimelineEvent>(timeline, entry));
             return found;
         }
     }

@@ -337,3 +337,54 @@ def _inflect(candidate, letter, morph):
             return candidate + "s"
         return form
     return candidate
+
+
+# ---- LE CONJUGUEUR (20/11) : le tableau d'un verbe, tel que le conjugueur de
+# Grammalecte le dresse (fr/conj.py, createConjTable). Le mot peut être une
+# forme conjuguée (« mangeaient ») : ses lemmes verbaux sont proposés, le
+# premier est conjugué. Réponse : {"verb", "info", "lemmas", "pronominal",
+# "table"} — ou {"verb": "", "lemmas": []} si le mot n'est pas un verbe.
+
+def conjugate(word, options):
+    word = (word or "").strip()
+    options = options or {}
+    empty = {"verb": "", "info": "", "lemmas": [], "pronominal": -1, "table": {}}
+    if not word:
+        return empty
+    lemmas = []
+    # « se lever », « s'asseoir » : le pronom tombe, la forme pronominale est demandée.
+    pronominal = bool(options.get("pronominal"))
+    lowered = word.lower().replace("’", "'")
+    if lowered.startswith("se "):
+        lowered = lowered[3:].strip()
+        pronominal = True
+    elif lowered.startswith("s'"):
+        lowered = lowered[2:].strip()
+        pronominal = True
+    if conj.isVerb(lowered):
+        lemmas.append(lowered)
+    spell, _ = _engine()
+    for morph in _morphs(spell, lowered):
+        if not _is_verb(morph):
+            continue
+        lemma = _lemma(morph)
+        if lemma and lemma not in lemmas and conj.isVerb(lemma):
+            lemmas.append(lemma)
+    if not lemmas:
+        return empty
+    try:
+        verb = conj.Verb(lemmas[0])
+    except (ValueError, TypeError):
+        return empty
+    # Un verbe qui ne se conjugue QUE pronominalement l'est d'office ; un verbe qui ne le peut pas ne l'est jamais.
+    if verb.nPronominable == 1:
+        pronominal = True
+    elif verb.nPronominable == -1:
+        pronominal = False
+    table = verb.createConjTable(pronominal, bool(options.get("negative")),
+                                 bool(options.get("compound")),
+                                 bool(options.get("interrogative")),
+                                 bool(options.get("feminine")))
+    return {"verb": lemmas[0], "info": verb.sInfo, "lemmas": lemmas,
+            "pronominal": verb.nPronominable, "usedPronominal": pronominal,
+            "table": table}

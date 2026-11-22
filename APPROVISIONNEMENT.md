@@ -13,6 +13,92 @@
 | Grammalecte | 2.3.0 (15/12/2025) | GPL-3.0+ | ~24 Mo déployé | oui, en dur, CLI seul |
 | Python embeddable (Windows x64) | 3.13.15 (embarqué b29) | PSF | ~10,4 Mo zippé, ~21 Mo déployé | oui, runtime de Grammalecte |
 | Python portable (macOS x64/arm64, Linux x64) | 3.13.18, python-build-standalone 20261026 (30/10) | PSF (+ OpenSSL, libffi… du tarball) | ~25–35 Mo compressé | oui, téléchargé et vérifié à la publication (tools/publish.ps1) |
+| Motifs de césure du français (hyph-utf8) | V2.13 du 12/05/2016 (embarqués le 20/11/2026) | MIT | 9 Ko | oui, en dur, dans le code (`src/Print/FrenchHyphenPatterns.cs`) |
+| Profil ICC « ISO Coated v2 (basICColor) », FOGRA39L | fichier du 02/02/2007, paquet Debian icc-profiles-free 2.4 (embarqué le 21/11/2026) | zlib/libpng | 1,05 Mo | oui, en dur, dans `Marabook.Core` |
+| PdfPig (lecture des PDF à l'import) | 0.1.16 (22/08/2026) | Apache-2.0 | 5,5 Mo installés, 16,7 Mo téléchargés | **non** : téléchargée à la demande, après accord |
+| PDFium (affichage, recomposition et déverrouillage des PDF — l'Atelier) | 160.0.8165 (16/11/2026) | BSD-3-Clause (PDFium), Apache-2.0 (binaires) | 7 à 8 Mo installés ; 11 Mo (Windows), 7 Mo (macOS) ou 43 Mo (Linux) téléchargés | **non** : téléchargée à la demande, après accord |
+
+### Motifs de césure (20 novembre 2026)
+
+- **Source** : `hyph-fr.tex` du paquet hyph-utf8, dépôt `github.com/hyphenation/tex-hyphen`, branche `master`,
+  chemin `hyph-utf8/tex/generic/hyph-utf8/patterns/tex/hyph-fr.tex`.
+- **Empreinte SHA-256 du fichier téléchargé** : `526cad6fe8f52fcd3caa3fcaf667cb1740cfc14bca198680e00dc343a84594de` (30 353 octets).
+- **Auteurs** : Daniel Flipo, Bernard Gaulle, Arthur Reutenauer. Licence MIT : la notice de droit d'auteur et le texte
+  de la licence sont repris en tête du fichier généré.
+- **Ce qu'on en garde** : les 1 145 motifs du bloc `\patterns{…}`, tels quels, sans les commentaires. Le fichier C# est
+  généré ; pour le régénérer, extraire les motifs et les recoller dans la constante `All`.
+### Profil ICC de la condition d'impression (21 novembre 2026)
+
+- **Fichier** : `assets/icc/ISOcoated_v2_bas.ICC`, « ISO Coated v2 (basICColor) », incorporé dans `Marabook.Core` (ressource
+  `icc/ISOcoated_v2_bas.ICC`) avec sa licence (`assets/icc/LICENCE-basICColor.txt`).
+- **Source** : paquet Debian `icc-profiles-free` 2.4 (section *main*), `icc-profiles-basiccolor-printing2009/default_profiles/printing/`,
+  lu sur `sources.debian.org`. L'empreinte du fichier reçu est celle que publie l'API de Debian pour ce chemin.
+- **Empreinte SHA-256** : `7cdd1a643a1703fe62c30cd0cd2aba0fb01ae8d5a1ac985c8f8964ff73e4fae0` (1 052 608 octets). Elle est en dur dans
+  `src/Print/PdfX.cs` et vérifiée à chaque lecture : un fichier différent n'est jamais incorporé à un PDF.
+- **Licence** : zlib/libpng, © 2007-2010 basICColor GmbH — usage, modification et redistribution libres ; ne pas se dire l'auteur,
+  marquer une version modifiée, garder la notice. Le fichier est livré NON modifié.
+- **Ce qui a été contrôlé dans le fichier** : profil ICC v2.1, classe `prtr`, espace CMJN, PCS Lab ; la taille déclarée est celle du
+  fichier ; son identifiant MD5 interne se recalcule à l'identique ; 12 balises, toutes ordinaires (desc, cprt, wtpt, bkpt, A2B0-2,
+  B2A0-2, gamt, targ), toutes dans le fichier, 9 octets de remplissage hors balises, tous nuls ; aucun contenu étranger (ni
+  adresse web, ni script, ni exécutable, ni archive). La balise `targ` porte les 1 617 mesures de la caractérisation
+  **FOGRA39L** (papier 95 / 0 / −2 ; cyan 55 / −37 / −50 ; magenta 48 / 74 / −3 ; jaune 89 / −5 / 93 ; noir 16 / 0 / 0).
+  Encrage total maximal des tables de séparation : 330 %.
+- **Écartés** : « Coated FOGRA39 » d'Adobe (licence de distribution à contre-signer par l'utilisateur final, modification
+  interdite) et « ISO Coated v2 » de l'ECI (ni modification ni vente sans accord écrit ; *non-free* chez Debian).
+
+### PdfPig, dépendance téléchargée à la demande (21 novembre 2026)
+
+- **N'est PAS livrée avec Marabook.** Elle est téléchargée la première fois qu'un PDF est importé, après accord de l'auteur,
+  dans `<données>/dependances/pdfpig-0.1.16/`.
+- **Source unique** : `https://api.nuget.org/v3-flatcontainer/pdfpig/0.1.16/pdfpig.0.1.16.nupkg` (dépôt officiel NuGet ;
+  dépôt du projet : `github.com/UglyToad/PdfPig`, commit `a7bb35662bbbf405efddad50aedc9bcdcf515afc` d'après le nuspec). Licence Apache-2.0.
+- **Empreinte SHA-512 de l'archive** (base64) : `clPAR660u7oGMGO0+I4JAq3olrsbIcKO2m3JtAuOow+IbS62Pyfh00GFnG10Ngl2nizTS5+DsCSlndW6sLvNBQ==`,
+  16 710 625 octets — recoupée avec le `packageHash` du catalogue NuGet (`catalog0/data/2026.08.22.08.11.05/pdfpig.0.1.16.json`).
+- **Ce qui en est tiré** : six bibliothèques de `lib/net8.0/` (aucune dépendance déclarée pour net8.0), chacune à son SHA-256 :
+  - `UglyToad.PdfPig.dll` — `76b49537658d3ec0a56e33c9551c115136ea71ad3866815c24b34370b1d3861a`
+  - `UglyToad.PdfPig.Core.dll` — `35995ff06a995fff5237b25b992becea340d2a85af444f0f5cac6b39dc75af1c`
+  - `UglyToad.PdfPig.Fonts.dll` — `f1b8263824330714b9cb7d0876c12103e3af913f9474bc55ced078b5d5e56506`
+  - `UglyToad.PdfPig.Tokenization.dll` — `21f8d67bbe60f00f9f6b1bfc347c03db4606338a008e8d9d1dcf1073be7020d2`
+  - `UglyToad.PdfPig.Tokens.dll` — `75a1e796a4a25d0dc116b94e4a1bdd4ad1c3785bab362b911d6d26043856fa38`
+  - `UglyToad.PdfPig.Package.dll` — `5da6b80a0a23552806726801bf7f0a48521bb394268a6f9f8d4faf8da002682a`
+- **Garde-fous** (`src/Exchange/PdfPigPackage.cs`) : hôte et version en dur, HTTPS, aucune redirection suivie ; taille et SHA-512
+  de l'archive vérifiés avant toute écriture ; seuls les six fichiers nommés sont extraits, chacun vérifié ; les six sont
+  revérifiés à CHAQUE chargement. Monter de version = changer ces constantes après avoir refait ce relevé.
+
+### PDFium, dépendance téléchargée à la demande (21 novembre 2026)
+
+- **N'est PAS livré avec Marabook.** L'Atelier (PDFaah) le télécharge la première fois que Chop-Chop ou l'Unlocker en a
+  besoin, ou quand l'auteur clique « Installer », après son accord, dans `<données>/dependances/pdfium-160.0.8165/`.
+  Il se retire de la même page (« Désinstaller »).
+- **Ce que c'est** : le moteur PDF de Chromium (Google, BSD-3-Clause), compilé et publié chaque semaine par Benoît Blanchon
+  (`github.com/bblanchon/pdfium-binaries`, commit `83c18af693945b735503665259b728ba7d409fd0` d'après le nuspec ; binaires
+  sous Apache-2.0). Version `160.0.8165` = Chromium 8165, publiée sur NuGet le 16/11/2026.
+- **Source unique** : le dépôt officiel NuGet, un paquet par système —
+  `https://api.nuget.org/v3-flatcontainer/bblanchon.pdfium.{win32|linux|macos}/160.0.8165/…nupkg`.
+- **Empreintes SHA-512 des archives** (base64), recoupées avec le `packageHash` du catalogue NuGet de chacune :
+  - `bblanchon.pdfium.win32` — 11 367 600 octets — `bf5UskRyHdeDXnRX1h5MStuab1U8c4r2vd7JfY6OYn2cJvV/CMVfSknEO7qqmA5anGxQiAVVGEMhvdgNNjfsqw==`
+    (`catalog0/data/2026.11.16.17.42.29/bblanchon.pdfium.win32.160.0.8165.json`)
+  - `bblanchon.pdfium.linux` — 43 492 415 octets — `UeHyeQHanssVVZmIHa4XTCvUCfHTt4043LODXv4+BTJqPDvvftr6vOVji/2x3ENKfFMZeawEbsiYARfdHhV4jQ==`
+    (`catalog0/data/2026.11.16.17.48.40/bblanchon.pdfium.linux.160.0.8165.json`)
+  - `bblanchon.pdfium.macos` — 7 353 296 octets — `zwfBKEC/VaZOe5lj4iW8vNRItxpwwnT2lYaHhQ7CF+ySn+ndM4u5Cj/9cGoUNQ4CAPe5muCDZQavmqgASFAmgQ==`
+    (`catalog0/data/2026.11.16.17.41.15/bblanchon.pdfium.macos.160.0.8165.json`)
+- **Ce qui en est tiré** : UN fichier, la bibliothèque native du système et du processeur en cours
+  (`runtimes/<système>/native/…`), à son SHA-256 :
+  - `win-x64/pdfium.dll` — `31d249b8535dd5f351ae7f4b714dc4bb1d76b6069b321a309bc99271dd65f566`
+  - `win-arm64/pdfium.dll` — `9b1eb281e6f8b2da9f54fc71619198c90142adab2f57f5251a4824a08da621b3`
+  - `linux-x64/libpdfium.so` — `63b70290e3e88eff6b236a4c87cb58461b4fe9fae56217314eeda31aff741479`
+  - `linux-arm64/libpdfium.so` — `963309fe119e4614afb750bc6a4e35272bd5b8bad61fb84df282c9c821f7de8b`
+  - `osx-x64/libpdfium.dylib` — `fcbfee9dc7f895289fbfb8f7d1f0d5d643f60fcb790708425daaa0cfa64f330d`
+  - `osx-arm64/libpdfium.dylib` — `d421e426bd487de02fa3bd1f2aeaf56947261f790e6116951e26f729ced1b018`
+- **Second recoupement** : le `pdfium.dll` de `win-x64` a la même empreinte que celui de l'archive
+  `pdfium-win-x64.tgz` de la publication GitHub `chromium/8165` du même projet (deux canaux, un seul fichier).
+  Les cinq autres n'ont été recoupés qu'avec NuGet.
+- **Ce qui n'a PAS été fait** : aucun des six fichiers n'a été compilé ici, ni passé à un antivirus tiers ; seul
+  `win-x64` a été chargé et exercé (sonde `MARABOOK_PROBE_ONLY=atelier`). La version a cinq jours au moment du relevé.
+- **Garde-fous** (`src/Exchange/PdfiumPackage.cs`, `dotnet/Marabook.App/Pdfium.cs`) : hôte et version en dur, HTTPS, aucune
+  redirection suivie ; taille et SHA-512 de l'archive vérifiés avant toute écriture ; un seul fichier extrait, vérifié ;
+  revérifié à CHAQUE chargement, et chargé par son chemin complet (jamais cherché dans le système). Rien des fichiers de
+  l'auteur ne part : PDFium travaille en local. Monter de version = changer ces constantes après avoir refait ce relevé.
 
 ## Sources interdites
 
@@ -217,7 +303,31 @@ déjà couvertes par les empreintes). Le pont `marabook_grammar.py` reste
 le seul processus. À ne pas retirer du déploiement : `fr/thesaurus*.py`,
 `fr/conj*.py`, `fr/mfsp*.py`.
 
+### 20/11/2026 — le conjugueur, EPUBCheck, le Wiktionnaire : rien de neuf n'est embarqué
+
+- **Le conjugueur** (Édition › Conjugueur…, clic droit › « Conjuguer… »)
+  est une requête de plus du même pont (`{"conjugate": …}`), servie par
+  `marabook_style.conjugate` avec `fr/conj.py` — déjà dans le paquet.
+- **EPUBCheck** (le validateur officiel du W3C, licence BSD-3) n'est
+  **pas embarqué** : il lui faut Java. `src/Exchange/EpubCheckTool.cs` le
+  cherche sur la machine — le lanceur `epubcheck` dans le PATH, la
+  variable d'environnement `EPUBCHECK` (un `.jar` ou un lanceur), ou un
+  dossier `epubcheck-x.y.z` déballé dans `<données de Marabook>/outils`,
+  le dossier personnel ou les dossiers de programmes, avec `java` dans le
+  PATH ou `JAVA_HOME`. Rien n'est téléchargé ; sans lui, le contrôle de
+  structure maison (`EpubCheck.Verify`) reste seul.
+- **Le Wiktionnaire** n'est pas embarqué non plus (poids, licence
+  CC BY-SA des définitions) : clic droit › « Chercher … sur le
+  Wiktionnaire » ouvre `https://fr.wiktionary.org/wiki/<mot>` dans le
+  navigateur de l'utilisateur. C'est le seul moment où un mot du texte
+  quitte la machine, et seulement sur ce clic — l'infobulle le dit.
+
 ## Non vérifié
+
+- **EPUBCheck réel** : la lecture de son rapport JSON et la recherche de
+  l'outil sont testées (C83), et le test valide l'EPUB de Marabook avec
+  le vrai outil **quand il est installé** — il ne l'était pas sur la
+  machine de développement le 20/11/2026 : cette validation n'a pas été jouée.
 
 - Versions et URL amont déclarées chez Fedora, openSUSE et Arch.
 - Régénération complète des `.dic`/`.aff` depuis le lexique source :

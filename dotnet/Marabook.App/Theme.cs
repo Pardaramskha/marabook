@@ -108,7 +108,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(3, 2))));
             styles.Add(Style(x => x.OfType<MenuItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(4))));
             // Les filets des menus (1/11, Rémi : « pas visibles ») : un trait
             // d'un pixel en encre douce, de l'air au-dessus et au-dessous.
             styles.Add(Style(x => x.OfType<Separator>(),
@@ -120,24 +120,24 @@ namespace Marabook.App
             // gabarit Simple a des angles droits — coins 8, un peu d'air, un
             // filet. Les sous-menus (Popup d'un MenuItem) prennent les mêmes.
             styles.Add(Style(x => x.OfType<ContextMenu>(),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(8)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(4)),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1))));
             styles.Add(Style(x => x.OfType<ContextMenu>().Template().OfType<Border>(),
-                new Setter(Border.CornerRadiusProperty, new CornerRadius(8))));
+                new Setter(Border.CornerRadiusProperty, Skin.Corner(8))));
             styles.Add(Style(x => x.OfType<MenuItem>().Template().OfType<Popup>().Child().OfType<Border>(),
-                new Setter(Border.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(Border.CornerRadiusProperty, Skin.Corner(8)),
                 new Setter(Border.PaddingProperty, new Thickness(4))));
             // Le menu des zones de texte (10/10) : le flyout d'Avalonia (anglais,
             // angles droits) est remplacé par le nôtre, aux mêmes coins ronds.
             styles.Add(Style(x => x.OfType<MenuFlyoutPresenter>(),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(8)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(4)),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1))));
             styles.Add(Style(x => x.OfType<MenuFlyoutPresenter>().Template().OfType<Border>(),
-                new Setter(Border.CornerRadiusProperty, new CornerRadius(8))));
+                new Setter(Border.CornerRadiusProperty, Skin.Corner(8))));
 
             // Les séparateurs : la couleur du fond de fenêtre (invisibles au
             // repos), l'accent doux sous le pointeur.
@@ -159,7 +159,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(7, 3)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(Radius)),
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand)),
                 new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Center),
                 new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center)));
@@ -201,7 +201,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(7, 3)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(Radius)),
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand)),
                 new Setter(ContentControl.HorizontalContentAlignmentProperty, HorizontalAlignment.Center),
                 new Setter(ContentControl.VerticalContentAlignmentProperty, VerticalAlignment.Center)));
@@ -226,7 +226,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(Radius)),
                 new Setter(TemplatedControl.PaddingProperty, FieldPadding),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TextBox.CaretBrushProperty, Chrome.Ink),
@@ -246,7 +246,7 @@ namespace Marabook.App
             // ComboBox) ; les coins y sont posés directement (27/09) : le
             // thème de contrôle gardait ses angles droits.
             styles.Add(Style(x => x.OfType<TextBox>().Template().OfType<Border>().Name("border"),
-                new Setter(Border.CornerRadiusProperty, new CornerRadius(Radius))));
+                new Setter(Border.CornerRadiusProperty, Skin.Corner(Radius))));
             styles.Add(Style(x => x.OfType<TextBox>().Class(":pointerover").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.SoftText),
                 new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
@@ -278,11 +278,11 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(Radius)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 2, 2, 2)),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink)));
             styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Border>().Name("border"),
-                new Setter(Border.CornerRadiusProperty, new CornerRadius(Radius))));
+                new Setter(Border.CornerRadiusProperty, Skin.Corner(Radius))));
             styles.Add(Style(x => x.OfType<ComboBox>().Class(":pointerover").Template().OfType<Border>().Name("border"),
                 new Setter(Border.BorderBrushProperty, Chrome.SoftText),
                 new Setter(Border.BackgroundProperty, Chrome.FieldBg)));
@@ -299,7 +299,7 @@ namespace Marabook.App
             // accent-tint (le thème de base pose déjà les fonds de survol et
             // de sélection sur nos pinceaux d'accent).
             styles.Add(Style(x => x.OfType<ComboBox>().Template().OfType<Popup>().Child().OfType<Border>(),
-                new Setter(Border.CornerRadiusProperty, new CornerRadius(8)),
+                new Setter(Border.CornerRadiusProperty, Skin.Corner(8)),
                 new Setter(Border.PaddingProperty, new Thickness(4)),
                 new Setter(Border.BackgroundProperty, Chrome.FieldBg),
                 new Setter(Border.BorderBrushProperty, Chrome.Border),
@@ -320,7 +320,7 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<ComboBoxItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 4)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(4))));
             styles.Add(Style(x => x.OfType<ComboBoxItem>().Class(":selected"),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.AccentStrong)));
 
@@ -410,7 +410,7 @@ namespace Marabook.App
                 new Setter(Layoutable.MinWidthProperty, 170.0),
                 new Setter(Layoutable.MarginProperty, new Thickness(8, 2, 8, 2)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(12, 6)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(8))));
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(8))));
             styles.Add(Style(x => x.OfType<TabControl>().Class("column").Template().OfType<ItemsPresenter>().Name("PART_ItemsPresenter"),
                 new Setter(Layoutable.MarginProperty, new Thickness(0, 4, 8, 0))));
             // Encre et graisse sont posées sur l'EN-TÊTE (Bg), jamais sur le
@@ -420,7 +420,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(12)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(12)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(12, 4)),
                 new Setter(Layoutable.MarginProperty, new Thickness(3, 4, 0, 4)),
                 new Setter(TemplatedControl.FontSizeProperty, 13.0),
@@ -450,18 +450,34 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BackgroundProperty, Chrome.FieldBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Chrome.Border),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(Radius)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(2))));
             styles.Add(Style(x => x.OfType<ListBoxItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(6, 3)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4))));
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(4))));
+            // La ligne CHOISIE d'une liste, survolée avec le clavier dedans (21/11,
+            // Rémi : « Nouveau projet » en sombre) : le thème de base la passait à
+            // l'accent FORT — clair au sombre, sous une encre claire : illisible.
+            // Elle reste sur l'accent doux, comme la ligne choisie au repos.
+            styles.Add(Style(x => x.OfType<ListBoxItem>().Class(":selected").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(ContentPresenter.BackgroundProperty, Chrome.AccentTint)));
+            styles.Add(Style(x => x.OfType<ListBoxItem>().Class(":selected").Class(":focus").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(ContentPresenter.BackgroundProperty, Chrome.AccentSoft)));
+            styles.Add(Style(x => x.OfType<ListBoxItem>().Class(":selected").Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(ContentPresenter.BackgroundProperty, Chrome.AccentSoft)));
+            styles.Add(Style(x => x.OfType<ListBoxItem>().Class(":selected").Class(":focus").Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(ContentPresenter.BackgroundProperty, Chrome.AccentSoft)));
+            styles.Add(Style(x => x.OfType<ComboBoxItem>().Class(":selected").Class(":focus").Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(ContentPresenter.BackgroundProperty, Chrome.AccentSoft)));
+            styles.Add(Style(x => x.OfType<ComboBoxItem>().Class(":selected").Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(ContentPresenter.BackgroundProperty, Chrome.AccentSoft)));
             styles.Add(Style(x => x.OfType<TreeView>(),
                 new Setter(TemplatedControl.BackgroundProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0))));
             styles.Add(Style(x => x.OfType<TreeViewItem>(),
                 new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(Radius))));
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(Radius))));
             // La ligne choisie de l'arbre (30/09) : UNE bande d'accent-tint,
             // la même que l'arbre ait le clavier ou non et sous le pointeur
             // (le thème Simple fonçait la bande au focus et au survol : une
@@ -499,7 +515,7 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BackgroundProperty, TipBg),
                 new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent),
                 new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(0)),
-                new Setter(TemplatedControl.CornerRadiusProperty, new CornerRadius(4)),
+                new Setter(TemplatedControl.CornerRadiusProperty, Skin.Corner(4)),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 4, 8, 5)),
                 new Setter(TemplatedControl.ForegroundProperty, Brushes.White),
                 new Setter(TemplatedControl.FontSizeProperty, 11.0)));
@@ -508,6 +524,8 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<Slider>(),
                 new Setter(InputElement.CursorProperty, new Cursor(StandardCursorType.Hand))));
 
+            // ---- le skin (21/11) : ses styles par-dessus ; rien pour « modern ».
+            Skin.AddStyles(styles);
             return styles;
         }
 
@@ -603,7 +621,7 @@ namespace Marabook.App
                 Name = "Box",
                 Width = 16,
                 Height = 16,
-                CornerRadius = new CornerRadius(4),
+                CornerRadius = Skin.Corner(4),
                 BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = check

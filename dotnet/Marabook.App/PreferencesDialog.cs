@@ -16,12 +16,12 @@ using Marabook.Settings;
 namespace Marabook.App
 {
     /// <summary>Les Préférences (portées de View/PreferencesDialog.cs),
-    /// appliquées en direct. Onglets : Général (« Personnalisation » jusqu'à la 1.0.5), Édition, Correction,
-    /// Styles globaux, Catalogue de polices, Auteur, Raccourcis, DLC. Taille
+    /// appliquées en direct. Onglets : Projet, Personnalisation (« Général » de la 1.0.6 au 22/11), Profil, Édition, Correction,
+    /// Styles globaux, Catalogue de polices, Auteur, Accessibilité, Raccourcis, Dépendances, DLC. Taille
     /// unique, bornée à l'écran ; les chips se replient sur plusieurs rangées
     /// quand la fenêtre est étroite (WrapPanel). Tout est dans AppSettings.
     /// Styles globaux et Catalogue de polices ont leurs éditeurs (P2).</summary>
-    public class PreferencesDialog : Window
+    public partial class PreferencesDialog : Window
     {
         public event Action AppearanceChanged;
         /// <summary>Les onglets (1.1.0) : la bascule ou le plafond a changé.</summary>
@@ -76,14 +76,17 @@ namespace Marabook.App
             };
             Tabs.Classes.Add("column");
             _swatches = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
-            Tabs.Items.Add(Tab("Général", BuildPersonalizationTab())); // « Personnalisation » jusqu'à la 1.0.5 — l'en-tête seul change, aucun réglage n'est nommé d'après l'onglet
+            Tabs.Items.Add(Tab("Projet", BuildProjectTab(owner))); // le projet ouvert et les modèles (21/11) — le premier onglet
+            Tabs.Items.Add(Tab("Personnalisation", BuildPersonalizationTab())); // « Général » de la 1.0.6 au 22/11 — l'en-tête seul change, aucun réglage n'est nommé d'après l'onglet
             Tabs.Items.Add(Tab("Profil", BuildProfileTab())); // le profil d'utilisation (1.1.0)
             Tabs.Items.Add(Tab("Édition", BuildEditingTab()));
             Tabs.Items.Add(Tab("Correction", BuildProofingTab()));
             Tabs.Items.Add(Tab("Styles globaux", BuildGlobalStylesTab()));
             Tabs.Items.Add(Tab("Catalogue de polices", new FontCatalogTab()));
             Tabs.Items.Add(Tab("Auteur", BuildAuthorTab()));
+            Tabs.Items.Add(Tab("Accessibilité", BuildAccessibilityTab())); // 22/11
             Tabs.Items.Add(Tab("Raccourcis", BuildShortcutsTab()));
+            Tabs.Items.Add(Tab("Dépendances", BuildDependenciesTab())); // ce qui a été téléchargé (22/11)
             Tabs.Items.Add(Tab("DLC", BuildModulesTab()));
             AddModuleTabs();
             MindMapModules.ProviderChanged += OnProviderChanged;
@@ -596,8 +599,20 @@ namespace Marabook.App
 
         private Control BuildPersonalizationTab()
         {
-            var panel = TabPanel();
-            panel.Children.Add(Caption("Couleur d'accent"));
+            var page = TabPanel();
+            // 22/11 (Rémi) : un BLOC à bord arrondi par famille de réglages — le skin et ses
+            // couleurs ; le défilement, les animations et les sons ; les onglets ; le mode sombre ; la palette.
+            var panel = Group(page, "skin");
+            // LES SKINS (2.0.0, 21/11, Rémi) : le look général, en tête de l'onglet.
+            panel.Children.Add(Caption("Skin"));
+            panel.Children.Add(Note("Le look de toute l'application, des pages wiki des fiches et de l'Encyclopédie exportée (HTML et « PDF Encyclopédique »). Un skin ne change jamais un texte exporté : un PDF BAT, un Word ou un EPUB restent ce qu'ils sont."));
+            _skinCards = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left, Tag = "skins" };
+            panel.Children.Add(_skinCards);
+            _secondRow = new StackPanel { Margin = new Thickness(0, 10, 0, 0), Tag = "skin-second" };
+            panel.Children.Add(_secondRow);
+            RebuildSkins();
+
+            panel.Children.Add(Caption("Couleur d'accent", 18));
             panel.Children.Add(Note("Boutons, sélections, liens et repères prennent cette teinte."));
             RebuildSwatches();
             panel.Children.Add(_swatches);
@@ -621,7 +636,8 @@ namespace Marabook.App
             custom.Children.Add(reset);
             panel.Children.Add(custom);
 
-            panel.Children.Add(Caption("Défilement", 18));
+            panel = Group(page, "motion");
+            panel.Children.Add(Caption("Défilement"));
             var speedColumn = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
             var speedLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, Margin = new Thickness(0, 4, 0, 0) };
             var speed = new Slider
@@ -678,7 +694,8 @@ namespace Marabook.App
 
             // Les ONGLETS (1.1.0, 28/10, Rémi) : la bascule et le plafond, sans
             // aide — « Onglets maximum » entre WorkTabs.MinLimit et MaxLimit.
-            panel.Children.Add(Caption("Onglets", 18));
+            panel = Group(page, "tabs");
+            panel.Children.Add(Caption("Onglets"));
             var tabsOn = new CheckBox { Content = "Activer les onglets", IsChecked = AppSettings.TabsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "tabs-enabled" };
             tabsOn.IsCheckedChanged += delegate
             {
@@ -714,43 +731,8 @@ namespace Marabook.App
             tabsRow.Children.Add(new TextBlock { Text = "Onglets maximum", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
             panel.Children.Add(tabsRow);
 
-            // Les COPIES HORODATÉES (1.1.0, 30/10) : la bascule et l'intervalle
-            // minimal, sans infobulle (Rémi). Cinq copies, dans le dossier de
-            // données de Marabook — ni nombre ni dossier à régler. Le
-            // « .plot.bak » de la version d'avant est toujours écrit (caché),
-            // et retiré à la fermeture propre.
-            panel.Children.Add(Caption("Sauvegardes", 18));
-            var backupsOn = new CheckBox { Content = "Copies horodatées du projet", IsChecked = AppSettings.BackupsEnabled, Margin = new Thickness(0, 6, 0, 0), Tag = "backups-enabled" };
-            backupsOn.IsCheckedChanged += delegate
-            {
-                if (AppSettings.BackupsEnabled == (backupsOn.IsChecked == true)) return;
-                AppSettings.BackupsEnabled = backupsOn.IsChecked == true;
-                AppSettings.Save();
-            };
-            panel.Children.Add(backupsOn);
-            var backupRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-            var intervalBox = new TextBox { Width = 56, Text = AppSettings.BackupIntervalMinutes.ToString(), Tag = "backup-interval" };
-            Action commitBackups = delegate
-            {
-                int interval;
-                if (!int.TryParse((intervalBox.Text ?? "").Trim(), out interval)) interval = AppSettings.BackupIntervalMinutes;
-                interval = BackupPolicy.ClampInterval(interval);
-                intervalBox.Text = interval.ToString();
-                if (interval == AppSettings.BackupIntervalMinutes) return;
-                AppSettings.BackupIntervalMinutes = interval;
-                AppSettings.Save();
-            };
-            intervalBox.LostFocus += delegate { commitBackups(); };
-            intervalBox.KeyDown += delegate(object sender, KeyEventArgs e)
-            {
-                if (e.Key == Key.Return || e.Key == Key.Enter) { commitBackups(); e.Handled = true; }
-            };
-            backupRow.Children.Add(intervalBox);
-            backupRow.Children.Add(new TextBlock { Text = "minutes au moins entre deux copies", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) });
-            panel.Children.Add(backupRow);
-            panel.Children.Add(Note("Les " + Backups.Keep + " dernières copies de chaque projet sont gardées dans le dossier de Marabook, jamais à côté de vos fichiers ; Fichier › Ouvrir le dossier des sauvegardes y mène. Chaque copie est un .plot complet qui s'ouvre comme un autre. Si le projet est illisible, Marabook propose d'abord la version d'avant, puis ces copies.", 6, 0));
-
-            panel.Children.Add(Caption("Mode sombre", 18));
+            panel = Group(page, "dark");
+            panel.Children.Add(Caption("Mode sombre"));
             _darkCheck = new CheckBox { Content = "Mode sombre", IsChecked = AppSettings.DarkTheme, Margin = new Thickness(0, 6, 0, 0) };
             ToolTip.SetTip(_darkCheck, "(" + AppSettings.DisplayGesture(AppSettings.Gesture("dark-theme") ?? "") + ")");
             _darkCheck.IsCheckedChanged += delegate
@@ -770,8 +752,192 @@ namespace Marabook.App
             };
             panel.Children.Add(_whitePaper);
             panel.Children.Add(Note("La vue Composition, l'aperçu et le PDF sont toujours noir sur blanc.", 4, 0, 22));
-            return panel;
+
+            BuildPaletteSection(Group(page, "palette"));
+            return page;
         }
+
+        // ------------------------------------------------------------ skins (21/11)
+
+        private WrapPanel _skinCards;
+        private StackPanel _secondRow;
+
+        /// <summary>Les cinq cartes de skin (celle en cours cerclée d'accent) et, pour
+        /// les skins à deux couleurs, le choix de la seconde.</summary>
+        private void RebuildSkins()
+        {
+            _skinCards.Children.Clear();
+            var current = Skin.Current;
+            foreach (var id in Skins.Ids)
+            {
+                var skinId = id;
+                var selected = id == current;
+                var column = new StackPanel();
+                column.Children.Add(SkinPreview(id));
+                column.Children.Add(new TextBlock { Text = Skins.Label(id), FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink, Margin = new Thickness(0, 7, 0, 1) });
+                column.Children.Add(new TextBlock { Text = Skins.Description(id), Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+                var card = new Border
+                {
+                    Width = 178,
+                    Margin = new Thickness(0, 4, 10, 6),
+                    Padding = new Thickness(8),
+                    CornerRadius = new CornerRadius(8),
+                    Background = Chrome.CardBg,
+                    BorderBrush = selected ? (IBrush)Chrome.Accent : Chrome.Border,
+                    BorderThickness = new Thickness(selected ? 2 : 1),
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Child = column,
+                    Tag = "skin:" + id
+                };
+                card.PointerReleased += delegate { SetSkin(skinId); };
+                _skinCards.Children.Add(card);
+            }
+
+            _secondRow.Children.Clear();
+            _secondRow.IsVisible = current == Skins.Gradient || current == Skins.Cyberpunk;
+            if (!_secondRow.IsVisible) return;
+            var accent = AppSettings.AccentColor ?? Chrome.DefaultAccent;
+            var auto = AppSettings.SkinAccent2 == null;
+            var effective = Skins.SecondFor(accent, AppSettings.SkinAccent2);
+            _secondRow.Children.Add(new TextBlock { Text = current == Skins.Gradient ? "Seconde couleur du dégradé" : "Seconde couleur des néons", Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 4) });
+            var line = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            var autoCheck = new CheckBox { Content = "Automatique", IsChecked = auto, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0), Tag = "skin-second-auto" };
+            ToolTip.SetTip(autoCheck, "Marabook choisit la couleur qui va avec votre couleur d'accent : sa voisine sur le cercle des teintes.");
+            autoCheck.IsCheckedChanged += delegate
+            {
+                var wanted = autoCheck.IsChecked == true;
+                if (wanted == (AppSettings.SkinAccent2 == null)) return;
+                SetSecond(wanted ? null : Skins.AutoSecond(AppSettings.AccentColor ?? Chrome.DefaultAccent));
+            };
+            line.Children.Add(autoCheck);
+            foreach (var entry in Accents)
+            {
+                var hex = entry[0];
+                var chosen = !auto && string.Equals(hex, AppSettings.SkinAccent2, StringComparison.OrdinalIgnoreCase);
+                var swatch = new Border
+                {
+                    Width = 24, Height = 24, Margin = new Thickness(2), CornerRadius = new CornerRadius(6),
+                    Background = new SolidColorBrush(Chrome.ToColor(Ink.Parse(hex))),
+                    BorderBrush = chosen ? (IBrush)Chrome.Ink : Chrome.Border,
+                    BorderThickness = new Thickness(chosen ? 2.5 : 1),
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Tag = "skin-second-swatch"
+                };
+                ToolTip.SetTip(swatch, entry[1] + " — " + hex);
+                var hexRef = hex;
+                swatch.PointerReleased += delegate { SetSecond(hexRef); };
+                line.Children.Add(swatch);
+            }
+            var box = new TextBox { Width = 86, Text = effective, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Tag = "skin-second-hex" };
+            ToolTip.SetTip(box, "Une couleur personnalisée : #RRGGBB, puis Entrée");
+            box.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.Key != Key.Return && e.Key != Key.Enter) return;
+                var text = (box.Text ?? "").Trim().ToUpperInvariant();
+                if (Skins.IsHex(text)) SetSecond(text);
+                e.Handled = true;
+            };
+            line.Children.Add(box);
+            _secondRow.Children.Add(line);
+            var sample = new Border
+            {
+                Height = 14, Width = 320, HorizontalAlignment = HorizontalAlignment.Left, CornerRadius = new CornerRadius(7), Margin = new Thickness(0, 8, 0, 0),
+                Background = Horizontal(Chrome.ToColor(Ink.Parse(accent)), Chrome.ToColor(Ink.Parse(effective))),
+                Tag = "skin-second-sample"
+            };
+            _secondRow.Children.Add(sample);
+            _secondRow.Children.Add(Note(auto ? "Automatique : " + effective + ", la voisine de votre couleur d'accent." : "Choisie : " + effective + ".", 4, 0));
+        }
+
+        private static IBrush Horizontal(Color from, Color to)
+        {
+            var brush = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative) };
+            brush.GradientStops.Add(new GradientStop(from, 0));
+            brush.GradientStops.Add(new GradientStop(to, 1));
+            return brush;
+        }
+
+        /// <summary>La vignette d'un skin : son fond, une « fenêtre », un bouton — en couleurs FIGÉES
+        /// (elle montre le skin, pas celui qui est en cours).</summary>
+        private static Control SkinPreview(string id)
+        {
+            var accent = Chrome.ToColor(Ink.Parse(AppSettings.AccentColor ?? Chrome.DefaultAccent));
+            var second = Chrome.ToColor(Ink.Parse(Skins.SecondFor(AppSettings.AccentColor ?? Chrome.DefaultAccent, AppSettings.SkinAccent2)));
+            IBrush ground, paper, button;
+            IBrush line = new SolidColorBrush(Color.FromRgb(0xD3, 0xD7, 0xE3));
+            double radius = 4;
+            if (id == Skins.Classic)
+            {
+                ground = new SolidColorBrush(Color.FromRgb(0x80, 0x80, 0x80));
+                paper = new SolidColorBrush(Color.FromRgb(0xEC, 0xE9, 0xD8));
+                button = Skin.Linear(Color.FromRgb(0xFF, 0xFF, 0xFF), Color.FromRgb(0xD6, 0xD0, 0xC0), false);
+                line = new SolidColorBrush(Color.FromRgb(0x71, 0x6F, 0x64));
+                radius = 0;
+            }
+            else if (id == Skins.Gradient)
+            {
+                ground = Skin.Linear(Chrome.Blend(accent, Colors.White, 0.55), Chrome.Blend(second, Colors.White, 0.45), true);
+                paper = new SolidColorBrush(Color.FromArgb(0xC8, 0xFF, 0xFF, 0xFF));
+                button = Skin.Linear(accent, second, true);
+                line = Brushes.Transparent;
+                radius = 7;
+            }
+            else if (id == Skins.Eden)
+            {
+                ground = Skin.Linear(Color.FromRgb(0xE9, 0xD9, 0xB5), Color.FromRgb(0xC2, 0x9A, 0x62), true);
+                paper = new SolidColorBrush(Color.FromRgb(0xF6, 0xEB, 0xD0));
+                button = new SolidColorBrush(Color.FromRgb(0x6B, 0x54, 0x40));
+                line = new SolidColorBrush(Color.FromRgb(0xA9, 0x8F, 0x63));
+                radius = 2;
+            }
+            else if (id == Skins.Cyberpunk)
+            {
+                ground = new SolidColorBrush(Color.FromRgb(0x07, 0x06, 0x0D));
+                paper = new SolidColorBrush(Color.FromRgb(0x11, 0x0E, 0x1F));
+                button = new SolidColorBrush(Chrome.Tint(Chrome.HueOf(accent), 1.0, 0.64));
+                line = new SolidColorBrush(Chrome.Tint(Chrome.HueOf(second), 1.0, 0.60));
+                radius = 1;
+            }
+            else
+            {
+                ground = new SolidColorBrush(Color.FromRgb(0xE2, 0xE5, 0xEE));
+                paper = new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF));
+                button = new SolidColorBrush(accent);
+            }
+            var inner = new Panel();
+            inner.Children.Add(new Border { Width = 46, Height = 9, CornerRadius = new CornerRadius(radius), Background = button, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 7, 6) });
+            inner.Children.Add(new Border { Width = 70, Height = 4, Background = line, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, 9, 0, 0) });
+            inner.Children.Add(new Border { Width = 50, Height = 4, Background = line, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(8, 18, 0, 0), Opacity = 0.7 });
+            var window = new Border { Background = paper, BorderBrush = line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(radius), Margin = new Thickness(14, 9, 14, 9), Child = inner };
+            // Hauteur ≠ largeur et coins figés : l'habillage du skin EN COURS ne retouche pas la vignette d'un autre.
+            return new Border { Height = 64, Background = ground, CornerRadius = new CornerRadius(0), ClipToBounds = true, Child = window, Tag = "skin-preview" };
+        }
+
+        internal void SetSkin(string id)
+        {
+            id = Skins.Normalize(id);
+            if (id == Skin.Current) return;
+            AppSettings.Skin = id == Skins.Modern ? null : id;
+            // « Sombre par défaut » : choisir le skin passe au sombre ; on en ressort par la case, comme toujours.
+            if (Skins.DarkByDefault(id) && !AppSettings.DarkTheme)
+            {
+                AppSettings.DarkTheme = true;
+                if (_darkCheck != null) _darkCheck.IsChecked = true;
+            }
+            RaiseAppearanceChanged();
+            RebuildSkins();
+            RebuildSwatches();
+        }
+
+        internal void SetSecond(string hex)
+        {
+            AppSettings.SkinAccent2 = Skins.IsHex(hex) ? hex.ToUpperInvariant() : null;
+            RaiseAppearanceChanged();
+            RebuildSkins();
+        }
+
+        internal int SkinCardsForProbe { get { return _skinCards.Children.Count; } }
+        internal bool SecondRowShownForProbe { get { return _secondRow.IsVisible; } }
 
         /// <summary>La grille des pastilles, l'accent courant cerclé d'encre.</summary>
         private void RebuildSwatches()
@@ -808,6 +974,7 @@ namespace Marabook.App
             AppSettings.AccentColor = hex;
             RebuildSwatches();
             RaiseAppearanceChanged();
+            if (_skinCards != null) RebuildSkins(); // les vignettes et la seconde couleur automatique suivent l'accent
         }
 
         private void RaiseAppearanceChanged()

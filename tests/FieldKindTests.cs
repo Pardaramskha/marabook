@@ -13,7 +13,29 @@ namespace Marabook.Tests
         {
             t.Suite("C25 — natures de champ (b47 bis)");
 
-            t.Equal(8, FieldKinds.All.Length, "huit natures");
+            t.Equal(12, FieldKinds.All.Length, "douze natures (quatre de plus le 21/11)");
+
+            // 21/11 — oui/non, couleur, choix multiple, coordonnées.
+            t.Check(FieldKinds.BoolOf("oui") == true && FieldKinds.BoolOf("Non") == false && FieldKinds.BoolOf("") == null && FieldKinds.BoolOf("peut-être") == null, "oui / non / pas renseigné");
+            t.Equal("Oui", FieldKinds.Display(FieldKinds.Bool, "oui", null), "un oui se lit « Oui »");
+            t.Equal("Non", FieldKinds.Display(FieldKinds.Bool, "non", null), "un non se lit « Non »");
+            t.Equal("", FieldKinds.Display(FieldKinds.Bool, "", null), "pas renseigné : rien");
+            t.Equal("#A1B2C3", FieldKinds.ColorOf("a1b2c3"), "une couleur sans croisillon");
+            t.Equal("#AABBCC", FieldKinds.ColorOf("#abc"), "une couleur à trois chiffres");
+            t.Check(FieldKinds.ColorOf("rouge") == null && FieldKinds.ColorOf("#12345") == null, "ce qui n'est pas un code ne se lit pas");
+            t.Equal("rouge", FieldKinds.Display(FieldKinds.Color, "rouge", null), "…mais reste écrit");
+            t.Equal("feu · glace", FieldKinds.Display(FieldKinds.Multi, "feu, glace", null), "un choix multiple se lit comme une liste");
+            t.Check(FieldKinds.HasOptions(FieldKinds.Multi) && FieldKinds.HasOptions(FieldKinds.Choice) && !FieldKinds.HasOptions(FieldKinds.List), "choix et choix multiple portent des options");
+            double lat, lon;
+            t.Check(FieldKinds.TryCoords("48,85 ; 2,35", out lat, out lon) && Math.Abs(lat - 48.85) < 1e-9 && Math.Abs(lon - 2.35) < 1e-9, "« 48,85 ; 2,35 »");
+            t.Check(FieldKinds.TryCoords("48.85, 2.35", out lat, out lon) && Math.Abs(lat - 48.85) < 1e-9, "« 48.85, 2.35 »");
+            t.Check(FieldKinds.TryCoords("48.85,2.35", out lat, out lon) && Math.Abs(lon - 2.35) < 1e-9, "« 48.85,2.35 »");
+            t.Check(FieldKinds.TryCoords("33,9° S ; 18,4° O", out lat, out lon) && lat < 0 && lon < 0, "S et O sont négatifs");
+            t.Check(!FieldKinds.TryCoords("95 ; 10", out lat, out lon) && !FieldKinds.TryCoords("48,85", out lat, out lon) && !FieldKinds.TryCoords("ici ; là", out lat, out lon), "hors bornes, incomplet, illisible");
+            t.Equal("48.85;2.35", FieldKinds.CoordsValue(48.85, 2.35), "la valeur enregistrée");
+            t.Equal("48,85° N · 2,35° E", FieldKinds.Display(FieldKinds.Coords, "48.85;2.35", null), "des coordonnées se lisent en degrés");
+            t.Equal("33,9° S · 18,4° O", FieldKinds.Display(FieldKinds.Coords, "-33.9;-18.4", null), "au sud et à l'ouest");
+            t.Equal("quelque part", FieldKinds.Display(FieldKinds.Coords, "quelque part", null), "des coordonnées illisibles restent écrites");
             t.Equal("text", FieldKinds.Normalize(null), "null vaut texte");
             t.Equal("text", FieldKinds.Normalize("hologramme"), "une nature inconnue vaut texte");
             t.Equal("rating", FieldKinds.Normalize("rating"), "une nature connue reste");

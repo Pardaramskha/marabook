@@ -67,7 +67,7 @@ namespace Marabook.Tests
             "an-ti-cons-ti-tu-tion-nel-le-ment", "dé-ve-lop-pe-ment", "gou-ver-ne-ment",
             "in-ter-na-tio-nal", "res-pon-sa-bi-lité", "par-ti-cu-liè-re-ment",
             "mal-heu-reu-se-ment", "ad-mi-nis-tra-tion", "bi-blio-thèque",
-            "uni-ver-sité", "lit-té-ra-ture", "tem-pé-ra-ture", "ex-traor-di-naire",
+            "uni-ver-sité", "lit-té-ra-ture", "tem-pé-ra-ture", "ex-tra-or-di-naire", // extra-ordinaire : la coupe étymologique entre les deux voyelles (motifs de Liang, 20/11)
             "ap-par-te-ment", "en-vi-ron-ne-ment", "in-for-ma-tique", "or-di-na-teur",
             "im-pri-mante", "com-po-si-teur", "ty-po-gra-phie", "jus-ti-fi-ca-tion",
             "pa-ra-graphe", "ma-nus-crit", "cha-pi-tre", "brouil-lon", "écri-ture",

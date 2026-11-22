@@ -52,6 +52,15 @@
 #                                  "words": ["accomplissait", ...]}, ...]}
 #     (synonymes FLÉCHIS comme le mot demandé quand le conjugueur ou les
 #     tables de flexion le permettent ; vide si le mot est inconnu.)
+#
+# ---- LE CONJUGUEUR (20/11) :
+#   {"id": <entier>, "conjugate": "<verbe ou forme conjuguée>",
+#    "options": {"pronominal": false, "negative": false, "compound": false,
+#                "interrogative": false, "feminine": false}}
+#   → {"id": <entier>, "verb": "manger", "info": "1ᵉʳ groupe · transitif…",
+#      "lemmas": ["manger"], "pronominal": 0, "usedPronominal": false,
+#      "table": {"t_ipre": "Présent", "ipre1": "je mange", ...}}
+#     (verb vide : le mot n'est pas un verbe connu.)
 # ==============================================================================
 
 import contextlib
@@ -133,6 +142,13 @@ def main():
                 groups = marabook_style.synonyms(request.get("synonyms") or "")
                 print(json.dumps({"id": request_id, "groups": groups},
                                  ensure_ascii=False), flush=True)
+                continue
+            if "conjugate" in request:
+                import marabook_style
+                answer = marabook_style.conjugate(request.get("conjugate") or "",
+                                                  request.get("options"))
+                answer["id"] = request_id
+                print(json.dumps(answer, ensure_ascii=False), flush=True)
                 continue
             text = request.get("text", "")
             options = request.get("options") or None

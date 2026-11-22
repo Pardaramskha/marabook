@@ -159,6 +159,17 @@ namespace Marabook.App
         private readonly TextBox _description;
         private List<BinderItem> _linkItems = new List<BinderItem>();
         private TimelineEventResult _result;
+        // 21/11 : plusieurs éléments (des puces, la première = l'élément principal), un lieu, des tags.
+        private readonly List<EventLink> _links = new List<EventLink>();
+        private readonly WrapPanel _chips;
+        private bool _picking;
+        private readonly ComboBox _place;
+        private readonly List<EventPlace> _places = new List<EventPlace>();
+        private readonly TextBox _tags;
+        private readonly WrapPanel _tagChips;
+        private readonly List<string> _tagList = new List<string>();
+        private bool _splittingTags;
+        private List<string> _linkLabels = new List<string>();
 
         // Une brique NÉE D'UNE FICHE (naissance, décès — 16/11, Rémi) : seule sa date
         // se change ici, et c'est le champ de la fiche qui la reçoit.
@@ -222,20 +233,87 @@ namespace Marabook.App
             _endLabel.IsVisible = entry.IsSpan;
             _end.IsVisible = entry.IsSpan;
 
-            panel.Children.Add(TimelineUi.Label("Assigner à :"));
+            var linkLabel = TimelineUi.Label("Relier à :");
+            panel.Children.Add(linkLabel);
+            _chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 2), Tag = "event-links" };
+            panel.Children.Add(_chips);
             var linkRow = new Grid { ColumnDefinitions = new ColumnDefinitions("170,8,*") };
             _linkKind = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch };
-            _linkKind.Items.Add("Rien");
+            _linkKind.Items.Add("Tout");
             foreach (var kind in TimelineLinks.Kinds) _linkKind.Items.Add(TimelineLinks.Label(kind));
-            _linkItem = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, PlaceholderText = "Choisir l'élément" };
+            ToolTip.SetTip(_linkKind, "Ne proposer que les éléments d'une sorte : fiches, écrits, livres…");
+            // Un AUTOCOMPLÈTE (21/11, Rémi) : on tape quelques lettres du nom, la liste se réduit, Entrée relie.
+            _linkItem = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, PlaceholderText = "Taper un nom…", IsEditable = true, Tag = "event-link-search" };
+            ToolTip.SetTip(_linkItem, "Tapez quelques lettres du nom : la liste se réduit à ce qui les contient, Entrée ou un clic relie l'élément");
             Grid.SetColumn(_linkItem, 2);
             linkRow.Children.Add(_linkKind);
             linkRow.Children.Add(_linkItem);
             panel.Children.Add(linkRow);
-            panel.Children.Add(TimelineUi.Hint("La sorte d'abord, l'élément ensuite : la brique y mène d'un clic, et l'élément retrouve ses dates."));
-            _linkKind.SelectedIndex = entry.LinkKind == null ? 0 : Math.Max(0, Array.IndexOf(TimelineLinks.Kinds, entry.LinkKind) + 1);
-            FillLinkItems(entry.LinkId);
+            var linkHint = TimelineUi.Hint("Tapez le nom d'une fiche, d'un écrit, d'un livre… Un événement peut en relier plusieurs : chacun y mène d'un clic et retrouve ses dates.");
+            panel.Children.Add(linkHint);
+            _links.AddRange(Timelines.LinksOf(entry));
+            _linkKind.SelectedIndex = 0;
+            FillLinkItems(null);
+            RebuildChips();
             _linkKind.SelectionChanged += delegate { FillLinkItems(null); };
+            _linkItem.SelectionChanged += delegate { PickLink(); };
+            Suggestions.Attach(_linkItem, delegate { return _linkLabels; }, delegate(string chosen)
+            {
+                var found = _linkLabels.FindIndex(delegate(string label) { return string.Equals(label, chosen, StringComparison.CurrentCultureIgnoreCase); });
+                if (found >= 0) _linkItem.SelectedIndex = found;
+            }, true, true);
+
+            // Le lieu : un repère ou une zone d'une carte. La ligne n'existe que si le projet en a.
+            var placeLabel = TimelineUi.Label("Lieu :");
+            _place = new ComboBox { HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "event-place" };
+            ToolTip.SetTip(_place, "Le repère ou la zone de carte où l'événement se passe. On les crée dans Cartes.");
+            _place.Items.Add("Aucun");
+            _places.AddRange(Timelines.Places(project));
+            foreach (var place in _places) _place.Items.Add(place.Label);
+            var placeIndex = _places.FindIndex(delegate(EventPlace p) { return p.Map.Id == entry.PlaceMapId && p.ShapeId == entry.PlaceShapeId; });
+            _place.SelectedIndex = placeIndex + 1;
+            placeLabel.IsVisible = _places.Count > 0;
+            _place.IsVisible = _places.Count > 0;
+            panel.Children.Add(placeLabel);
+            panel.Children.Add(_place);
+
+            var tagsLabel = TimelineUi.Label("Tags :");
+            panel.Children.Add(tagsLabel);
+            // Des PUCES (21/11, Rémi) : une virgule ou Entrée pose le tag ; sa croix le retire.
+            _tagChips = new WrapPanel { Margin = new Thickness(0, 0, 0, 2), Tag = "event-tag-chips" };
+            panel.Children.Add(_tagChips);
+            _tags = new TextBox { Watermark = "Facultatif — un tag, puis une virgule ou Entrée", Tag = "event-tags" };
+            ToolTip.SetTip(_tags, "Des mots libres pour regrouper des événements : une virgule ou Entrée pose le tag. Le menu « Types » de la frise permet ensuite de n'en montrer qu'un.");
+            panel.Children.Add(_tags);
+            if (entry.Tags != null) _tagList.AddRange(entry.Tags);
+            RebuildTagChips();
+            _tags.TextChanged += delegate
+            {
+                if (_splittingTags) return;
+                var typed = _tags.Text ?? "";
+                var cut = typed.LastIndexOfAny(new[] { ',', ';' });
+                if (cut < 0) return;
+                AddTags(typed.Substring(0, cut));
+                _splittingTags = true;
+                _tags.Text = typed.Substring(cut + 1).TrimStart();
+                _tags.CaretIndex = (_tags.Text ?? "").Length;
+                _splittingTags = false;
+            };
+            _tags.AddHandler(KeyDownEvent, delegate(object sender, Avalonia.Input.KeyEventArgs e)
+            {
+                if (e.Key == Avalonia.Input.Key.Enter && (_tags.Text ?? "").Trim().Length > 0)
+                {
+                    CommitTags();
+                    e.Handled = true; // Entrée pose le tag ; elle ne valide la fenêtre que le champ vide
+                }
+                else if (e.Key == Avalonia.Input.Key.Back && (_tags.Text ?? "").Length == 0 && _tagList.Count > 0)
+                {
+                    _tagList.RemoveAt(_tagList.Count - 1);
+                    RebuildTagChips();
+                    e.Handled = true;
+                }
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            _tags.LostFocus += delegate { CommitTags(); };
 
             panel.Children.Add(TimelineUi.Label("Description :"));
             _description = new TextBox { Text = entry.Description ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 84 };
@@ -249,10 +327,8 @@ namespace Marabook.App
             {
                 // Tout ce qui n'est pas la date appartient à la fiche : montré, pas modifiable.
                 var typeLabel = (Control)panel.Children[panel.Children.IndexOf(_type) - 1];
-                var linkLabel = (Control)panel.Children[panel.Children.IndexOf(linkRow) - 1];
-                var linkHint = (Control)panel.Children[panel.Children.IndexOf(linkRow) + 1];
                 var descriptionLabel = (Control)panel.Children[panel.Children.IndexOf(_description) - 1];
-                foreach (var hidden in new Control[] { typeLabel, _type, _span, linkLabel, linkRow, linkHint, descriptionLabel, _description }) hidden.IsVisible = false;
+                foreach (var hidden in new Control[] { typeLabel, _type, _span, linkLabel, _chips, linkRow, linkHint, placeLabel, _place, tagsLabel, _tagChips, _tags, descriptionLabel, _description }) hidden.IsVisible = false;
                 _title.IsReadOnly = true;
                 _title.Focusable = false;
                 _title.Opacity = 0.75;
@@ -296,15 +372,113 @@ namespace Marabook.App
 
         private void FillLinkItems(string selectedId)
         {
+            _picking = true;
+            _linkItem.SelectedIndex = -1;
             _linkItem.Items.Clear();
+            _picking = false;
             _linkItems = new List<BinderItem>();
+            _linkLabels = new List<string>();
             var index = _linkKind.SelectedIndex;
-            _linkItem.IsEnabled = index > 0;
-            if (index <= 0) return;
-            _linkItems = TimelineLinks.ItemsOf(_project, TimelineLinks.Kinds[index - 1]);
-            foreach (var item in _linkItems) _linkItem.Items.Add(item.Title);
+            // « Tout » : chaque élément dit sa sorte ; une sorte choisie : les noms seuls.
+            if (index <= 0) foreach (var kind in TimelineLinks.Kinds) _linkItems.AddRange(TimelineLinks.ItemsOf(_project, kind));
+            else _linkItems = TimelineLinks.ItemsOf(_project, TimelineLinks.Kinds[index - 1]);
+            var seen = new Dictionary<string, int>(StringComparer.CurrentCultureIgnoreCase);
+            foreach (var item in _linkItems)
+            {
+                var label = (item.Title ?? "").Trim();
+                if (label.Length == 0) label = "(sans titre)";
+                if (index <= 0) label += "  —  " + TimelineLinks.Label(TimelineLinks.KindFor(item));
+                int times;
+                seen[label] = seen.TryGetValue(label, out times) ? times + 1 : 1;
+                if (seen[label] > 1) label += "  (" + seen[label] + ")"; // deux homonymes restent distincts
+                _linkLabels.Add(label);
+                _linkItem.Items.Add(label);
+            }
             var found = selectedId == null ? -1 : _linkItems.FindIndex(delegate(BinderItem b) { return b.Id == selectedId; });
+            _picking = true;
             _linkItem.SelectedIndex = found;
+            _picking = false;
+        }
+
+        /// <summary>Un élément choisi dans la liste rejoint les puces ; la
+        /// liste se remet à « Choisir l'élément » pour le suivant.</summary>
+        private void PickLink()
+        {
+            if (_picking) return;
+            var item = _linkItem.SelectedIndex;
+            if (item < 0 || item >= _linkItems.Count) return;
+            var id = _linkItems[item].Id;
+            var kind = TimelineLinks.KindFor(_linkItems[item]);
+            if (kind != null && _links.Count < Timelines.MaxElements && !_links.Exists(delegate(EventLink l) { return l.Id == id; }))
+                _links.Add(new EventLink(kind, id));
+            RebuildChips();
+            _picking = true;
+            _linkItem.SelectedIndex = -1;
+            _linkItem.Text = "";
+            _picking = false;
+            // Le ComboBox réécrit son texte après son propre changement de sélection : on le vide une fois son tour passé.
+            Ui.Post(Avalonia.Threading.DispatcherPriority.Background, delegate { if (_linkItem.SelectedIndex < 0) _linkItem.Text = ""; });
+        }
+
+        /// <summary>Ce qui est saisi devient des tags (virgule, point-virgule), sans doublon.</summary>
+        private void AddTags(string text)
+        {
+            var all = new List<string>(_tagList);
+            all.AddRange(Timelines.ParseTags(text));
+            var clean = Timelines.ParseTags(string.Join(",", all.ToArray()));
+            _tagList.Clear();
+            _tagList.AddRange(clean);
+            RebuildTagChips();
+        }
+
+        /// <summary>Le texte en attente dans le champ rejoint les puces.</summary>
+        private void CommitTags()
+        {
+            var pending = (_tags.Text ?? "").Trim();
+            if (pending.Length == 0) return;
+            AddTags(pending);
+            _splittingTags = true;
+            _tags.Text = "";
+            _splittingTags = false;
+        }
+
+        private void RebuildTagChips()
+        {
+            _tagChips.Children.Clear();
+            for (var i = 0; i < _tagList.Count; i++)
+            {
+                var tag = _tagList[i];
+                var chip = FieldEditors.Chip("#" + tag, delegate { _tagList.Remove(tag); RebuildTagChips(); });
+                chip.Tag = "event-tag-chip";
+                _tagChips.Children.Add(chip);
+            }
+            _tagChips.IsVisible = _tagList.Count > 0;
+        }
+
+        /// <summary>Les puces des éléments reliés : le nom, sa sorte en
+        /// infobulle, une croix pour le retirer.</summary>
+        private void RebuildChips()
+        {
+            _chips.Children.Clear();
+            foreach (var link in _links)
+            {
+                var captured = link;
+                var item = _project == null ? null : _project.FindById(link.Id);
+                var row = new StackPanel { Orientation = Orientation.Horizontal };
+                row.Children.Add(new TextBlock { Text = item == null ? "(élément disparu)" : item.Title, FontSize = 12, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, MaxWidth = 240, TextTrimming = TextTrimming.CharacterEllipsis });
+                var cross = new Button { Content = "✕", FontSize = 10, Padding = new Thickness(5, 0, 5, 1), Margin = new Thickness(5, 0, 0, 0), MinHeight = 0, MinWidth = 0, Height = 18, Focusable = false, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Tag = "event-link-remove" };
+                ToolTip.SetTip(cross, "Ne plus relier cet élément à l'événement");
+                cross.Click += delegate { _links.Remove(captured); RebuildChips(); };
+                row.Children.Add(cross);
+                var chip = new Border
+                {
+                    Child = row, Padding = new Thickness(9, 2, 3, 2), Margin = new Thickness(0, 0, 6, 6), CornerRadius = new CornerRadius(11),
+                    Background = Chrome.AccentTint, BorderBrush = Chrome.Border, BorderThickness = new Thickness(1), Tag = "event-link-chip"
+                };
+                ToolTip.SetTip(chip, TimelineLinks.Label(link.Kind));
+                _chips.Children.Add(chip);
+            }
+            _chips.IsVisible = _links.Count > 0;
         }
 
         private string Problem()
@@ -352,14 +526,12 @@ namespace Marabook.App
             _entry.PendingStart = null; // une date lisible : la brique retrouve l'axe
             _entry.PendingEnd = null;
             _entry.End = _span.IsChecked == true ? _end.Point : null;
-            var kind = _linkKind.SelectedIndex;
-            var item = _linkItem.SelectedIndex;
-            if (kind > 0 && item >= 0 && item < _linkItems.Count)
-            {
-                _entry.LinkKind = TimelineLinks.Kinds[kind - 1];
-                _entry.LinkId = _linkItems[item].Id;
-            }
-            else { _entry.LinkKind = null; _entry.LinkId = null; }
+            Timelines.SetLinks(_entry, _links);
+            var place = _place.SelectedIndex - 1;
+            if (place >= 0 && place < _places.Count) { _entry.PlaceMapId = _places[place].Map.Id; _entry.PlaceShapeId = _places[place].ShapeId; }
+            else { _entry.PlaceMapId = null; _entry.PlaceShapeId = null; }
+            CommitTags();
+            _entry.Tags = Timelines.ParseTags(string.Join(",", _tagList.ToArray()));
             _entry.Description = (_description.Text ?? "").Replace("\r\n", "\n").Trim();
             _result = new TimelineEventResult { Event = _entry };
             Close();
@@ -384,9 +556,27 @@ namespace Marabook.App
         }
         internal void SetLinkForProbe(string kind, string itemId)
         {
+            _links.Clear(); // la sonde d'avant le 21/11 pose UN élément : il remplace
+            AddLinkForProbe(kind, itemId);
+        }
+        internal void AddLinkForProbe(string kind, string itemId)
+        {
             _linkKind.SelectedIndex = Array.IndexOf(TimelineLinks.Kinds, kind) + 1;
             _linkItem.SelectedIndex = _linkItems.FindIndex(delegate(BinderItem b) { return b.Id == itemId; });
+            RebuildChips();
         }
+        internal int LinkChipsForProbe { get { return _chips.Children.Count; } }
+        internal void RemoveLinkForProbe(int index) { if (index >= 0 && index < _links.Count) { _links.RemoveAt(index); RebuildChips(); } }
+        internal bool PlaceShownForProbe { get { return _place.IsVisible; } }
+        internal int PlaceCountForProbe { get { return _places.Count; } }
+        internal void SetPlaceForProbe(string shapeId) { _place.SelectedIndex = _places.FindIndex(delegate(EventPlace p) { return p.ShapeId == shapeId; }) + 1; }
+        internal void SetTagsForProbe(string tags) { _splittingTags = true; _tags.Text = tags; _splittingTags = false; CommitTags(); }
+        internal void TypeTagsForProbe(string typed) { _tags.Text = typed; }
+        internal int TagChipsForProbe { get { return _tagChips.Children.Count; } }
+        internal string PendingTagForProbe { get { return _tags.Text ?? ""; } }
+        internal bool LinkSearchEditableForProbe { get { return _linkItem.IsEditable; } }
+        internal List<string> LinkLabelsForProbe { get { return _linkLabels; } }
+        internal void PickLabelForProbe(string label) { _linkItem.SelectedIndex = _linkLabels.IndexOf(label); RebuildChips(); }
         internal bool LifeModeForProbe { get { return _lifeSheet != null && !_type.IsVisible && !_description.IsVisible && _title.IsReadOnly; } }
         internal void GoToSheetForProbe() { _result = new TimelineEventResult { OpenSheet = true }; Close(); }
         internal void SetStartForProbe(string start) { _start.Text = start; }

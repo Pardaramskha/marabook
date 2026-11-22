@@ -220,8 +220,22 @@ namespace Marabook.App
         private bool _lastWasTyping;
 
         public event Action Edited;
+        /// <summary>UN SEUL CARET À L'ÉCRAN (vue scindée, 21/11, Rémi) : quand
+        /// deux écrits sont ouverts côte à côte, celui qui n'a pas le clavier
+        /// tait son caret — on voit d'un coup d'œil lequel on édite. Rend vrai
+        /// pour le taire ; null = jamais (un seul écrit à l'écran).</summary>
+        public Func<bool> CaretHidden;
+        internal bool CaretShownForProbe { get { return _caretBar.IsVisible; } }
+        /// <summary>Le caret se remet à jour tout de suite (le clavier vient de changer de côté).</summary>
+        public void RefreshCaretNow()
+        {
+            if (_item == null) return;
+            _caretBar.IsVisible = _selectedImage == null && !(CaretHidden != null && CaretHidden());
+        }
         public event Action<string> LinkClicked;
         public event Action<LexiconEntry, bool> DefinitionRequested; // « Afficher la définition » (18/09), portée projet
+        public event Action<string> ConjugateRequested;              // « Conjuguer… » (20/11)
+        public event Action ReadAloudRequested;                      // « Lire à voix haute » (21/11)
         public event Action<int, int> PageInfoChanged;
         public event Action SelectionStateChanged; // caret/sélection ont bougé
         public event Action<string> NoteEditingStarted; // id de la note ouverte en place
@@ -237,7 +251,7 @@ namespace Marabook.App
 
         public ComposedView()
         {
-            Background = Chrome.WindowBg; // ground : le fond derrière les pages (b40)
+            Skin.Ground(this); // ground : le fond derrière les pages (b40) — ou le fond d'un skin (21/11)
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             Focusable = true;
@@ -283,6 +297,7 @@ namespace Marabook.App
                 // Une image sélectionnée (0.50.0) : pas de caret qui clignote,
                 // c'est elle qui a la main (ses poignées le disent).
                 if (_selectedImage != null) { _caretBar.IsVisible = false; return; }
+                if (CaretHidden != null && CaretHidden()) { _caretBar.IsVisible = false; return; }
                 _caretBar.IsVisible = _item != null && !_caretBar.IsVisible;
             };
 
@@ -368,6 +383,8 @@ namespace Marabook.App
             return result;
         }
         public bool CanUndo { get { return _undo.Count > 0; } }
+        /// <summary>Sonde : pose le curseur, sans sélection.</summary>
+        internal void PlaceCaretForProbe(int paragraph, int offset) { _caretParagraph = paragraph; _caretOffset = offset; ClearSelection(); ClampCaret(); UpdateCaretVisual(); }
         public bool CanRedo { get { return _redo.Count > 0; } }
 
         // ============================================================ lifecycle
@@ -391,7 +408,9 @@ namespace Marabook.App
                 new AvaloniaFontEngine());
             _engine.FolioOffset = FolioOffset;
             _engine.DefaultDecor = Decor;
+            var perf = Perf.Begin();
             _engine.ComposeAll();
+            Perf.End("ouverture : composition", perf);
             CloseNoteEditor(false);
             DeselectImage(false);
             // La pile de CET écrit (28/09) — vidée seulement quand le projet
@@ -407,7 +426,9 @@ namespace Marabook.App
             _caretParagraph = 0;
             _caretOffset = 0;
             ClearSelection();
+            perf = Perf.Begin();
             RebuildPages();
+            Perf.End("ouverture : pages", perf);
             _blink.Start();
             UpdateCaretVisual();
             RaisePageInfo();
@@ -905,6 +926,12 @@ namespace Marabook.App
 
         private void UpdateCaretVisual()
         {
+            UpdateCaretVisualCore();
+            NotifyImeCaret(); // la fenêtre des candidats suit le curseur (21/11)
+        }
+
+        private void UpdateCaretVisualCore()
+        {
             ClearOverlay();
             if (_item == null || _engine == null || _engine.Current.Paragraphs.Count == 0)
             {
@@ -934,7 +961,7 @@ namespace Marabook.App
             Canvas.SetLeft(_caretBar, x);
             Canvas.SetTop(_caretBar, y + 1);
             _caretBar.Height = Math.Max(8, line.Height - 2);
-            _caretBar.IsVisible = _selectedImage != null ? false : true;
+            _caretBar.IsVisible = _selectedImage != null || (CaretHidden != null && CaretHidden()) ? false : true;
 
             EnsureCaretVisible(y, line.Height);
             RaisePageInfo();
@@ -1503,25 +1530,69 @@ namespace Marabook.App
                 }
             }
 
+            // — Le conjugueur et le Wiktionnaire (20/11) : le premier dresse le tableau du verbe,
+            //   le second ouvre la page du mot dans le navigateur — rien ne part sans ce clic.
+            if (word != null && word.Length >= 2 && char.IsLetter(word[0]))
+            {
+                var wordRef = word;
+                var conjugate = new MenuItem { Header = "Conjuguer « " + word + " »…", Tag = "menu-conjugate" };
+                conjugate.Click += delegate { var handler = ConjugateRequested; if (handler != null) handler(wordRef); };
+                menu.Items.Add(conjugate);
+                var url = Correction.Wiktionary.UrlFor(word);
+                if (url != null)
+                {
+                    var wiktionary = new MenuItem { Header = "Chercher « " + word + " » sur le Wiktionnaire", Tag = "menu-wiktionary" };
+                    ToolTip.SetTip(wiktionary, "Ouvre la page du mot dans votre navigateur : le mot part alors sur Internet");
+                    wiktionary.Click += delegate
+                    {
+                        try { AppPlatform.OpenWithShell(url); }
+                        catch { }
+                    };
+                    menu.Items.Add(wiktionary);
+                }
+            }
+
+            // — La lecture à voix haute (21/11) : la sélection, ou la suite de l'écrit depuis le curseur.
+            {
+                var reading = ReadAloud.IsReading;
+                var read = new MenuItem { Header = reading ? "Arrêter la lecture" : HasSelection() ? "Lire la sélection à voix haute" : "Lire à voix haute à partir d'ici", Tag = "menu-read-aloud" };
+                read.Click += delegate { var handler = ReadAloudRequested; if (handler != null) handler(); };
+                menu.Items.Add(read);
+            }
+
             // — La césure du mot (batch 25).
             if (word != null && word.Length >= 2)
             {
                 var excepted = false;
+                string chosen = null; // les coupes choisies à la main : « ma-ra-bout »
                 foreach (var entry in _project.HyphenExceptions)
-                    if (string.Equals(entry, word, StringComparison.OrdinalIgnoreCase))
-                    {
-                        excepted = true;
-                        break;
-                    }
-                var toggle = new MenuItem
                 {
-                    Header = excepted
-                        ? "Autoriser la césure de « " + word + " »"
-                        : "Ne plus couper « " + word + " »"
-                };
+                    if (string.Equals(entry, word, StringComparison.OrdinalIgnoreCase)) excepted = true;
+                    else if (string.Equals(Print.FrenchHyphenator.ExceptionWord(entry), word, StringComparison.OrdinalIgnoreCase)) chosen = entry;
+                }
                 var wordRef = word;
-                toggle.Click += delegate { ToggleHyphenException(wordRef); };
-                menu.Items.Add(toggle);
+                if (chosen == null)
+                {
+                    var toggle = new MenuItem
+                    {
+                        Header = excepted
+                            ? "Autoriser la césure de « " + word + " »"
+                            : "Ne plus couper « " + word + " »"
+                    };
+                    toggle.Click += delegate { ToggleHyphenException(wordRef); };
+                    menu.Items.Add(toggle);
+                }
+                // Les coupes à la main (20/11) : le dictionnaire d'exceptions du projet.
+                var chosenRef = chosen;
+                var choose = new MenuItem { Header = chosen != null ? "Coupes de « " + chosen + " »…" : "Choisir où couper « " + word + " »…" };
+                choose.Click += delegate { ChooseHyphenPoints(wordRef, chosenRef); };
+                menu.Items.Add(choose);
+                if (chosen != null)
+                {
+                    var automatic = new MenuItem { Header = "Revenir à la césure automatique de « " + word + " »" };
+                    automatic.Click += delegate { SetHyphenPoints(wordRef, null); };
+                    menu.Items.Add(automatic);
+                }
             }
             else if (menu.Items.Count > editItems)
             {
@@ -1573,6 +1644,38 @@ namespace Marabook.App
             length = end - start;
             word = text.Substring(start, length);
             return true;
+        }
+
+        /// <summary>« Choisir où couper… » (20/11) : le mot avec ses coupes
+        /// actuelles, à retoucher — un trait d'union par coupe permise.</summary>
+        private async void ChooseHyphenPoints(string word, string chosen)
+        {
+            var owner = TopLevel.GetTopLevel(this) as Window;
+            if (owner == null) return;
+            var initial = chosen ?? Print.FrenchHyphenator.Mark(word, Print.FrenchHyphenator.BreakPoints(word, 2, 1, 1));
+            var answer = await InputDialog.Ask(owner, "Coupes du mot", "Un trait d'union à chaque endroit où « " + word + " » peut se couper (aucun : il ne se coupera jamais) :", initial);
+            if (answer == null) return;
+            answer = answer.Trim().Replace("‐", "-").Replace("­", "-").Replace(" ", "");
+            if (!string.Equals(Print.FrenchHyphenator.ExceptionWord(answer), word, StringComparison.OrdinalIgnoreCase))
+            {
+                await MessageDialog.Show(owner, "Seuls des traits d'union peuvent être ajoutés ou retirés : les lettres de « " + word + " » ne changent pas.", "Coupes du mot", MessageButtons.OK, MessageIcon.Information);
+                return;
+            }
+            SetHyphenPoints(word, answer);
+        }
+
+        /// <summary>Pose l'exception d'un mot : ses coupes choisies
+        /// (« ma-ra-bout »), le mot nu (jamais coupé), ou null (césure
+        /// automatique). Sonde comprise.</summary>
+        internal void SetHyphenPoints(string word, string entry)
+        {
+            for (var i = _project.HyphenExceptions.Count - 1; i >= 0; i--)
+                if (string.Equals(Print.FrenchHyphenator.ExceptionWord(_project.HyphenExceptions[i]), word, StringComparison.OrdinalIgnoreCase))
+                    _project.HyphenExceptions.RemoveAt(i);
+            if (!string.IsNullOrEmpty(entry)) _project.HyphenExceptions.Add(entry);
+            RefreshComposition();
+            var handler = Edited;
+            if (handler != null) handler(); // persisté : le projet est sale
         }
 
         private void ToggleHyphenException(string word)
@@ -1797,6 +1900,36 @@ namespace Marabook.App
             return text.Substring(from, Math.Max(0, to - from)).Replace("￼", "");
         }
 
+        /// <summary>Ce que la voix lira (21/11) : la sélection, sur autant de
+        /// paragraphes qu'elle en couvre ; sans sélection, tout ce qui suit le
+        /// curseur jusqu'à la fin de l'écrit.</summary>
+        public string TextToRead()
+        {
+            if (_item == null || _item.Document == null || _item.Document.Paragraphs.Count == 0) return "";
+            var paragraphs = _item.Document.Paragraphs;
+            int pa, oa, pb, ob;
+            if (HasSelection()) OrderedSelection(out pa, out oa, out pb, out ob);
+            else
+            {
+                pa = Math.Max(0, Math.Min(_caretParagraph, paragraphs.Count - 1));
+                oa = Math.Max(0, _caretOffset);
+                pb = paragraphs.Count - 1;
+                ob = int.MaxValue;
+            }
+            var sb = new System.Text.StringBuilder();
+            for (var p = pa; p <= pb && p < paragraphs.Count; p++)
+            {
+                var text = PivotEdit.FlatText(paragraphs[p]);
+                var from = p == pa ? Math.Min(oa, text.Length) : 0;
+                var to = p == pb ? Math.Min(ob, text.Length) : text.Length;
+                if (to > from) sb.Append(text, from, to - from);
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        public bool HasSelectionToRead { get { return _item != null && HasSelection(); } }
+
         private void SelectWordAt(int paragraphIndex, int offset)
         {
             var text = PivotEdit.FlatText(_item.Document.Paragraphs[paragraphIndex]);
@@ -1838,7 +1971,10 @@ namespace Marabook.App
         {
             if (_item == null) return;
             if (NoteEditing) { NoteTypeText(text); return; }
+            var perf = Perf.Begin();
             PushUndo(true);
+            Perf.End("frappe : point d'annulation", perf);
+            perf = Perf.Begin();
             DeleteSelectionIfAny();
             // Le format d'insertion (0.50.0) s'imprime dans le texte tapé, puis
             // tombe : les caractères suivants héritent du run ainsi créé.
@@ -1847,9 +1983,22 @@ namespace Marabook.App
             ShiftVetoes(_caretParagraph, _caretOffset, text.Length);
             _caretOffset += text.Length;
             _caretDesiredX = -1;
-            if (!ApplyLiveTypography(text.Length))
-                AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
+            Perf.End("frappe : insertion", perf);
+            perf = Perf.Begin();
+            var live = ApplyLiveTypography(text.Length);
+            Perf.End("frappe : typographie", perf);
+            if (!live)
+            {
+                perf = Perf.Begin();
+                var first = _engine.RecomposeParagraph(_caretParagraph);
+                Perf.End("frappe : composition", perf);
+                perf = Perf.Begin();
+                AfterEdit(first);
+                Perf.End("frappe : après (pages, curseur, abonnés)", perf);
+            }
+            perf = Perf.Begin();
             ApplyAutoCapital(); // la majuscule de début de phrase (24/10)
+            Perf.End("frappe : majuscule", perf);
         }
 
         /// <summary>La majuscule automatique en début de phrase (24/10,
@@ -1910,34 +2059,72 @@ namespace Marabook.App
             // pour ce qui s'y imbrique).
             var openQuotes = 0;
             for (var p = 0; p < _caretParagraph; p++)
-                openQuotes = Correction.Typography.QuoteDepth(PivotEdit.FlatText(_item.Document.Paragraphs[p]), openQuotes);
+                openQuotes = Correction.Typography.QuoteDepth(_item.Document.Paragraphs[p], openQuotes);
             // La réplique d'avant (30/09) : le signe de reprise plutôt que celui d'ouverture.
             var dialogueBefore = _caretParagraph > 0
                 && Correction.Typography.IsDialogueLine(PivotEdit.FlatText(_item.Document.Paragraphs[_caretParagraph - 1]));
-            var cleaned = Correction.Typography.Clean(flat, options,
-                Correction.TypographyPass.NoProofSpans(paragraph), openQuotes, dialogueBefore);
-            if (cleaned.Text == flat) return false;
-            var ops = CharDiff.Diff(flat, cleaned.Text);
-            if (ops == null) return false;
             int delta;
             List<KeyValuePair<int, string>> accepted;
+            List<CharOp> kept;
             var paragraphIndex = _caretParagraph;
-            // La fenêtre (13/09) : tout le paragraphe DERRIÈRE le curseur —
-            // 80 caractères laissaient le guillemet ouvrant d'une citation
-            // longue en droit, et l'orphelin bloquait ensuite le paragraphe.
-            var kept = Correction.TypographyLive.Restrict(ops, _caretOffset, typedLength, int.MaxValue,
-                delegate(int start, string deleted) { return IsVetoed(paragraphIndex, start, deleted); },
-                out delta, out accepted);
-            if (accepted.Count == 0) return false;
+            var window = Correction.TypographyLive.WindowFor(flat, _caretOffset);
+            if (window != null)
+            {
+                // UN TRÈS GROS PARAGRAPHE (21/11) : la passe ne relit que les quelques milliers de
+                // signes d'avant le curseur — relire 490 000 signes à chaque frappe coûtait une
+                // demi-seconde. Les guillemets ouverts avant la fenêtre sont comptés, pas relus.
+                var from = window[0];
+                var slice = flat.Substring(from, window[1] - from);
+                var depth = Correction.Typography.QuoteDepth(flat.Substring(0, from), openQuotes);
+                var cleanedSlice = Correction.Typography.Clean(slice, options,
+                    Correction.TypographyLive.ShiftSpans(Correction.TypographyPass.NoProofSpans(paragraph), from, slice.Length), depth, from == 0 && dialogueBefore);
+                if (cleanedSlice.Text == slice) return false;
+                var sliceOps = CharDiff.Diff(slice, cleanedSlice.Text);
+                if (sliceOps == null) return false;
+                // Rien n'est retenu dans la marge de tête de la fenêtre : la passe y voit un début de texte qui n'en est pas un.
+                var reach = from == 0 ? int.MaxValue : Math.Max(0, _caretOffset - from - Correction.TypographyLive.WindowMargin);
+                var keptSlice = Correction.TypographyLive.Restrict(sliceOps, _caretOffset - from, typedLength, reach,
+                    delegate(int start, string deleted) { return IsVetoed(paragraphIndex, start + from, deleted); },
+                    out delta, out accepted);
+                if (accepted.Count == 0) return false;
+                for (var i = 0; i < accepted.Count; i++) accepted[i] = new KeyValuePair<int, string>(accepted[i].Key + from, accepted[i].Value);
+                kept = keptSlice;
+            }
+            else
+            {
+                var cleaned = Correction.Typography.Clean(flat, options,
+                    Correction.TypographyPass.NoProofSpans(paragraph), openQuotes, dialogueBefore);
+                if (cleaned.Text == flat) return false;
+                var ops = CharDiff.Diff(flat, cleaned.Text);
+                if (ops == null) return false;
+                // La fenêtre (13/09) : tout le paragraphe DERRIÈRE le curseur —
+                // 80 caractères laissaient le guillemet ouvrant d'une citation
+                // longue en droit, et l'orphelin bloquait ensuite le paragraphe.
+                kept = Correction.TypographyLive.Restrict(ops, _caretOffset, typedLength, int.MaxValue,
+                    delegate(int start, string deleted) { return IsVetoed(paragraphIndex, start, deleted); },
+                    out delta, out accepted);
+                if (accepted.Count == 0) return false;
+            }
             PushUndo(false);
             // Le cran d'annulation porte ce que la correction remplace : un
             // Ctrl+Z dessus mémorise le refus.
             var snapshot = _undo[_undo.Count - 1];
             snapshot.AutoParagraph = _caretParagraph;
             snapshot.AutoBlocks = accepted;
-            var replacement = Correction.TypographyPass.Redistribute(paragraph, kept);
-            paragraph.Runs.Clear();
-            paragraph.Runs.AddRange(replacement.Runs);
+            if (window != null)
+            {
+                // Seule la fenêtre est reconstruite ; les runs voisins de même format se ressoudent.
+                var runs = Correction.TypographyPass.RedistributeWindow(paragraph, kept, window[0], window[1]);
+                paragraph.Runs.Clear();
+                paragraph.Runs.AddRange(runs);
+                PivotEdit.MergeAdjacent(paragraph);
+            }
+            else
+            {
+                var replacement = Correction.TypographyPass.Redistribute(paragraph, kept);
+                paragraph.Runs.Clear();
+                paragraph.Runs.AddRange(replacement.Runs);
+            }
             _caretOffset = Math.Max(0, Math.Min(PivotEdit.FlatLength(paragraph), _caretOffset + delta));
             AfterEdit(_engine.RecomposeParagraph(_caretParagraph));
             return true;
@@ -2292,11 +2479,19 @@ namespace Marabook.App
 
         private void AfterEdit(int firstChangedPage)
         {
+            var perf = Perf.Begin();
             PivotEdit.PurgeFootnotes(_item.Document);
+            Perf.End("après : notes orphelines", perf);
+            perf = Perf.Begin();
             RefreshPages(firstChangedPage);
+            Perf.End("après : pages", perf);
+            perf = Perf.Begin();
             UpdateCaretVisual();
+            Perf.End("après : curseur", perf);
+            perf = Perf.Begin();
             var handler = Edited;
             if (handler != null) handler();
+            Perf.End("après : abonnés", perf);
         }
 
         private void PushUndo(bool typing)
@@ -2311,12 +2506,39 @@ namespace Marabook.App
             _lastTyping = now;
             _undo.Add(new Snapshot
             {
-                Document = PivotEdit.Clone(_item.Document),
+                Document = Capture(null),
                 Paragraph = _caretParagraph,
                 Offset = _caretOffset
             });
             if (_undo.Count > 100) _undo.RemoveAt(0);
             _redo.Clear();
+        }
+
+        /// <summary>L'état du document pour un point d'annulation (21/11) : une
+        /// copie qui PARTAGE les paragraphes inchangés avec le point voisin
+        /// (PivotEdit.CloneSharing) — le dernier de la pile, ou celui qu'on
+        /// s'apprête à rendre.</summary>
+        private TextDocument Capture(TextDocument neighbour)
+        {
+            if (neighbour == null) neighbour = _undo.Count > 0 ? _undo[_undo.Count - 1].Document : _redo.Count > 0 ? _redo[_redo.Count - 1].Document : null;
+            int shared;
+            var copy = PivotEdit.CloneSharing(_item.Document, neighbour, out shared);
+            LastCaptureShared = shared;
+            LastCaptureTotal = copy.Paragraphs.Count;
+            return copy;
+        }
+
+        /// <summary>Sonde et mesures : combien de paragraphes le dernier point d'annulation a partagés, sur combien.</summary>
+        internal int LastCaptureShared, LastCaptureTotal;
+        internal int UndoDepthForProbe { get { return _undo.Count; } }
+
+        /// <summary>Un cran d'annulation posé de l'extérieur (21/11) : un geste
+        /// sur une annotation — la résoudre, écrire son commentaire. typing :
+        /// les frappes rapprochées d'un commentaire ne font qu'un cran.</summary>
+        public void PushUndoPoint(bool typing)
+        {
+            if (_item == null || ReadOnly) return;
+            PushUndo(typing);
         }
 
         /// <summary>La feuille de styles a été rendue par un Ctrl+Z (ou un
@@ -2332,7 +2554,7 @@ namespace Marabook.App
             _lastWasTyping = false;
             _undo.Add(new Snapshot
             {
-                Document = PivotEdit.Clone(_item.Document),
+                Document = Capture(null),
                 Paragraph = _caretParagraph,
                 Offset = _caretOffset,
                 Styles = before
@@ -2356,7 +2578,7 @@ namespace Marabook.App
             _undo.RemoveAt(_undo.Count - 1);
             _redo.Add(new Snapshot
             {
-                Document = PivotEdit.Clone(_item.Document),
+                Document = Capture(snapshot.Document),
                 Paragraph = _caretParagraph,
                 Offset = _caretOffset,
                 Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null,
@@ -2388,7 +2610,7 @@ namespace Marabook.App
             _redo.RemoveAt(_redo.Count - 1);
             _undo.Add(new Snapshot
             {
-                Document = PivotEdit.Clone(_item.Document),
+                Document = Capture(snapshot.Document),
                 Paragraph = _caretParagraph,
                 Offset = _caretOffset,
                 Styles = snapshot.Styles != null && _project != null ? _project.Styles.Clone() : null,
@@ -2401,11 +2623,9 @@ namespace Marabook.App
 
         private void RestoreSnapshot(Snapshot snapshot)
         {
-            var document = _item.Document;
-            document.Paragraphs.Clear();
-            document.Paragraphs.AddRange(snapshot.Document.Paragraphs);
-            document.Footnotes.Clear();
-            document.Footnotes.AddRange(snapshot.Document.Footnotes);
+            // Les paragraphes d'un point d'annulation sont partagés entre points (21/11) : ils sont
+            // RECOPIÉS dans le document vivant. Les annotations reviennent avec le reste.
+            PivotEdit.RestoreFrom(_item.Document, snapshot.Document);
             // La feuille de styles d'avant (28/09) : la fenêtre la repose sur
             // le projet et recharge l'éditeur (Attach garde la pile) ; le
             // caret et la composition sont refaits juste après.

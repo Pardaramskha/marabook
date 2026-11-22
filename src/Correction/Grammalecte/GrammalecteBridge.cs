@@ -232,6 +232,17 @@ namespace Marabook.Correction.Grammalecte
             return ParseSynonymGroups(Marabook.Json.Field(message, "groups"));
         }
 
+        /// <summary>Le tableau de conjugaison d'un verbe ou d'une forme
+        /// conjuguée (20/11) — le conjugueur de Grammalecte, par le pont.</summary>
+        public async Task<Conjugation> ConjugateAsync(string word, ConjugationOptions options,
+            CancellationToken token)
+        {
+            var request = new Dictionary<string, object> { { "conjugate", word ?? "" } };
+            if (options != null) request["options"] = options.ToJson();
+            var message = await SendAsync(request, token).ConfigureAwait(false);
+            return Conjugation.Parse(message);
+        }
+
         /// <summary>Envoie UNE requête (l'id d'appariement est posé ici) et
         /// rend la trame de réponse entière. Toute la mécanique de vol, de
         /// chien de garde et de relance vit ici, une fois pour tous les

@@ -171,6 +171,14 @@ namespace Marabook.Model
             };
         }
 
+        /// <summary>Deux paragraphes ont-ils la même coquille (tout sauf leurs runs) ?</summary>
+        public static bool SameShell(TextParagraph a, TextParagraph b)
+        {
+            return a.StyleId == b.StyleId && a.AlignOverride == b.AlignOverride && a.ListKind == b.ListKind && a.ListLevel == b.ListLevel
+                && a.Indent == b.Indent && a.FirstIndent == b.FirstIndent && a.PageBreakBefore == b.PageBreakBefore && a.AllowWidows == b.AllowWidows
+                && a.StartOnRecto == b.StartOnRecto && ReferenceEquals(a.Decor, b.Decor);
+        }
+
         public static TextRun CloneFormat(TextRun source)
         {
             return new TextRun
@@ -471,19 +479,96 @@ namespace Marabook.Model
             }
             foreach (var note in document.Footnotes)
                 copy.Footnotes.Add(note.Clone()); // runs compris (0.50.0)
-            // Les annotations sont clonées pour l'exhaustivité, mais
-            // RestoreSnapshot ne restaure QUE Paragraphs et Footnotes : les
-            // commentaires de révision vivent hors du flux d'annulation
-            // (annuler du texte ne doit pas ravaler un commentaire tapé après).
-            foreach (var annotation in document.Annotations)
-                copy.Annotations.Add(new Annotation
-                {
-                    Id = annotation.Id,
-                    Text = annotation.Text,
-                    Created = annotation.Created,
-                    Resolved = annotation.Resolved
-                });
+            // Les annotations sont dans le flux d'annulation depuis le 21/11 : chaque geste
+            // sur un commentaire (créer, écrire, résoudre, supprimer) pose son propre cran,
+            // si bien qu'annuler du texte ne ravale jamais un commentaire tapé APRÈS lui —
+            // Ctrl+Z défait d'abord le commentaire.
+            foreach (var annotation in document.Annotations) copy.Annotations.Add(CloneAnnotation(annotation));
+            copy.LineSpacing = document.LineSpacing;
             return copy;
+        }
+
+        public static Annotation CloneAnnotation(Annotation annotation)
+        {
+            return new Annotation { Id = annotation.Id, Text = annotation.Text, Created = annotation.Created, Resolved = annotation.Resolved };
+        }
+
+        public static TextParagraph CloneParagraph(TextParagraph paragraph)
+        {
+            var copy = CloneParagraphShell(paragraph);
+            foreach (var run in paragraph.Runs) copy.Runs.Add(CloneRun(run));
+            return copy;
+        }
+
+        /// <summary>Deux runs disent-ils exactement la même chose — texte,
+        /// mise en forme, nature ? Un run qui porte un placement d'image est
+        /// toujours tenu pour différent (on le recopie : c'est rare, et sûr).</summary>
+        public static bool SameRun(TextRun a, TextRun b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a.Image != null || b.Image != null) return false;
+            return (ReferenceEquals(a.Text, b.Text) || a.Text == b.Text)
+                && a.Bold == b.Bold && a.Italic == b.Italic && a.Underline == b.Underline && a.Strike == b.Strike && a.SmallCaps == b.SmallCaps
+                && a.Weight == b.Weight && a.Tracking == b.Tracking && a.FontFamily == b.FontFamily && a.FontSize == b.FontSize
+                && a.Color == b.Color && a.Highlight == b.Highlight && a.FootnoteId == b.FootnoteId && a.AnnotationId == b.AnnotationId
+                && a.NoProof == b.NoProof && a.IsLineBreak == b.IsLineBreak && a.ImageId == b.ImageId && a.IsRule == b.IsRule;
+        }
+
+        /// <summary>Deux paragraphes identiques : même coquille, mêmes runs.</summary>
+        public static bool SameParagraph(TextParagraph a, TextParagraph b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null || a.Runs.Count != b.Runs.Count || !SameShell(a, b)) return false;
+            for (var i = 0; i < a.Runs.Count; i++) if (!SameRun(a.Runs[i], b.Runs[i])) return false;
+            return true;
+        }
+
+        /// <summary>UN POINT D'ANNULATION PAR DIFFÉRENCE (21/11). Une copie du
+        /// document qui PARTAGE avec le point précédent tous les paragraphes
+        /// restés identiques : seuls ceux qui ont changé sont recopiés. Avant,
+        /// chaque point d'annulation recopiait le document entier — cent
+        /// points d'un chapitre de 300 000 signes, c'était cent chapitres en
+        /// mémoire, et une copie complète à chaque salve de frappe.
+        ///
+        /// Un paragraphe inchangé se reconnaît vite : ses runs portent les
+        /// MÊMES chaînes (une copie reprend la référence), la comparaison
+        /// s'arrête donc à la référence. Un paragraphe est cherché à sa place,
+        /// puis à sa place décalée du nombre de paragraphes ajoutés ou ôtés.
+        ///
+        /// Les paragraphes d'un point d'annulation sont donc PARTAGÉS et ne
+        /// doivent jamais être modifiés ni remis tels quels dans un document
+        /// vivant : RestoreFrom les recopie.</summary>
+        public static TextDocument CloneSharing(TextDocument document, TextDocument previous, out int shared)
+        {
+            shared = 0;
+            if (previous == null) return Clone(document);
+            var copy = new TextDocument { LineSpacing = document.LineSpacing };
+            var shift = previous.Paragraphs.Count - document.Paragraphs.Count;
+            for (var i = 0; i < document.Paragraphs.Count; i++)
+            {
+                var paragraph = document.Paragraphs[i];
+                TextParagraph same = null;
+                if (i < previous.Paragraphs.Count && SameParagraph(paragraph, previous.Paragraphs[i])) same = previous.Paragraphs[i];
+                else if (shift != 0 && i + shift >= 0 && i + shift < previous.Paragraphs.Count && SameParagraph(paragraph, previous.Paragraphs[i + shift])) same = previous.Paragraphs[i + shift];
+                if (same != null) { copy.Paragraphs.Add(same); shared++; }
+                else copy.Paragraphs.Add(CloneParagraph(paragraph));
+            }
+            foreach (var note in document.Footnotes) copy.Footnotes.Add(note.Clone());
+            foreach (var annotation in document.Annotations) copy.Annotations.Add(CloneAnnotation(annotation));
+            return copy;
+        }
+
+        /// <summary>Remet dans le document vivant l'état d'un point
+        /// d'annulation : ses paragraphes RECOPIÉS (ils sont partagés), ses
+        /// notes, ses annotations.</summary>
+        public static void RestoreFrom(TextDocument document, TextDocument snapshot)
+        {
+            document.Paragraphs.Clear();
+            foreach (var paragraph in snapshot.Paragraphs) document.Paragraphs.Add(CloneParagraph(paragraph));
+            document.Footnotes.Clear();
+            foreach (var note in snapshot.Footnotes) document.Footnotes.Add(note.Clone());
+            document.Annotations.Clear();
+            foreach (var annotation in snapshot.Annotations) document.Annotations.Add(CloneAnnotation(annotation));
         }
     }
 }

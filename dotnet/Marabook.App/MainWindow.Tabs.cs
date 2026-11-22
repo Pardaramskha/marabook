@@ -112,6 +112,14 @@ namespace Marabook.App
         {
             var tab = _tabs.Active;
             if (tab == null || _current == null || tab.ItemId != _current.Id) return;
+            // Une fiche (21/11) : son onglet (Général, Texte libre…) et le défilement de son Général.
+            if (_current.Kind == ItemKind.Sheet && _sheetView.IsVisible && _sheetView.ShowsItem(_current))
+            {
+                int pane; double scroll;
+                _sheetView.GetViewPosition(out pane, out scroll);
+                tab.RememberView(pane, scroll);
+                return;
+            }
             if (_current.Kind != ItemKind.Text || !_editor.IsVisible) return;
             var composed = Composed;
             if (composed == null || !composed.HasItem) return;
@@ -140,6 +148,16 @@ namespace Marabook.App
             if (_current == item && IsItemViewVisible(item)) return;
             _binder.SelectItem(item.Id, true);
             var tab = _tabs.Active;
+            if (tab != null && tab.HasView && item.Kind == ItemKind.Sheet)
+            {
+                var pane = tab.ViewPane;
+                var scroll = tab.ViewScroll;
+                Ui.Post(Avalonia.Threading.DispatcherPriority.Background, new Action(delegate
+                {
+                    if (_current == item && _sheetView.IsVisible && _sheetView.ShowsItem(item)) _sheetView.SetViewPosition(pane, scroll);
+                }));
+                return;
+            }
             if (tab == null || !tab.HasPosition || item.Kind != ItemKind.Text) return;
             var paragraph = tab.Paragraph;
             var offset = tab.Offset;
@@ -204,7 +222,7 @@ namespace Marabook.App
             if (!_tabs.CanOpen)
             {
                 ShowNotice(NoticeToast.Build("tuile", "Onglets maximum atteint",
-                    "La rangée compte déjà " + _tabs.Limit + " onglets. Fermez-en un, ou relevez le plafond dans Préférences › Général › Onglets.",
+                    "La rangée compte déjà " + _tabs.Limit + " onglets. Fermez-en un, ou relevez le plafond dans Préférences › Personnalisation › Onglets.",
                     null, null, null, null));
                 return;
             }
@@ -237,6 +255,7 @@ namespace Marabook.App
         /// se rafraîchissent ; si l'actif est tombé, son voisin prend la vue.</summary>
         private void TabsPrune()
         {
+            if (_project != null) SplitPrune(); // le volet scindé suit la structure, onglets ou non (21/11)
             if (_project == null || _tabs.Count == 0) return;
             var activeDropped = _tabs.Prune(delegate(string id) { return ResolveItem(id) != null; });
             TabsChanged();
@@ -252,8 +271,8 @@ namespace Marabook.App
             _tabs.Clear();
             if (!TabsOn()) { TabsChanged(); return fallback; }
             _tabs.Limit = AppSettings.MaxTabs;
-            _tabs.Restore(project.OpenTabs, project.ActiveTab, delegate(string id) { return id == GraphItemId ? Marabook.Settings.Profiles.Enabled(Marabook.Settings.Profiles.Graph) : project.FindById(id) != null; });
-            var active = _tabs.ActiveItemId == null ? null : (_tabs.ActiveItemId == GraphItemId ? _graphItem : project.FindById(_tabs.ActiveItemId));
+            _tabs.Restore(project.OpenTabs, project.ActiveTab, delegate(string id) { return id == AtelierItemId || (id == GraphItemId ? Marabook.Settings.Profiles.Enabled(Marabook.Settings.Profiles.Graph) : project.FindById(id) != null); });
+            var active = _tabs.ActiveItemId == null ? null : (_tabs.ActiveItemId == GraphItemId ? _graphItem : _tabs.ActiveItemId == AtelierItemId ? _atelierItem : project.FindById(_tabs.ActiveItemId));
             TabsChanged();
             return active ?? fallback;
         }
@@ -299,6 +318,7 @@ namespace Marabook.App
         }
         internal TabStrip TabStripForProbe { get { return _tabStrip; } }
         internal WorkTabs TabsForProbe { get { return _tabs; } }
+        internal void TabsPruneForProbe() { TabsPrune(); }
         internal void OpenNewTabForProbe() { OpenNewTab(); }
         internal void OpenInNewTabForProbe(BinderItem item) { OpenInNewTab(item); }
         internal void CloseActiveTabForProbe() { CloseActiveTab(); }

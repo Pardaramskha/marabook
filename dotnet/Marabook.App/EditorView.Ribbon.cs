@@ -29,7 +29,7 @@ namespace Marabook.App
         {
             var bar = new Border
             {
-                Background = Chrome.BarBg,
+                [!Border.BackgroundProperty] = Skin.BarBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 0, 1)
             };
@@ -1556,34 +1556,26 @@ namespace Marabook.App
             menu.Items.Clear();
             AddColorEntry(menu, isForeground ? "Automatique" : "Aucun", null, isForeground);
 
-            if (_project != null && _project.CustomColors.Count > 0)
+            // La palette de l'auteur (22/11) : ses couleurs personnalisées, sous leur nom.
+            var customs = ColorMenus.Customs(_project);
+            if (customs.Count > 0)
             {
                 menu.Items.Add(new Separator());
-                foreach (var hex in _project.CustomColors)
-                    AddColorEntry(menu, hex, hex, isForeground);
+                foreach (var hex in customs)
+                    AddColorEntry(menu, ColorPalette.Label(hex), hex, isForeground);
             }
             var custom = new MenuItem { Header = "Nouvelle couleur…" };
             custom.Click += async delegate
             {
-                var hex = await ColorDialog.Ask(Ui.OwnerOf(this));
-                if (hex == null || _project == null) return;
-                if (!_project.CustomColors.Contains(hex))
-                {
-                    _project.CustomColors.Insert(0, hex);
-                    NotifyEdited(); // le projet a changé
-                }
+                var hex = await ColorDialog.Ask(Ui.OwnerOf(this)); // elle rejoint la palette
+                if (hex == null) return;
                 ApplyPaletteColor(hex, isForeground);
             };
             menu.Items.Add(custom);
             menu.Items.Add(new Separator());
 
-            var standard = isForeground
-                ? new[] { "#C0392B", "#E67E22", "#C9A227", "#27AE60",
-                    "#16A085", "#2980B9", "#5B67D8", "#8E44AD", "#7F8C8D", "#703C2F" }
-                : new[] { "#FFF3A3", "#FFD9A8", "#D3F8D3", "#D0E8FF",
-                    "#FFD6E7", "#E5D4FF", "#E8E8E8" };
-            foreach (var hex in standard)
-                AddColorEntry(menu, hex, hex, isForeground);
+            foreach (var color in isForeground ? ColorPalette.General : ColorPalette.Highlights)
+                AddColorEntry(menu, color.Name, color.Hex, isForeground);
         }
 
         private void ApplyPaletteColor(string hex, bool isForeground)

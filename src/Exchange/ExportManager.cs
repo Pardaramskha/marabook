@@ -64,13 +64,13 @@ namespace Marabook.Exchange
         public static bool HasPages(string format) { return format == Docx || format == Pdf; }
 
         /// <summary>Ce qu'un format sait porter : les écrits partout ; les
-        /// fiches partout sauf dans un EPUB ; les plans et les cartes mentales
+        /// fiches partout sauf dans un EPUB ; les plans, les cartes mentales et les cartes
         /// (des images à leur propre format) dans un PDF seulement.</summary>
         public static bool Carries(string format, ItemKind kind)
         {
             if (kind == ItemKind.Text) return true;
             if (kind == ItemKind.Sheet) return format != Epub;
-            if (kind == ItemKind.Plan || kind == ItemKind.MindMap) return format == Pdf;
+            if (kind == ItemKind.Plan || kind == ItemKind.MindMap || kind == ItemKind.Map) return format == Pdf;
             return false;
         }
     }
@@ -172,6 +172,7 @@ namespace Marabook.Exchange
         public double BleedMm;
         public bool BookBleed;                // le fond perdu du livre plutôt que BleedMm
         public bool CropMarks, BleedGuides, Cmyk, Booklet;
+        public bool PdfX;                     // le fichier se déclare PDF/X-1a:2003 (CMJN seulement) — 20/11
 
         // --- EPUB
         public bool Cover;
@@ -181,6 +182,10 @@ namespace Marabook.Exchange
 
         // --- Contrôles
         public bool CheckConsistency;         // avertir avant d'exporter (formats mêlés, informations manquantes)
+
+        // ---- fichiers (20/11)
+        public bool OneFilePerText;           // un fichier par élément, dans un dossier, au lieu d'un seul
+        public string FileNamePattern = ExportFiles.DefaultPattern; // « {n} - {titre} »
 
         public ExportPreset Clone() { return (ExportPreset)MemberwiseClone(); }
 
@@ -197,11 +202,12 @@ namespace Marabook.Exchange
             var sb = new StringBuilder();
             sb.Append(ExportFormats.Normalize(Format)).Append('|').Append(ExportPages.Normalize(Pages));
             foreach (var flag in new[] { TitlePage, ChapterHeadings, NumberChapters, PageBreakPerText, RectoStarts, HeadersFooters, PlainMargins, Comments, Links, Outline, BookBleed, CropMarks, BleedGuides, Cmyk, Booklet, Cover, CheckConsistency,
-                DropBlankPages, SplitTypes, SplitBooks, SplitFolders, SplitSubfolders, SplitOwnPage, DropCaps, OpeningSmallCaps, Kindle })
+                DropBlankPages, SplitTypes, SplitBooks, SplitFolders, SplitSubfolders, SplitOwnPage, DropCaps, OpeningSmallCaps, Kindle, PdfX, OneFilePerText })
                 sb.Append(flag ? '1' : '0');
             sb.Append('|').Append(MaxFontPt.ToString("0.##", CultureInfo.InvariantCulture))
               .Append('|').Append(LineSpacing.ToString("0.##", CultureInfo.InvariantCulture))
               .Append('|').Append(BleedMm.ToString("0.##", CultureInfo.InvariantCulture));
+            if (OneFilePerText) sb.Append('|').Append(ExportFiles.Normalize(FileNamePattern));
             return sb.ToString();
         }
 
@@ -219,7 +225,8 @@ namespace Marabook.Exchange
             o["cmyk"] = Cmyk; o["booklet"] = Booklet; o["cover"] = Cover; o["checkConsistency"] = CheckConsistency;
             o["dropBlankPages"] = DropBlankPages; o["splitTypes"] = SplitTypes; o["splitBooks"] = SplitBooks;
             o["splitFolders"] = SplitFolders; o["splitSubfolders"] = SplitSubfolders; o["splitOwnPage"] = SplitOwnPage;
-            o["dropCaps"] = DropCaps; o["openingSmallCaps"] = OpeningSmallCaps; o["kindle"] = Kindle;
+            o["pdfX"] = PdfX; o["dropCaps"] = DropCaps; o["openingSmallCaps"] = OpeningSmallCaps; o["kindle"] = Kindle;
+            o["oneFilePerText"] = OneFilePerText; o["fileNamePattern"] = ExportFiles.Normalize(FileNamePattern);
             return o;
         }
 
@@ -264,6 +271,9 @@ namespace Marabook.Exchange
             preset.DropCaps = Json.AsBool(Json.Field(o, "dropCaps"), false);
             preset.OpeningSmallCaps = Json.AsBool(Json.Field(o, "openingSmallCaps"), false);
             preset.Kindle = Json.AsBool(Json.Field(o, "kindle"), false);
+            preset.PdfX = Json.AsBool(Json.Field(o, "pdfX"), false);
+            preset.OneFilePerText = Json.AsBool(Json.Field(o, "oneFilePerText"), false);
+            preset.FileNamePattern = ExportFiles.Normalize(Json.AsString(Json.Field(o, "fileNamePattern")));
             preset.Category = ExportPresets.CategoryCustom;
             preset.BuiltIn = false;
             return preset;
@@ -324,7 +334,7 @@ namespace Marabook.Exchange
                 Id = Bat, Name = "BAT Imprimeur", Category = CategoryBooks, BuiltIn = true,
                 Note = "L'ancien bouton « Publier » : le livre au format de son gabarit, chaque écrit en belle page, CMJN FOGRA39, traits de coupe et fond perdu du livre. Avertit si l'ampleur mêle plusieurs formats ou déborde du livre.",
                 Format = ExportFormats.Pdf, Pages = ExportPages.Book, ChapterHeadings = false, RectoStarts = true, HeadersFooters = true,
-                BookBleed = true, CropMarks = true, Cmyk = true, CheckConsistency = true
+                BookBleed = true, CropMarks = true, Cmyk = true, PdfX = true, CheckConsistency = true
             });
             list.Add(new ExportPreset
             {
@@ -491,7 +501,7 @@ namespace Marabook.Exchange
             var tags = new List<string>();
             foreach (var item in ExportPlan.ReadingOrder(project))
             {
-                if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet && item.Kind != ItemKind.Plan && item.Kind != ItemKind.MindMap) continue;
+                if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet && item.Kind != ItemKind.Plan && item.Kind != ItemKind.MindMap && item.Kind != ItemKind.Map) continue;
                 var root = item.RootCategory();
                 if (root != null && root.CategoryKey == Project.KeyTrash) continue;
                 foreach (var tag in item.Tags)
@@ -526,6 +536,7 @@ namespace Marabook.Exchange
         public readonly List<BinderItem> Sheets = new List<BinderItem>();
         public readonly List<BinderItem> Plans = new List<BinderItem>();
         public readonly List<BinderItem> MindMaps = new List<BinderItem>();
+        public readonly List<BinderItem> Maps = new List<BinderItem>();      // les cartes du monde, en image (20/11)
         public readonly List<BinderItem> Skipped = new List<BinderItem>();   // genre que le format ne porte pas
         public readonly List<BinderItem> Dynamic = new List<BinderItem>();   // pages dynamiques écartées (EPUB)
         public readonly List<BinderItem> Filtered = new List<BinderItem>();  // cochés, mais écartés par le filtre de l'ampleur
@@ -536,7 +547,7 @@ namespace Marabook.Exchange
         /// <summary>Les livres touchés par l'ampleur.</summary>
         public readonly List<BinderItem> Books = new List<BinderItem>();
 
-        public int Count { get { return Texts.Count + Sheets.Count + Plans.Count + MindMaps.Count; } }
+        public int Count { get { return Texts.Count + Sheets.Count + Plans.Count + MindMaps.Count + Maps.Count; } }
         public bool IsEmpty { get { return Count == 0; } }
 
         public int WarnCount
@@ -552,6 +563,7 @@ namespace Marabook.Exchange
             Count1(parts, Sheets.Count, "fiche", "fiches");
             Count1(parts, Plans.Count, "plan", "plans");
             Count1(parts, MindMaps.Count, "carte mentale", "cartes mentales");
+            Count1(parts, Maps.Count, "carte", "cartes");
             return parts.Count == 0 ? "Rien à exporter" : string.Join(", ", parts.ToArray());
         }
 
@@ -568,7 +580,7 @@ namespace Marabook.Exchange
                 if (Texts.Count == 1) return Texts[0].Title;
                 if (Sheets.Count == 1) return Sheets[0].Title;
                 if (Plans.Count == 1) return Plans[0].Title;
-                return MindMaps[0].Title;
+                return MindMaps.Count == 1 ? MindMaps[0].Title : Maps[0].Title;
             }
             if (meta != null && !string.IsNullOrEmpty((meta.Title ?? "").Trim())) return meta.Title.Trim();
             if (Book != null) return BookInfo.TitleOf(Book);
@@ -615,7 +627,8 @@ namespace Marabook.Exchange
             foreach (var item in ReadingOrder(project))
             {
                 if (!wanted.Contains(item.Id)) continue;
-                if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet && item.Kind != ItemKind.Plan && item.Kind != ItemKind.MindMap) continue;
+                if (item.Kind != ItemKind.Text && item.Kind != ItemKind.Sheet && item.Kind != ItemKind.Plan && item.Kind != ItemKind.MindMap && item.Kind != ItemKind.Map) continue;
+                if (item.Kind == ItemKind.Map && (item.Map == null || !item.Map.HasImage)) continue; // une carte sans image n'a rien à montrer
                 var root = item.RootCategory();
                 if (root != null && root.CategoryKey == Project.KeyTrash) continue;
                 if (filter != null && !filter.Keeps(item)) { plan.Filtered.Add(item); continue; }
@@ -627,6 +640,7 @@ namespace Marabook.Exchange
                 }
                 else if (item.Kind == ItemKind.Sheet) plan.Sheets.Add(item);
                 else if (item.Kind == ItemKind.Plan) plan.Plans.Add(item);
+                else if (item.Kind == ItemKind.Map) plan.Maps.Add(item);
                 else plan.MindMaps.Add(item);
             }
 
@@ -747,8 +761,23 @@ namespace Marabook.Exchange
                 }
             }
 
-            if (preset.Booklet && format == ExportFormats.Pdf && (Sheets.Count + Plans.Count + MindMaps.Count > 0 || preset.Links || pages == ExportPages.Source))
+            if (preset.Booklet && format == ExportFormats.Pdf && (Sheets.Count + Plans.Count + MindMaps.Count + Maps.Count > 0 || preset.Links || pages == ExportPages.Source))
                 Add(ExportWarning.Info, "L'imposition en cahier ne vaut que pour un texte d'un seul format, sans liens : elle sera ignorée si l'export en mêle plusieurs.");
+
+            // PDF/X-1a (20/11) : ce qu'il exige, ce qu'il retire, et le profil de la condition d'impression.
+            if (format == ExportFormats.Pdf && preset.PdfX)
+            {
+                if (!preset.Cmyk)
+                    Add(ExportWarning.Warn, "PDF/X-1a ne vaut qu'en CMJN : le fichier sortira en RVB, sans se déclarer PDF/X.", "Onglet « Impression » : choisissez le profil « CMJN — Coated FOGRA39 ».");
+                else
+                {
+                    if (preset.Links) Add(ExportWarning.Info, "PDF/X-1a interdit les liens cliquables : ils ne seront pas posés.", "Les signets restent. Pour garder les liens, décochez « Conforme PDF/X-1a ».");
+                    var profile = Marabook.Print.IccProfiles.FindFogra39();
+                    if (profile == null)
+                        Add(ExportWarning.Info, "Le profil ICC livré avec Marabook est introuvable ou abîmé : la condition d'impression sera déclarée par son nom enregistré.",
+                            "PDF/X-1a l'admet pour FOGRA39, et la plupart des imprimeurs aussi. Réinstaller Marabook rend le profil.");
+                }
+            }
 
             if (preset.MaxFontPt > 0 && Texts.Count > 0)
             {

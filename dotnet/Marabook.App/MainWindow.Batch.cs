@@ -30,6 +30,9 @@ namespace Marabook.App
             public Action Run;
             public Action<ItemsControl> Fill;
             public IBrush Foreground;
+            /// <summary>Le groupe de l'entrée (22/11) : le menu de la sélection suit la nomenclature du clic
+            /// droit d'un élément — exporter (2), gestes (4), identité (5), fin (6) —, un filet entre deux groupes.</summary>
+            public int Group;
         }
 
         /// <summary>La sélection d'une vue a changé : à partir de deux
@@ -96,10 +99,12 @@ namespace Marabook.App
         {
             if (items == null || items.Count < 2) return null;
             var menu = new ContextMenu();
+            var lastGroup = -1;
             foreach (var entry in BatchEntries(items))
             {
                 var e = entry;
-                if (e.Foreground != null && menu.Items.Count > 0) menu.Items.Add(new Separator());
+                if (menu.Items.Count > 0 && e.Group != lastGroup) menu.Items.Add(new Separator());
+                lastGroup = e.Group;
                 var item = new MenuItem { Header = e.Label };
                 if (e.Foreground != null) item.Foreground = e.Foreground;
                 if (e.Fill != null) e.Fill(item);
@@ -174,40 +179,34 @@ namespace Marabook.App
             var inTrash = All(targets, delegate(BinderItem i) { return i.RootCategory().CategoryKey == Project.KeyTrash; });
             if (!inTrash)
             {
-                entries.Add(new BatchEntry
-                {
-                    Label = "Couleur des tuiles",
-                    Fill = delegate(ItemsControl target) { ColorMenus.Fill(target, this, _project, Common(targets, delegate(BinderItem i) { return i.CardColor; }), delegate(string value) { BatchColor(targets, value); }); }
-                });
-                entries.Add(new BatchEntry
-                {
-                    Label = "Couleur des icônes",
-                    Fill = delegate(ItemsControl target) { ColorMenus.Fill(target, this, _project, null, delegate(string value) { BatchIconColor(targets, value); }); }
-                });
-                entries.Add(new BatchEntry { Label = "Changer l'icône…", Run = delegate { BatchIcon(targets); } });
+                // L'ordre du clic droit d'un élément (22/11) : exporter, les gestes, l'identité, la fin.
+                var scope = new List<string>();
+                foreach (var target in targets) foreach (var id in ScopeOf(target)) if (!scope.Contains(id)) scope.Add(id);
+                if (scope.Count > 0)
+                    entries.Add(new BatchEntry { Group = 2, Label = "Exporter…", Run = delegate { OpenExportManager(scope, null); } }); // le gestionnaire d'export, la sélection cochée
                 var bookTexts = All(targets, delegate(BinderItem i) { return i.Kind == ItemKind.Text && i.EnclosingBook() != null; });
                 // Le profil (1.1.0) peut cacher les gabarits et les pages extra.
                 if (bookTexts && Profiles.Enabled(Profiles.BookFormat))
                 {
-                    entries.Add(new BatchEntry { Label = "Appliquer un gabarit…", Run = delegate { ApplyPageTemplateTo(targets); } });
-                    entries.Add(new BatchEntry { Label = "Appliquer le gabarit du livre", Run = delegate { BatchApplyBookLayout(targets); } }); // la mise en page du livre
+                    entries.Add(new BatchEntry { Group = 4, Label = "Appliquer un gabarit…", Run = delegate { ApplyPageTemplateTo(targets); } });
+                    entries.Add(new BatchEntry { Group = 4, Label = "Appliquer le gabarit du livre", Run = delegate { BatchApplyBookLayout(targets); } }); // la mise en page du livre
                 }
                 if (bookTexts && Profiles.Enabled(Profiles.BookExtraPages))
                 {
                     var allExtra = All(targets, delegate(BinderItem i) { return i.IsExtraPage; });
                     entries.Add(new BatchEntry
                     {
+                        Group = 4,
                         Label = allExtra ? "Retirer des pages extra" : "Marquer comme pages extra",
                         Run = delegate { BatchExtraPages(targets, !allExtra); }
                     });
                 }
-                if (All(targets, delegate(BinderItem i) { return i.Kind == ItemKind.Text || i.Kind == ItemKind.Sheet || i.Kind == ItemKind.PageTemplate; }))
-                    entries.Add(new BatchEntry { Label = "Dupliquer", Run = delegate { BatchDuplicate(targets); } });
                 if (All(targets, delegate(BinderItem i) { return i.Kind == ItemKind.Sheet; }) && _project != null)
                 {
                     var commonCategory = Common(targets, delegate(BinderItem i) { return i.CategoryId; });
                     entries.Add(new BatchEntry
                     {
+                        Group = 4,
                         Label = "Changer de catégorie",
                         Fill = delegate(ItemsControl target)
                         {
@@ -221,8 +220,26 @@ namespace Marabook.App
                         }
                     });
                 }
+                // L'identité : une sélection n'a pas de fenêtre « Tuile » (pas d'image commune) — la couleur
+                // des tuiles et celle des icônes restent deux nuanciers ; « Icône… » choisit l'icône et sa couleur.
                 entries.Add(new BatchEntry
                 {
+                    Group = 5,
+                    Label = "Couleur des tuiles",
+                    Fill = delegate(ItemsControl target) { ColorMenus.Fill(target, this, _project, Common(targets, delegate(BinderItem i) { return i.CardColor; }), delegate(string value) { BatchColor(targets, value); }); }
+                });
+                entries.Add(new BatchEntry
+                {
+                    Group = 5,
+                    Label = "Couleur des icônes",
+                    Fill = delegate(ItemsControl target) { ColorMenus.Fill(target, this, _project, null, delegate(string value) { BatchIconColor(targets, value); }); }
+                });
+                entries.Add(new BatchEntry { Group = 5, Label = "Icône…", Run = delegate { BatchIcon(targets); } });
+                if (All(targets, delegate(BinderItem i) { return i.Kind == ItemKind.Text || i.Kind == ItemKind.Sheet || i.Kind == ItemKind.PageTemplate; }))
+                    entries.Add(new BatchEntry { Group = 6, Label = "Dupliquer", Run = delegate { BatchDuplicate(targets); } });
+                entries.Add(new BatchEntry
+                {
+                    Group = 6,
                     Label = "Envoyer à la corbeille",
                     Foreground = BinderView.SoftDeleteInk,
                     Run = delegate { TrashMany(targets); }
@@ -232,6 +249,7 @@ namespace Marabook.App
             {
                 entries.Add(new BatchEntry
                 {
+                    Group = 6,
                     Label = "Supprimer définitivement",
                     Foreground = BinderView.HardDeleteInk,
                     Run = delegate { HardDeleteMany(targets); }
@@ -380,8 +398,13 @@ namespace Marabook.App
         private async void TrashMany(List<BinderItem> items)
         {
             if (items == null || items.Count == 0) return;
+            // Un conteneur dans le lot se NOMME (21/11) : c'est lui qui emporte le plus.
+            var containers = new List<string>();
+            foreach (var item in items)
+                if (item != null && item.Children.Count > 0 && containers.Count < 4) containers.Add("« " + item.Title + " »");
             var answer = await MessageDialog.Show(this,
-                "Envoyer ces " + items.Count + " éléments à la corbeille ?\nLeur contenu part avec.",
+                (items.Count == 1 ? "Envoyer « " + items[0].Title + " » à la corbeille ?" : "Envoyer ces " + items.Count + " éléments à la corbeille ?")
+                + (containers.Count > 0 ? "\n" + string.Join(", ", containers.ToArray()) + (containers.Count == 1 ? " part" : " partent") + " avec tout ce qu'" + (containers.Count == 1 ? "il contient." : "ils contiennent.") : items.Count == 1 ? "" : "\nLeur contenu part avec."),
                 AppName, MessageButtons.YesNo, MessageIcon.Question);
             if (answer != MessageResult.Yes) return;
             var action = new TrashManyAction(_project.Trash, items);

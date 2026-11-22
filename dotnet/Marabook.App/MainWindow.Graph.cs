@@ -40,6 +40,7 @@ namespace Marabook.App
         {
             if (id == null) return null;
             if (id == GraphItemId) return Profiles.Enabled(Profiles.Graph) ? _graphItem : null;
+            if (id == AtelierItemId) return _atelierItem; // l'Atelier (21/11)
             return _project == null ? null : _project.FindById(id);
         }
 
@@ -114,7 +115,7 @@ namespace Marabook.App
         private static void EncyclopediaDiagnostic(string path, string folder)
         {
             var project = Marabook.Persistence.PlotFile.Load(path);
-            var document = Exchange.Encyclopedia.Build(project, Exchange.EncyclopediaSelection.All(), Exchange.Encyclopedia.DefaultOptions(project), Settings.AppSettings.Lexicon);
+            var document = Exchange.Encyclopedia.Build(project, Exchange.EncyclopediaSelection.All(), Skin.DressExport(Exchange.Encyclopedia.DefaultOptions(project)), Settings.AppSettings.Lexicon);
             var written = Exchange.HtmlEncyclopedia.Write(folder, document, project);
             Console.WriteLine("ENCYCLOPÉDIE " + System.IO.Path.GetFileName(path) + " : " + document.SheetCount + " fiches, " + document.Sections.Count + " sections, " + document.Lexicon.Count + " mots, " + document.Images.Count + " images -> " + written.Count + " fichiers dans " + folder);
         }

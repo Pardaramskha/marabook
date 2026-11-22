@@ -209,7 +209,7 @@ namespace Marabook.App
             MinWidth = 800;
             MinHeight = 500;
             WindowState = WindowState.Maximized; // plein écran au lancement
-            Background = Chrome.WindowBg;
+            Skin.BackdropOn(this); // Chrome.WindowBg, ou le fond du skin (21/11)
             Foreground = Chrome.Ink;
 
             var root = new DockPanel();
@@ -354,6 +354,7 @@ namespace Marabook.App
             }, RoutingStrategies.Tunnel);
 
             Closing += OnClosingWindow;
+            ScreenSteps.Recorder = RecordScreenStep;
 
             LoadProject(Project.CreateNew(), null);
         }
@@ -383,7 +384,7 @@ namespace Marabook.App
 
         private Control BuildMenuBar()
         {
-            var bar = new Border { Background = Chrome.BarBg };
+            var bar = new Border { [!Border.BackgroundProperty] = Skin.BarBinding };
             DockPanel.SetDock(bar, Dock.Top);
             var menu = new Menu { Background = Brushes.Transparent };
 
@@ -455,8 +456,14 @@ namespace Marabook.App
                 _searchPanel.Previous();
             });
             _versionsMenu = Entry("versions-panel", "Versions de l'écrit…", OpenVersionsPanel, TextActive);
+            _conjugatorMenu = Entry("conjugator", "Conjugueur…", delegate { OpenConjugator(null); }); // 20/11
             _versionsMenu.ToggleType = MenuItemToggleType.CheckBox;
             edit.Items.Add(_versionsMenu);
+            edit.Items.Add(_conjugatorMenu);
+            _readAloudMenu = Entry("read-aloud", "Lire à voix haute", ToggleReadAloud, TextActive); // 21/11
+            ToolTip.SetTip(_readAloudMenu, "La voix de votre système lit la sélection — ou, sans sélection, la suite de l'écrit depuis le curseur. Relancer la commande l'arrête.");
+            edit.Items.Add(_readAloudMenu);
+            ReadAloud.Changed += delegate { Ui.Post(DispatcherPriority.Background, new Action(UpdateReadAloudMenu)); };
             _sprintMenu = Entry("session-goal", "Lancer un sprint…", StartSprint);
             edit.Items.Add(_sprintMenu);
             edit.Items.Add(new Separator()); // un filet avant Fiches (1/11, Rémi)
@@ -521,6 +528,9 @@ namespace Marabook.App
             view.Items.Add(_binderMenu);
             view.Items.Add(_inspectorMenu);
             view.Items.Add(_rulersMenu);
+            _splitMenu = Entry("split-view", "Vue scindée…", ToggleSplit, delegate { return _project != null; }); // 21/11
+            ToolTip.SetTip(_splitMenu, "Coupe la zone centrale en deux : un écrit ou une fiche s'ouvre à droite, éditable, à côté de l'élément ouvert. La croix au bas du volet le referme.");
+            view.Items.Add(_splitMenu);
             view.Items.Add(new Separator());
             // Les onglets (1.1.0) : grisés quand le réglage les éteint.
             view.Items.Add(Entry("new-tab", "Nouvel onglet", OpenNewTab, TabsOn));
@@ -717,11 +727,29 @@ namespace Marabook.App
             _binder.OccurrenceRequested += OpenOccurrence;
             _binder.MultiSelectionChanged += InspectGroup; // Ctrl+clic dans la Pile (1.0.3)
             _binder.BatchMenuProvider = BuildBatchMenu;
+            // Suppr, le clavier dans la Pile, mais des cartes cochées au centre : ce
+            // sont ELLES qui partent — pas la ligne de la Pile, souvent le livre
+            // ou le dossier qui les contient (21/11, Rémi).
+            _binder.DeleteInterceptor = delegate
+            {
+                List<BinderItem> lot = null;
+                if (_bookView.IsVisible) lot = _bookView.SelectedItems();
+                else if (_corkboard.IsVisible) lot = _corkboard.SelectedItems();
+                else if (_sheetLibrary.IsVisible) lot = _sheetLibrary.SelectedItems();
+                if (lot == null) return false;
+                lot.RemoveAll(delegate(BinderItem i) { return i == null || i.IsCategory; });
+                if (lot.Count == 0) return false;
+                TrashMany(lot);
+                return true;
+            };
             _binder.JournalRequested += ShowJournal;
             _binder.GraphRequested += ShowGraph; // le graphe relationnel (1.1.0)
             _binder.ExportSheetRequested += delegate(BinderItem item) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Sheet(item.Id)); }; // l'Encyclopédie (31/10)
             _binder.ExportEncyclopediaRequested += ExportEncyclopediaAll;
             _binder.NewTabRequested += OpenInNewTab; // « Ouvrir dans un nouvel onglet » (1.1.0)
+            _binder.ExportRequested += ExportItem; // « Exporter… » du clic droit : le gestionnaire, l'élément coché (22/11)
+            _binder.CanExport = delegate(BinderItem item) { return ScopeOf(item).Count > 0; };
+            _binder.ApplyBookLayoutRequested += delegate(BinderItem item) { BatchApplyBookLayout(new List<BinderItem> { item }); RefreshOpenCorkboards(); };
             _binder.CanOpenTab = delegate { return TabsOn() && _tabs.CanOpen; };
             _binder.FilesDropped += ImportDroppedFiles; // fichiers du système sur la Pile (29/09)
             _binder.AchievementEvent += UnlockAchievement; // « Ooh la boulette ! » (12/09)
@@ -774,7 +802,7 @@ namespace Marabook.App
             };
             _binderStrip = new Border
             {
-                Background = Chrome.BarBg,
+                [!Border.BackgroundProperty] = Skin.BarBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 1, 0),
                 IsVisible = false,
@@ -829,6 +857,8 @@ namespace Marabook.App
             SyncZoomForView();
             FontCatalog.Changed += delegate { Ui.Post(DispatcherPriority.Background, new Action(RefreshFontAlert)); };
             _editor.DefinitionRequested += ShowDefinition; // clic droit › « Afficher la définition » (18/09)
+            _editor.ConjugateRequested += OpenConjugator;  // clic droit › « Conjuguer… » (20/11)
+            _editor.ReadAloudRequested += ToggleReadAloud; // clic droit › « Lire à voix haute » (21/11)
             _editor.ZoomStepRequested += delegate(int step) { ApplyZoom(AppSettings.Zoom + step); };
             _editor.DocumentSettingChanged += MarkDirty; // l'interligne du document (22/09)
             _editor.PageSetupChanged += delegate
@@ -884,6 +914,7 @@ namespace Marabook.App
                 _binder.SelectItem(_current.Parent.Id);
             };
             _sheetView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _sheetView.BacklinkRequested += OpenBacklink;
             _sheetView.RenameRequested += delegate
             {
                 if (_current == null) return;
@@ -899,6 +930,8 @@ namespace Marabook.App
             _corkboard.ChapterOddEnd = ChapterOddEnd;
             _corkboard.LimitExceeded = LimitExceeded; // le liseré rouge d'une limite dépassée (1.1.0)
             _corkboard.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _corkboard.SceneEditRequested += delegate(BinderItem item, int scene) { var ignored = EditScene(item, scene); };
+            _corkboard.SceneOpenRequested += OpenAtParagraph;
             _corkboard.NewTabRequested += OpenInNewTab; // clic molette sur une carte (1/11)
             _corkboard.Changed += delegate { MarkDirty(); UpdateInspector(); _binder.Rebuild(); };
             _corkboard.ExportRequested += ExportItem;
@@ -1007,7 +1040,7 @@ namespace Marabook.App
             center.Children.Add(_planView);
             BuildTimelineViews(center); // les frises (1.2.0)
             BuildMapViews(center);      // l'Astrolabe sans les frises, les cartes (16/11)
-            _mindMapHost = new Grid { IsVisible = false, Background = Chrome.WindowBg };
+            _mindMapHost = new Grid { IsVisible = false, [!Panel.BackgroundProperty] = Skin.GroundBinding };
             // La carte mentale (26/10) a le même curseur de zoom que les pages.
             Ui.OnVisibilityChanged(_mindMapHost, delegate { SyncZoomForView(); });
             center.Children.Add(_mindMapHost);
@@ -1017,6 +1050,8 @@ namespace Marabook.App
             _bookView.ChapterOddEnd = ChapterOddEnd; // la pastille d'enchaînement des tuiles (18/10)
             _bookView.LimitExceeded = LimitExceeded; // le liseré rouge d'une limite dépassée (1.1.0)
             _bookView.Navigate += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _bookView.SceneEditRequested += delegate(BinderItem item, int scene) { var ignored = EditScene(item, scene); };
+            _bookView.SceneOpenRequested += OpenAtParagraph;
             _bookView.Changed += delegate
             {
                 MarkDirty(); UpdateInspector(); _binder.Rebuild();
@@ -1075,6 +1110,7 @@ namespace Marabook.App
             _mediaView = new MediaView { IsVisible = false };
             center.Children.Add(_mediaView);
             center.Children.Add(BuildGraphView()); // le graphe relationnel (1.1.0)
+            center.Children.Add(BuildAtelierView()); // l'Atelier, section Outils (2.0.0, 21/11)
 
             _journalView = new JournalView { IsVisible = false, Background = Brushes.Transparent }; // le fond est celui de la feuille (coins ronds)
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
@@ -1208,7 +1244,8 @@ namespace Marabook.App
             var tabStrip = BuildTabStrip();
             DockPanel.SetDock(tabStrip, Dock.Top);
             centerColumn.Children.Add(tabStrip);
-            centerColumn.Children.Add(center);
+            // La vue scindée (21/11) : sous les onglets, la zone centrale peut se couper en deux.
+            centerColumn.Children.Add(BuildSplitHost(center));
             AlignTabStripWith(_binder.SearchBarForTabs);
             Grid.SetColumn(centerColumn, 2);
             grid.Children.Add(centerColumn);
@@ -1287,6 +1324,11 @@ namespace Marabook.App
             _binder.SidePinRequested += delegate(BinderItem item)
             {
                 if (item == _sidePin) UnpinSide(); else PinToSide(item);
+            };
+            _binder.IsSplit = delegate(BinderItem item) { return item != null && SplitOpen && item == SplitItem; };
+            _binder.SplitRequested += delegate(BinderItem item)
+            {
+                if (SplitOpen && item == SplitItem) CloseSplit(); else OpenSplit(item);
             };
 
             _rail = BuildRail();
@@ -1481,6 +1523,12 @@ namespace Marabook.App
             // L'édition d'une fiche (1.0.4) défaite ou refaite : la fiche
             // ouverte se recharge, la bibliothèque et la Pile suivent (la
             // catégorie peut avoir changé), le rail aussi.
+            if (action is History.SceneEditAction) // une fiche de scène défaite ou refaite (21/11)
+            {
+                MarkDirty();
+                ScenesChanged();
+                return;
+            }
             var sheetEdit = action as History.SheetEditAction;
             if (sheetEdit != null)
             {
@@ -1874,6 +1922,7 @@ namespace Marabook.App
             _presencePanel = new StackPanel();
             _presenceSection.Children.Add(_presencePanel);
             panel.Children.Add(_presenceSection);
+            panel.Children.Add(BuildScenePanel()); // la fiche de la scène du curseur (21/11)
 
             _synopsisLabel = new TextBlock
             {
@@ -2034,7 +2083,7 @@ namespace Marabook.App
         {
             var bar = new Border
             {
-                Background = Chrome.BarBg,
+                [!Border.BackgroundProperty] = Skin.BarBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 1, 0, 0),
                 Padding = new Thickness(10, 2, 10, 2)
@@ -2217,6 +2266,7 @@ namespace Marabook.App
                 return;
             }
             percent = Math.Max(50, Math.Min(300, Math.Round(percent / 10) * 10));
+            _splitZoomed = false; // l'auteur a choisi son zoom : la vue scindée ne le rétablira pas à sa place
             AppSettings.Zoom = percent;
             _editor.SetZoom(percent / 100.0);
             _sheetView.SetZoom(percent / 100.0);
@@ -2269,6 +2319,10 @@ namespace Marabook.App
 
         private void LoadProjectCore(Project project, string path)
         {
+            // Les écrans basculés de l'ancien projet ne se rembobinent pas dans le nouveau.
+            _navBack.RemoveAll(delegate(NavStep step) { return step.Id == null; });
+            _navForward.Clear();
+            CloseSplit(); // le volet scindé appartient au projet qu'on quitte (21/11)
             // Les styles globaux (22/09) : le projet se met d'accord avec les
             // réglages avant que quiconque lise sa feuille. S'il a POUSSÉ ses
             // styles vers les réglages, il est marqué modifié : son empreinte
@@ -2579,7 +2633,7 @@ namespace Marabook.App
             {
                 MessageDialog.Show(this,
                     "Aucune copie horodatée pour l'instant : la première viendra au prochain enregistrement"
-                    + (AppSettings.BackupsEnabled ? "." : " — les copies sont désactivées (Préférences › Général › Sauvegardes)."),
+                    + (AppSettings.BackupsEnabled ? "." : " — les copies sont désactivées (Préférences › Projet › Sauvegardes)."),
                     "Sauvegardes", MessageButtons.OK, MessageIcon.Information);
                 return;
             }
@@ -2594,8 +2648,13 @@ namespace Marabook.App
         private async void DoNew()
         {
             if (!await ConfirmDiscard()) return;
-            LoadProject(Project.CreateNew(), null);
+            var fresh = await ProjectTemplateDialog.Ask(this); // vide, ou bâti sur un modèle s'il y en a (21/11)
+            if (fresh == null) return;
+            LoadProject(fresh, null);
         }
+
+        internal string ProjectPathForPreferences { get { return _path; } }
+        internal void CommitForPreferences() { CommitActive(); }
 
         // ============================================================= accueil (13/09)
 
@@ -2681,12 +2740,24 @@ namespace Marabook.App
         {
             var dialogPath = await Ui.PickSaveFile(this, "Enregistrer le nouveau projet", PlotFile.SaveFilter, "Sans titre" + PlotFile.Extension);
             if (dialogPath == null) return false;
-            LoadProject(Project.CreateNew(), null);
+            var fresh = await ProjectTemplateDialog.Ask(this); // vide, ou bâti sur un modèle s'il y en a (21/11)
+            if (fresh == null) return false;
+            return await CreateProjectAt(fresh, dialogPath);
+        }
+
+        /// <summary>Le projet neuf, ouvert et écrit à cet endroit. L'écriture
+        /// tourne sur un fil de fond (01/10) : on l'ATTEND avant de juger —
+        /// regarder le disque tout de suite voyait « pas de fichier », rendait
+        /// faux, et l'accueil restait devant un projet pourtant créé (21/11, Rémi).</summary>
+        internal async Task<bool> CreateProjectAt(Project fresh, string dialogPath)
+        {
+            LoadProject(fresh, null);
             _path = dialogPath;
             AdoptPath(_path); // verrou et référence du disque suivent (1.0.3)
             AdoptFileName(_project, _path);
-            DoSave();
-            if (!File.Exists(_path)) { _path = null; return false; }
+            SaveProject(false, true); // le sélecteur a déjà fait confirmer un remplacement
+            await SaveCompletion();
+            if (!File.Exists(_path)) { _path = null; UpdateTitle(); return false; }
             if (_binder.ExpansionKey == null && !IsTutorialPath(_path)) { _binder.ExpansionKey = _path; _binder.RememberExpansion(); } // un projet neuf enregistré : la Pile se retient désormais
             RememberRecent(_path, _project);
             AppSettings.Save();
@@ -3132,7 +3203,7 @@ namespace Marabook.App
             {
                 _backupWarned = true;
                 ShowToast(null, "Copie de sauvegarde impossible", project.Name,
-                    outcome.BackupError + "\nLe projet est enregistré ; vérifiez le dossier des sauvegardes (Préférences › Général).", 8);
+                    outcome.BackupError + "\nLe projet est enregistré ; vérifiez le dossier des sauvegardes (Préférences › Projet).", 8);
             }
             try { _lastSavedBytes = new FileInfo(path).Length; } catch (IOException) { }
             if (path == _path) RememberDisk(path, savedId); // la nouvelle référence du disque (1.0.3)
@@ -3240,9 +3311,13 @@ namespace Marabook.App
 
         private async void OnClosingWindow(object sender, WindowClosingEventArgs e)
         {
+            ReadAloud.Stop(); // la voix ne survit pas à la fenêtre
             if (!_closeConfirmed)
             {
                 e.Cancel = true;
+                // L'Atelier tient du travail pas enregistré (22/11) : on le dit avant de quitter.
+                var pending = _atelierView == null ? null : _atelierView.PendingWork();
+                if (pending != null && await MessageDialog.Show(this, AtelierView.LeaveWarning(pending) + "\n\nQuitter Marabook quand même ?", AppName, MessageButtons.YesNo, MessageIcon.Warning) != MessageResult.Yes) return;
                 if (!await ConfirmDiscard()) return;
                 await SaveCompletion(); // une écriture de fond encore en route finit avant de quitter (01/10)
                 _closeConfirmed = true;
@@ -3344,6 +3419,7 @@ namespace Marabook.App
             // écrivent directement dans le pivot (le classique et son Commit
             // ont disparu le 13/09).
             if (_sheetView.HasItem) _sheetView.Commit();
+            if (_split != null) _split.Commit(); // la fiche du volet scindé aussi (21/11)
             // Template zones normally commit on focus loss, but a pending
             // debounced edit must not be lost by a save that races it.
             _templateView.CommitZones();
@@ -3351,9 +3427,31 @@ namespace Marabook.App
 
         // Historique de PANNEAUX (batch 28) : précédent/suivant aux boutons
         // latéraux de la souris — d'un texte ouvert au panneau livre d'avant.
-        private readonly List<string> _navBack = new List<string>();
-        private readonly List<string> _navForward = new List<string>();
+        // Un pas est soit un PANNEAU (l'id de l'élément qu'on quittait), soit un
+        // ÉCRAN basculé sur place (21/11, Rémi) : le Tableau à la place des
+        // cartes, la liste des fiches, le calendrier d'une frise, la vue
+        // planétaire… « Précédent » défait la bascule avant de quitter le panneau.
+        private sealed class NavStep
+        {
+            public string Id;            // un panneau ; null pour un écran
+            public Control View;         // la vue qui a basculé
+            public Action Back, Forward; // défaire et refaire la bascule
+        }
+        private readonly List<NavStep> _navBack = new List<NavStep>();
+        private readonly List<NavStep> _navForward = new List<NavStep>();
         private bool _navTravelling;
+
+        /// <summary>Une vue vient de basculer d'écran À LA MAIN : le pas entre dans l'historique.</summary>
+        private void RecordScreenStep(Control view, Action back, Action forward)
+        {
+            if (_navTravelling || view == null || back == null || forward == null) return;
+            _navBack.Add(new NavStep { View = view, Back = back, Forward = forward });
+            if (_navBack.Count > 60) _navBack.RemoveAt(0);
+            _navForward.Clear();
+        }
+
+        internal bool NavigateBackForProbe() { var had = _navBack.Count; NavigateHistory(true); return had > 0; }
+        internal void NavigateForwardForProbe() { NavigateHistory(false); }
 
         /// <summary>Remonte (ou redescend) l'historique des panneaux ouverts.
         /// Un élément disparu entre-temps est sauté sans bruit.</summary>
@@ -3362,12 +3460,23 @@ namespace Marabook.App
             var source = back ? _navBack : _navForward;
             while (source.Count > 0)
             {
-                var targetId = source[source.Count - 1];
+                var step = source[source.Count - 1];
                 source.RemoveAt(source.Count - 1);
+                var other = back ? _navForward : _navBack;
+                if (step.Id == null)
+                {
+                    // Un écran basculé : il ne se défait que là où il a été fait.
+                    if (step.View == null || !step.View.IsEffectivelyVisible) continue;
+                    other.Add(step);
+                    _navTravelling = true;
+                    try { if (back) step.Back(); else step.Forward(); }
+                    finally { _navTravelling = false; }
+                    return;
+                }
+                var targetId = step.Id;
                 var target = targetId.Length == 0 ? null : ResolveItem(targetId); // du projet, ou le graphe (28/10)
                 if (targetId.Length > 0 && target == null) continue; // disparu
-                var other = back ? _navForward : _navBack;
-                other.Add(_current == null ? "" : _current.Id);
+                other.Add(new NavStep { Id = _current == null ? "" : _current.Id });
                 _navTravelling = true;
                 try
                 {
@@ -3402,7 +3511,7 @@ namespace Marabook.App
             // un voyage dans l'historique lui-même.
             if (!_navTravelling && !ReferenceEquals(_current, item))
             {
-                _navBack.Add(_current == null ? "" : _current.Id);
+                _navBack.Add(new NavStep { Id = _current == null ? "" : _current.Id });
                 if (_navBack.Count > 60) _navBack.RemoveAt(0);
                 _navForward.Clear();
             }
@@ -3446,6 +3555,8 @@ namespace Marabook.App
         {
             if (IsGraphItem(item))
                 return _graphView != null && _graphView.IsVisible;
+            if (IsAtelierItem(item))
+                return _atelierView != null && _atelierView.IsVisible;
             if (item.Kind == ItemKind.Text)
                 return _editor.IsVisible && _editor.ShowsItem(item);
             if (item.Kind == ItemKind.Sheet)
@@ -3496,6 +3607,7 @@ namespace Marabook.App
 
         private void ShowItemCore(BinderItem item)
         {
+            SplitYieldTo(item); // l'élément du volet scindé s'ouvre à gauche : le volet se ferme (21/11)
             // LE bug du « double-clic obligatoire », enfin élucidé : masquer la
             // vue qui porte le focus clavier fait retomber ce focus sur un
             // TreeViewItem de la Pile — et un TreeViewItem SE SÉLECTIONNE
@@ -3531,6 +3643,11 @@ namespace Marabook.App
             if (IsGraphItem(item)) // le graphe relationnel, une page comme une autre (28/10)
             {
                 ShowGraphCore();
+                return;
+            }
+            if (IsAtelierItem(item)) // l'Atelier, la première page de la section Outils (21/11)
+            {
+                ShowAtelierCore();
                 return;
             }
             if (item != null && item.Kind == ItemKind.PageTemplate)
@@ -3723,6 +3840,7 @@ namespace Marabook.App
             _templateView.Clear();
             _mediaView.IsVisible = false;
             if (_graphView != null) _graphView.IsVisible = false; // le graphe relationnel (1.1.0)
+            if (_atelierView != null && _atelierView.IsVisible) { _atelierView.IsVisible = false; AtelierHidden(); } // l'Atelier (2.0.0) ; quitté, son outil rend son PDF (22/11)
             _placeholder.IsVisible = false;
         }
 
@@ -3958,17 +4076,22 @@ namespace Marabook.App
 
         private void OnEditorEdited()
         {
+            var perf = Perf.Begin();
             MarkDirty();
+            Perf.End("abonnés : marquer modifié", perf);
+            perf = Perf.Begin();
+            OnEditorEditedCore();
+            Perf.End("abonnés : capture du jour, pages, statistiques", perf);
+        }
+
+        private void OnEditorEditedCore()
+        {
             // Le miroir épinglé suit l'original en cours de frappe (b47).
             if (_sidePin != null && _sidePin == _current) { _pinTimer.Stop(); _pinTimer.Start(); }
             // La capture quotidienne (b38, lot C) : à la première modification
             // du jour, l'état d'AVANT la frappe (la pile locale du composé s'en
             // souvient) — une par jour et par item, débrayable (Préférences).
-            if (_current != null && _project != null && AppSettings.DailySnapshot
-                && SnapshotStore.GuardDaily(_project, _current,
-                    _current.Kind == ItemKind.Text ? _editor.DocumentAtOpen() : null,
-                    true, AppSettings.SnapshotCap) != null)
-                OnSnapshotsChanged();
+            if (_current != null && _project != null && AppSettings.DailySnapshot) GuardDailySnapshot(_current);
             // The edited document's page count is stale (book folio offsets).
             if (_current != null)
             {
@@ -3983,6 +4106,46 @@ namespace Marabook.App
             _statsTimer.Stop();
             _statsTimer.Start();
         }
+
+        private readonly HashSet<string> _dailyPending = new HashSet<string>();
+        /// <summary>Au-delà, la capture du jour se prépare hors du fil d'interface.</summary>
+        internal const int DailyAsyncChars = 120000;
+
+        /// <summary>LA CAPTURE DU JOUR, SANS ACCROC (21/11). Elle fige l'état d'avant la première
+        /// frappe du jour : sérialiser un écrit de 250 pages prenait 0,6 s, EN PLEINE FRAPPE.
+        /// Pour un long écrit, la copie d'avant (un point d'annulation, que plus rien ne modifie)
+        /// est sérialisée sur un autre fil, puis rangée au retour. Un écrit ordinaire reste
+        /// capturé sur-le-champ, comme avant.</summary>
+        private void GuardDailySnapshot(BinderItem item)
+        {
+            if (item.Kind != ItemKind.Text || SnapshotStore.HasToday(_project, item.Id, null) || _dailyPending.Contains(item.Id)) return;
+            var atOpen = _editor.DocumentAtOpen();
+            var project = _project;
+            var size = 0;
+            if (atOpen != null) foreach (var paragraph in atOpen.Paragraphs) size += PivotEdit.FlatLength(paragraph);
+            if (atOpen == null || size < DailyAsyncChars || _launch.Probe && !DailyAsyncInProbe)
+            {
+                if (SnapshotStore.GuardDaily(project, item, atOpen, true, AppSettings.SnapshotCap) != null) OnSnapshotsChanged();
+                return;
+            }
+            _dailyPending.Add(item.Id);
+            System.Threading.Tasks.Task.Run(delegate
+            {
+                Snapshot prepared = null;
+                try { prepared = SnapshotStore.Prepare(item, atOpen, "", SnapshotOrigin.Daily); }
+                catch (Exception) { }
+                Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+                {
+                    _dailyPending.Remove(item.Id);
+                    if (prepared == null || !ReferenceEquals(project, _project) || project.FindById(item.Id) == null) return;
+                    if (SnapshotStore.HasToday(project, item.Id, null)) return;
+                    if (SnapshotStore.Commit(project, prepared, AppSettings.SnapshotCap)) OnSnapshotsChanged();
+                });
+            });
+        }
+
+        /// <summary>Sonde : jouer la capture hors fil même en sonde (elle y est sinon immédiate, pour les étapes qui la lisent aussitôt).</summary>
+        internal bool DailyAsyncInProbe;
 
         private void OnSynopsisChanged(object sender, TextChangedEventArgs e)
         {
@@ -4004,6 +4167,7 @@ namespace Marabook.App
         /// ever swallowing a text undo/redo into the (often empty) Pile stack.</summary>
         private async void DoUndo()
         {
+            if (SplitOpen && _split.HasKeyboard && _split.TryUndo()) return; // le clavier est dans le volet scindé : c'est lui qu'on annule (21/11)
             if (_editor.IsVisible && _editor.TryUndo()) return;
             if (_sheetView.IsVisible && _sheetView.TryUndo()) return;
             if (!_history.CanUndo) return;
@@ -4024,6 +4188,7 @@ namespace Marabook.App
 
         private void DoRedo()
         {
+            if (SplitOpen && _split.HasKeyboard && _split.TryRedo()) return;
             if (_editor.IsVisible && _editor.TryRedo()) return;
             if (_sheetView.IsVisible && _sheetView.TryRedo()) return;
             if (!_history.CanRedo) return;
@@ -4065,19 +4230,76 @@ namespace Marabook.App
         // ============================================================= import / export
 
         private const string DocumentImportFilter =
-            "Documents (*.docx;*.odt;*.rtf;*.md;*.txt;*.doc;*.gdoc)|*.docx;*.odt;*.rtf;*.md;*.txt;*.doc;*.gdoc|" +
+            "Documents (*.docx;*.odt;*.rtf;*.md;*.txt;*.doc;*.gdoc;*.pdf)|*.docx;*.odt;*.rtf;*.md;*.txt;*.doc;*.gdoc;*.pdf|" +
             "Tous les fichiers (*.*)|*.*";
 
         private async void ImportDocuments()
         {
             var dialogPaths = await Ui.PickOpenFiles(this, "", DocumentImportFilter);
             if (dialogPaths == null || dialogPaths.Length == 0) return;
-            ImportDocumentFiles(_binder.CurrentContainer(), dialogPaths, true);
+            var container = _binder.CurrentContainer();
+            dialogPaths = await PreparePdfImport(dialogPaths);
+            if (dialogPaths.Length == 0) return;
+            ImportDocumentFiles(container, dialogPaths, true);
+        }
+
+        // ---------------------------------------------------------------- l'import PDF (21/11)
+
+        private static bool IsPdfPath(string path) { return System.IO.Path.GetExtension(path ?? "").ToLowerInvariant() == ".pdf"; }
+
+        /// <summary>Sonde : la réponse à la question « télécharger PdfPig ? » sans fenêtre (null = la poser).</summary>
+        internal bool? PdfPigAnswerForProbe;
+        /// <summary>Sonde : une archive locale à installer au lieu du téléchargement.</summary>
+        internal string PdfPigPackageForProbe;
+        internal string LastPdfPromptForProbe;
+        private readonly List<string> _pdfImportNotes = new List<string>();
+
+        /// <summary>AVANT D'IMPORTER UN PDF (21/11, Rémi) : PdfPig, la
+        /// bibliothèque qui les lit, n'est pas livrée avec Marabook. Si elle
+        /// manque, on le DIT et on demande ; sur un oui, elle est téléchargée
+        /// depuis NuGet, vérifiée, installée, puis l'import continue. Sur un
+        /// non (ou un échec), les PDF sont retirés du lot, le reste s'importe.</summary>
+        private async Task<string[]> PreparePdfImport(string[] paths)
+        {
+            var any = false;
+            foreach (var path in paths) if (IsPdfPath(path)) any = true;
+            if (!any || PdfPigBridge.Installed) return paths;
+            var others = new List<string>();
+            foreach (var path in paths) if (!IsPdfPath(path)) others.Add(path);
+            LastPdfPromptForProbe = Exchange.PdfPigPackage.Prompt;
+            var accepted = PdfPigAnswerForProbe ?? (await MessageDialog.Show(this, Exchange.PdfPigPackage.Prompt, "Importer un PDF", MessageButtons.YesNo, MessageIcon.Question) == MessageResult.Yes);
+            if (!accepted) return others.ToArray();
+            ShowToast(null, "Import PDF", "Téléchargement de PdfPig…", Exchange.PdfPigPackage.DownloadMegabytes + " Mo depuis " + Exchange.PdfPigPackage.Host + " — l'import suivra.", 8);
+            var local = PdfPigPackageForProbe;
+            var problem = await Task.Run(delegate { return local != null ? Task.FromResult(PdfPigBridge.InstallFromFile(local)) : PdfPigBridge.DownloadAndInstall(); });
+            if (problem != null)
+            {
+                if (PdfPigAnswerForProbe == null) await MessageDialog.Show(this, problem, "Importer un PDF", MessageButtons.OK, MessageIcon.Warning);
+                else ShowToast(null, "Import PDF", null, problem, 5);
+                return others.ToArray();
+            }
+            ShowToast(null, "Import PDF", "PdfPig est installée", "Version " + Exchange.PdfPigPackage.Version + ", vérifiée. Les prochains PDF s'importeront sans rien télécharger.", 5);
+            return paths;
+        }
+
+        /// <summary>Le lot déposé à la souris : même question avant, si un PDF en fait partie.</summary>
+        private async void ImportDocumentsPrepared(BinderItem container, string[] paths, bool select)
+        {
+            paths = await PreparePdfImport(paths);
+            if (paths.Length > 0) ImportDocumentFiles(container, paths, select);
+        }
+
+        internal List<string> LastSkippedImagesForProbe = new List<string>();
+
+        internal async Task ImportDocumentsForProbe(BinderItem container, string[] paths)
+        {
+            paths = await PreparePdfImport(paths);
+            if (paths.Length > 0) ImportDocumentFiles(container, paths, false);
         }
 
         /// <summary>Les extensions que « Importer des documents » sait lire —
         /// les mêmes pour le glisser-déposer (29/09).</summary>
-        private static readonly string[] DocumentExtensions = { ".docx", ".odt", ".rtf", ".md", ".markdown", ".txt", ".doc", ".gdoc" };
+        private static readonly string[] DocumentExtensions = { ".docx", ".odt", ".rtf", ".md", ".markdown", ".txt", ".doc", ".gdoc", ".pdf" };
 
         public static bool IsDocumentPath(string path)
         {
@@ -4105,13 +4327,13 @@ namespace Marabook.App
             var others = new List<string>();
             foreach (var path in paths)
                 (IsDocumentPath(path) ? documents : others).Add(path);
-            if (documents.Count > 0) ImportDocumentFiles(container, documents.ToArray(), false);
+            if (documents.Count > 0) ImportDocumentsPrepared(container, documents.ToArray(), false);
             if (others.Count > 0)
             {
                 var names = new List<string>();
                 foreach (var path in others) names.Add(System.IO.Path.GetFileName(path));
                 MessageDialog.Show(this,
-                    "Dans Écrits, seuls les documents s'importent par glisser-déposer (Word, LibreOffice, RTF, Markdown, texte brut). "
+                    "Dans Écrits, seuls les documents s'importent par glisser-déposer (Word, LibreOffice, RTF, Markdown, texte brut, PDF). "
                     + "Pour les autres fichiers, déposez-les dans Recherche :\n\n" + string.Join("\n", names.ToArray()),
                     AppName, MessageButtons.OK, MessageIcon.Information);
             }
@@ -4125,12 +4347,18 @@ namespace Marabook.App
             if (parent == null || paths == null || paths.Length == 0) return;
             var items = new List<BinderItem>();
             var errors = new List<string>();
+            var skippedImages = new List<string>(); // « document — 2 images EMF » (21/11)
+            _pdfImportNotes.Clear();
             foreach (var path in paths)
             {
                 var name = System.IO.Path.GetFileNameWithoutExtension(path);
+                var skipped = new List<string>();
                 try
                 {
+                    Exchange.ImportedImages.SkippedSink = skipped.Add;
                     var document = ImportOneDocument(path);
+                    Exchange.ImportedImages.SkippedSink = null;
+                    if (skipped.Count > 0) skippedImages.Add("« " + System.IO.Path.GetFileName(path) + " » — " + Exchange.ImportedImages.Describe(skipped));
                     if (document == null) continue; // .gdoc guidance already shown
                     items.Add(new BinderItem { Kind = ItemKind.Text, Title = name, Document = document });
                 }
@@ -4138,7 +4366,9 @@ namespace Marabook.App
                 {
                     errors.Add(name + " — " + error.Message);
                 }
+                finally { Exchange.ImportedImages.SkippedSink = null; }
             }
+            LastSkippedImagesForProbe = skippedImages;
             if (items.Count > 0)
             {
                 _history.Run(new History.AddItemsAction(parent, items));
@@ -4146,13 +4376,20 @@ namespace Marabook.App
                 // Imports may have merged new named styles into the sheet.
                 _editor.SetStyleSheet(_project.Styles);
                 _stylesBefore = _project.Styles.Clone(); // nouvelle base, sans point d'annulation (28/09)
-                _sheetView.SetStyleSheet(_project.Styles);
+                _sheetView.SetStyleSheet(_project.Styles); SplitReload();
                 if (select) _binder.SelectItem(items[items.Count - 1].Id);
                 else { _binder.Rebuild(); RefreshOpenCorkboards(); UpdateInspector(); }
             }
             if (errors.Count > 0)
                 MessageDialog.Show(this, "Documents non importés :\n\n" + string.Join("\n", errors.ToArray()),
                     AppName, MessageButtons.OK, MessageIcon.Warning);
+            // Les images que l'import n'a pas pu reprendre (EMF, WMF, SVG…) : dites, avec le remède (21/11).
+            if (skippedImages.Count > 0 && !_launch.Probe)
+                MessageDialog.Show(this, "Images non reprises à l'import :\n\n" + string.Join("\n", skippedImages.ToArray()) + "\n\n" + Exchange.ImportedImages.SkippedAdvice,
+                    AppName, MessageButtons.OK, MessageIcon.Information);
+            // Un PDF importé dit ce qui a été DÉDUIT de sa mise en page (21/11) : l'auteur sait quoi relire.
+            if (_pdfImportNotes.Count > 0)
+                ShowToast(null, _pdfImportNotes.Count > 1 ? "PDF importés" : "PDF importé", null, string.Join("\n", _pdfImportNotes.ToArray()), 9);
             // Les personnages du texte importé (b49) : proposés, jamais imposés — ni proposés sans fiches (profil, 1.1.0).
             if (items.Count > 0 && Profiles.Enabled(Profiles.Sheets))
                 OfferCharacters(items, items.Count == 1 ? items[0].Title : items.Count + " documents importés", false);
@@ -4170,6 +4407,14 @@ namespace Marabook.App
             if (ext == ".txt") return TextDocument.FromPlainText(File.ReadAllText(path));
             if (ext == ".doc")
                 return Exchange.Docx.Import(Exchange.ExternalBridge.DocToDocx(path), _project.Styles, _project);
+            if (ext == ".pdf")
+            {
+                // PdfPig lit les mots, Marabook refait les paragraphes (21/11) ; un PDF scanné n'a rien à lire.
+                var imported = PdfPigBridge.Import(path);
+                if (imported.NoText) throw new InvalidOperationException(Exchange.PdfImport.Summary(imported));
+                _pdfImportNotes.Add(System.IO.Path.GetFileName(path) + " : " + Exchange.PdfImport.Summary(imported));
+                return imported.Document;
+            }
             if (ext == ".gdoc")
             {
                 MessageDialog.Show(this, Exchange.ExternalBridge.GdocGuidance,
@@ -4235,7 +4480,7 @@ namespace Marabook.App
             GlobalStyles.Push(_project);
             _editor.SetStyleSheet(_project.Styles);
             _editor.Reload();
-            _sheetView.SetStyleSheet(_project.Styles);
+            _sheetView.SetStyleSheet(_project.Styles); SplitReload();
             _sheetView.ReloadBody();
         }
 
@@ -4441,7 +4686,22 @@ namespace Marabook.App
             try
             {
                 if (System.IO.File.Exists(folder)) throw new InvalidOperationException("un fichier porte déjà ce nom — choisissez un autre nom de dossier.");
-                var document = Exchange.Encyclopedia.Build(_project, answer.Selection, answer.Options, AppSettings.Lexicon);
+                if (EncyclopediaOptions.IsData(answer.Options.Format))
+                {
+                    // 21/11 — les fiches en données : Markdown (un fichier par fiche) ou CSV (un tableau par catégorie).
+                    var data = Exchange.Encyclopedia.Build(_project, answer.Selection, Exchange.SheetData.DataOptions(answer.Options), AppSettings.Lexicon);
+                    var markdown = answer.Options.Format == EncyclopediaOptions.FormatMarkdown;
+                    var files = markdown ? Exchange.SheetData.WriteMarkdown(folder, data) : Exchange.SheetData.WriteCsv(folder, data);
+                    ShowToast(null, markdown ? "Fiches exportées en Markdown" : "Fiches exportées en CSV", data.Title,
+                        data.SheetCount + (data.SheetCount > 1 ? " fiches" : " fiche") + " — " + files.Count + (files.Count > 1 ? " fichiers" : " fichier") + " dans " + folder, 6);
+                    if (answer.Options.OpenAfter)
+                    {
+                        try { AppPlatform.OpenWithShell(folder); }
+                        catch { }
+                    }
+                    return;
+                }
+                var document = Exchange.Encyclopedia.Build(_project, answer.Selection, Skin.DressExport(answer.Options), AppSettings.Lexicon); // au skin de l'application (21/11)
                 var written = Exchange.HtmlEncyclopedia.Write(folder, document, _project);
                 ShowToast(null, "Encyclopédie exportée", document.Title,
                     document.SheetCount + (document.SheetCount > 1 ? " fiches" : " fiche") + (document.Lexicon.Count > 0 ? ", le Lexique" : "") + " — " + written.Count + " fichiers dans " + folder, 6);
@@ -4469,9 +4729,15 @@ namespace Marabook.App
         }
 
         /// <summary>Sonde : toutes les fiches, options d'office, dans ce dossier ; rend le nombre de fichiers écrits.</summary>
+        internal int ExportSheetDataForProbe(string folder, bool markdown)
+        {
+            var data = Exchange.Encyclopedia.Build(_project, Exchange.EncyclopediaSelection.All(), Exchange.SheetData.DataOptions(Exchange.Encyclopedia.DefaultOptions(_project)), AppSettings.Lexicon);
+            return (markdown ? Exchange.SheetData.WriteMarkdown(folder, data) : Exchange.SheetData.WriteCsv(folder, data)).Count;
+        }
+
         internal int ExportEncyclopediaForProbe(string folder)
         {
-            var document = Exchange.Encyclopedia.Build(_project, Exchange.EncyclopediaSelection.All(), Exchange.Encyclopedia.DefaultOptions(_project), AppSettings.Lexicon);
+            var document = Exchange.Encyclopedia.Build(_project, Exchange.EncyclopediaSelection.All(), Skin.DressExport(Exchange.Encyclopedia.DefaultOptions(_project)), AppSettings.Lexicon);
             return Exchange.HtmlEncyclopedia.Write(folder, document, _project).Count;
         }
 
@@ -5835,7 +6101,7 @@ namespace Marabook.App
             layout.Children.Add(_railStack);
             return new Border
             {
-                Background = Chrome.BarBg,
+                [!Border.BackgroundProperty] = Skin.BarBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Child = layout
@@ -6112,6 +6378,7 @@ namespace Marabook.App
             dialog.AppearanceChanged += ApplyAppearance;
             dialog.AppearanceChanged += ScheduleAchievementCheck; // « Pimp my write »
             dialog.TabsChanged += ApplyTabsSettings; // bascule et plafond des onglets (1.1.0)
+            dialog.ProjectTouched += delegate { if (_project != null) MarkDirty(); }; // une couleur du projet retirée de la palette (22/11)
             dialog.ShortcutsChanged += ScheduleAchievementCheck;  // « Picky eater »
             dialog.ProofingChanged += delegate
             {
@@ -6130,7 +6397,7 @@ namespace Marabook.App
                     RememberStylesForUndo(); // un point d'annulation par changement (28/09)
                     _editor.SetStyleSheet(_project.Styles);
                     _editor.Reload();
-                    _sheetView.SetStyleSheet(_project.Styles);
+                    _sheetView.SetStyleSheet(_project.Styles); SplitReload();
                     _sheetView.ReloadBody();
                     if (_bookView.IsVisible) _bookView.RefreshStyles(); // styles ajoutés/retirés (revue 22/09)
                     MarkDirty();
@@ -6252,6 +6519,7 @@ namespace Marabook.App
                 var template = item.Kind == ItemKind.Sheet
                     ? _project.TemplateOf(item) : null;
                 _inspKind.Text = IsGraphItem(item) ? "Graphe relationnel"
+                               : IsAtelierItem(item) ? "Outils"
                                : item.IsCategory ? "Catégorie"
                                : item.Kind == ItemKind.Folder ? "Dossier"
                                : item.Kind == ItemKind.Sheet
@@ -6352,6 +6620,7 @@ namespace Marabook.App
 
             UpdateLinksPanel();
             UpdatePresenceSection();
+            UpdateScenePanel();
             RefreshGraphSection(); // les outils de la Carte du Gros Graph (31/10)
 
             _inspDates.Text = string.IsNullOrEmpty(_project.CreatedAt) ? ""
@@ -6677,7 +6946,7 @@ namespace Marabook.App
             _colorDot.Background = value == null
                 ? Brushes.Transparent
                 : new SolidColorBrush(Ink.Parse(value).ToColor());
-            ToolTip.SetTip(_colorButton, value == null ? "Aucune couleur" : value);
+            ToolTip.SetTip(_colorButton, value == null ? "Aucune couleur" : ColorPalette.Describe(value));
         }
 
         /// <summary>Le menu du bouton couleur : le nuancier, les couleurs
@@ -6686,24 +6955,8 @@ namespace Marabook.App
         {
             if (InspectedItem == null) return;
             var menu = new ContextMenu();
-            foreach (var swatch in ItemIcons.TintSwatches)
-                menu.Items.Add(ColorMenuItem(swatch));
-            if (_project != null && _project.CustomColors.Count > 0)
-            {
-                menu.Items.Add(new Separator());
-                foreach (var hex in _project.CustomColors)
-                    menu.Items.Add(ColorMenuItem(hex));
-            }
-            menu.Items.Add(new Separator());
-            var custom = new MenuItem { Header = "Nouvelle couleur…" };
-            custom.Click += async delegate
-            {
-                var hex = await ColorDialog.Ask(this);
-                if (hex == null || _project == null) return;
-                if (!_project.CustomColors.Contains(hex)) _project.CustomColors.Insert(0, hex);
-                SetCardColor(hex);
-            };
-            menu.Items.Add(custom);
+            // Le nuancier partagé (22/11) : les noms de la palette, ses couleurs personnalisées.
+            ColorMenus.Fill(menu, this, _project, InspectedItem.CardColor, SetCardColor);
             menu.PlacementTarget = _colorButton;
             menu.Placement = PlacementMode.Bottom;
             Ui.ShowMenu(menu, _colorButton); // une cible, sinon Avalonia lève (28/09)
@@ -6955,6 +7208,9 @@ namespace Marabook.App
             if (!(AppSettings.RailLocked && AppSettings.RightPanel == RightPanel.None)) SetRightPanel(RightPanel.Pinned);
             UpdateRail();
         }
+
+        internal void PinToSideForProbe(BinderItem item) { PinToSide(item); }
+        internal void UnpinSideForProbe() { UnpinSide(); }
 
         private void UnpinSide()
         {

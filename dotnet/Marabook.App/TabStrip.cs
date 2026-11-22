@@ -56,7 +56,7 @@ namespace Marabook.App
 
         public TabStrip()
         {
-            Background = Chrome.BarBg;
+            Skin.Bar(this);
             Height = 44; // en attendant la mesure de la barre de recherche de la Pile (AlignTabStripWith)
             Focusable = false;
             var host = new Grid();

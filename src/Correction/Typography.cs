@@ -187,6 +187,21 @@ namespace Marabook.Correction
         /// <summary>Le nombre de « » restés ouverts à la fin d'un texte, en
         /// partant de `before` — pour enchaîner les paragraphes : une réplique
         /// ouverte au paragraphe précédent l'est encore ici.</summary>
+        private static readonly char[] QuoteMarks = { '«', '»', '“', '”' };
+
+        /// <summary>La même, sur un paragraphe (21/11) : sans guillemet dans ses
+        /// runs — le cas de presque tous — la profondeur ne bouge pas et son
+        /// texte n'est même pas assemblé. La frappe au bas d'un long écrit
+        /// relisait ainsi des milliers de paragraphes, chaîne par chaîne.</summary>
+        public static int QuoteDepth(Marabook.Model.TextParagraph paragraph, int before)
+        {
+            if (paragraph == null) return before;
+            var any = false;
+            foreach (var run in paragraph.Runs)
+                if (run.Text != null && run.Text.IndexOfAny(QuoteMarks) >= 0) { any = true; break; }
+            return any ? QuoteDepth(Marabook.Model.PivotEdit.FlatText(paragraph), before) : before;
+        }
+
         public static int QuoteDepth(string text, int before)
         {
             var depth = before;
@@ -719,6 +734,54 @@ namespace Marabook.Correction
     /// le déplacement du curseur.</summary>
     public static class TypographyLive
     {
+        /// <summary>Au-delà, la typographie à la frappe ne relit plus tout le
+        /// paragraphe mais une fenêtre autour du curseur (21/11).</summary>
+        public const int WindowThreshold = 12000;
+        public const int WindowBack = 4000, WindowAhead = 160, WindowMargin = 48;
+
+        /// <summary>La fenêtre [début, fin) à relire dans un très gros
+        /// paragraphe, calée sur des blancs ; null si le paragraphe se relit
+        /// en entier (il est assez court).</summary>
+        public static int[] WindowFor(string flat, int caret)
+        {
+            if (flat == null || flat.Length <= WindowThreshold) return null;
+            caret = Math.Max(0, Math.Min(flat.Length, caret));
+            var from = Math.Max(0, caret - WindowBack);
+            while (from > 0 && !char.IsWhiteSpace(flat[from - 1])) from--;   // au début d'un mot
+            var to = Math.Min(flat.Length, caret + WindowAhead);
+            while (to < flat.Length && !char.IsWhiteSpace(flat[to])) to++;    // à la fin d'un mot
+            return new[] { from, to };
+        }
+
+        /// <summary>Les passages « sans correction » ramenés à la fenêtre (rognés, décalés) ; null s'il n'en reste pas.</summary>
+        public static List<int[]> ShiftSpans(List<int[]> spans, int from, int length)
+        {
+            if (spans == null) return null;
+            List<int[]> shifted = null;
+            foreach (var span in spans)
+            {
+                if (span == null || span.Length < 2) continue;
+                // Un passage se dit { début, longueur } (NoProofSpans).
+                var start = Math.Max(0, span[0] - from);
+                var end = Math.Min(length, span[0] + span[1] - from);
+                if (end <= start) continue;
+                if (shifted == null) shifted = new List<int[]>();
+                shifted.Add(new[] { start, end - start });
+            }
+            return shifted;
+        }
+
+        /// <summary>Les opérations d'une fenêtre, étendues au paragraphe
+        /// entier : ce qui la précède et ce qui la suit est conservé tel quel.</summary>
+        public static List<CharOp> Widen(List<CharOp> windowOps, string flat, int from, int to)
+        {
+            var ops = new List<CharOp>(flat.Length + 16);
+            for (var i = 0; i < from; i++) ops.Add(new CharOp(' ', flat[i]));
+            ops.AddRange(windowOps);
+            for (var i = to; i < flat.Length; i++) ops.Add(new CharOp(' ', flat[i]));
+            return ops;
+        }
+
         public static List<CharOp> Restrict(List<CharOp> ops, int caretOld, int typedLength,
             int window, out int caretDelta, out bool changed)
         {
@@ -831,6 +894,43 @@ namespace Marabook.Correction
                 });
             }
             return result;
+        }
+
+        /// <summary>Redistribute, mais sur une FENÊTRE [from, to) du paragraphe
+        /// (21/11) : les runs d'avant et d'après sont repris tels quels, seule
+        /// la tranche est reconstruite. Rend la liste complète des runs du
+        /// paragraphe corrigé.</summary>
+        public static List<TextRun> RedistributeWindow(TextParagraph paragraph, List<CharOp> windowOps, int from, int to)
+        {
+            var before = new List<TextRun>();
+            var after = new List<TextRun>();
+            var middle = PivotEdit.CloneParagraphShell(paragraph);
+            var pos = 0;
+            foreach (var run in paragraph.Runs)
+            {
+                var element = PivotEdit.IsElement(run);
+                var length = element ? 1 : run.Text.Length;
+                var end = pos + length;
+                if (end <= from) before.Add(run);
+                else if (pos >= to) after.Add(run);
+                else if (element) middle.Runs.Add(run);
+                else
+                {
+                    // Un run à cheval sur un bord de la fenêtre est partagé en deux ou trois morceaux de même format.
+                    var cutA = Math.Max(0, from - pos);
+                    var cutB = Math.Min(length, to - pos);
+                    if (cutA > 0) { var head = PivotEdit.CloneRun(run); head.Text = run.Text.Substring(0, cutA); before.Add(head); }
+                    if (cutB > cutA) { var body = PivotEdit.CloneRun(run); body.Text = run.Text.Substring(cutA, cutB - cutA); middle.Runs.Add(body); }
+                    if (cutB < length) { var tail = PivotEdit.CloneRun(run); tail.Text = run.Text.Substring(cutB); after.Add(tail); }
+                }
+                pos = end;
+            }
+            var replaced = Redistribute(middle, windowOps);
+            var all = new List<TextRun>(before.Count + replaced.Runs.Count + after.Count);
+            all.AddRange(before);
+            all.AddRange(replaced.Runs);
+            all.AddRange(after);
+            return all;
         }
 
         public static List<int[]> NoProofSpans(TextParagraph paragraph)

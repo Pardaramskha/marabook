@@ -60,12 +60,14 @@ namespace Marabook.App
         public event Action RenameRequested;
         public event Action ReplaceImageRequested;
         public event Action<BinderItem> NavigateRequested;
+        /// <summary>Un événement posé sur le lieu choisi (21/11) : sa frise s'ouvre, l'événement choisi.</summary>
+        public event Action<BinderItem, string> EventRequested;
         public event Action<World, double> WorldSizeRequested;   // donner au monde le tour que la carte implique
         public event Action SelectionChanged;                    // une zone ou un repère vient d'être choisi sur la carte
 
         public MapView()
         {
-            Background = Chrome.WindowBg;
+            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
 
             // ================================================== en-tête
@@ -91,6 +93,12 @@ namespace Marabook.App
             right.Children.Add(zoomOut);
             right.Children.Add(zoomIn);
             right.Children.Add(fit);
+            // L'export en image (20/11) : la vue à l'écran, ou la carte entière.
+            _exportButton = Buttons.IconText("image-square-bold", "Image…", "Enregistrer la carte en image PNG : ce que la page montre, ou la carte entière", Buttons.Compact, Buttons.Look.Outline);
+            _exportButton.Tag = "map-export-image";
+            _exportButton.Margin = new Thickness(6, 0, 0, 0);
+            _exportButton.Click += delegate { Ui.ShowMenu(ExportMenu(), _exportButton); };
+            right.Children.Add(_exportButton);
             DockPanel.SetDock(right, Dock.Right);
             row.Children.Add(right);
 
@@ -128,7 +136,7 @@ namespace Marabook.App
             barRow.Children.Add(bar);
             barRow.Children.Add(_hint);
             // En vue planétaire, cette barre disparaît (lot 16) : on n'y trace rien.
-            _toolBar = new Border { Padding = new Thickness(16, 6, 16, 6), BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1), Background = Chrome.BarBg, Child = barRow, Tag = "map-toolbar" };
+            _toolBar = new Border { Padding = new Thickness(16, 6, 16, 6), BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1), [!Border.BackgroundProperty] = Skin.BarBinding, Child = barRow, Tag = "map-toolbar" };
             SetDock(_toolBar, Dock.Top);
             Children.Add(_toolBar);
 
@@ -555,6 +563,90 @@ namespace Marabook.App
         public bool ShowsItem(BinderItem item) { return _item == item; }
         public BinderItem Item { get { return _item; } }
         internal MapInfo Map { get { return _item == null ? null : _item.Map; } }
+
+        // ============================================================ l'export en image (20/11)
+
+        private readonly Button _exportButton;
+
+        private ContextMenu ExportMenu()
+        {
+            var menu = new ContextMenu();
+            var map = Map;
+            var globe = map != null && map.WholeWorld && map.View == Maps.ViewGlobe;
+            var view = new MenuItem { Header = globe ? "Le globe, tel qu'il est tourné" : "La vue à l'écran", Tag = "map-export-view", IsEnabled = map != null && map.HasImage };
+            view.Click += delegate { ExportImage(false); };
+            menu.Items.Add(view);
+            var whole = new MenuItem { Header = "La carte entière" + (globe ? " (à plat)" : ""), Tag = "map-export-whole", IsEnabled = map != null && map.HasImage };
+            whole.Click += delegate { ExportImage(true); };
+            menu.Items.Add(whole);
+            return menu;
+        }
+
+        internal List<string> ExportChoicesForProbe() { var names = new List<string>(); foreach (var item in ExportMenu().Items) { var entry = item as MenuItem; if (entry != null) names.Add(entry.Header as string); } return names; }
+
+        /// <summary>L'image PNG de la carte. whole : la carte entière, à
+        /// plat — le globe est quitté le temps du dessin ; sinon ce que la
+        /// page montre. Null sans image.</summary>
+        internal byte[] ExportPng(bool whole)
+        {
+            using (var bitmap = Capture(whole, MapCanvas.ExportMaxSide))
+            {
+                if (bitmap == null) return null;
+                using (var stream = new System.IO.MemoryStream())
+                {
+                    bitmap.Save(stream);
+                    return stream.ToArray();
+                }
+            }
+        }
+
+        /// <summary>L'image de la carte, à rendre (Dispose) par l'appelant.</summary>
+        internal Avalonia.Media.Imaging.RenderTargetBitmap Capture(bool whole, int maxSide)
+        {
+            var map = Map;
+            if (map == null || !map.HasImage) return null;
+            var view = map.View;
+            var flatten = whole && map.WholeWorld && view == Maps.ViewGlobe;
+            // Ni sélection ni poignées dans l'image : elles reviennent après.
+            var zone = _selectedZone; var marker = _selectedMarker;
+            try
+            {
+                if (flatten) map.View = Maps.ViewFlat;
+                _selectedZone = null; _selectedMarker = null;
+                _canvas.Attach();
+                return _canvas.ExportBitmap(whole, maxSide);
+            }
+            finally
+            {
+                if (flatten) map.View = view;
+                _selectedZone = zone; _selectedMarker = marker;
+                _canvas.InvalidateVisual();
+            }
+        }
+
+        private async void ExportImage(bool whole)
+        {
+            if (_item == null || Map == null || !Map.HasImage) return;
+            var owner = Ui.OwnerOf(this);
+            var name = Marabook.Exchange.ExportFiles.Safe(_item.Title) + (whole ? "" : Map.WholeWorld && Map.View == Maps.ViewGlobe ? " - globe" : " - vue") + ".png";
+            var path = await Ui.PickSaveFile(this, "Exporter la carte en image", "Image PNG (*.png)|*.png", name);
+            if (path == null) return;
+            try
+            {
+                var bytes = ExportPng(whole);
+                if (bytes == null) throw new InvalidOperationException("la carte n'a pas pu être dessinée.");
+                System.IO.File.WriteAllBytes(path, bytes);
+                var done = ImageExported;
+                if (done != null) done(path);
+            }
+            catch (Exception error)
+            {
+                await MessageDialog.Show(owner, "Export impossible :\n" + error.Message, "Cartes", MessageButtons.OK, MessageIcon.Error);
+            }
+        }
+
+        /// <summary>Une image vient d'être écrite : son chemin.</summary>
+        public event Action<string> ImageExported;
         internal World World { get { return Maps.WorldOf(_project, Map); } }
         internal MapZone SelectedZone { get { var map = Map; return map == null || _selectedZone == null ? null : map.FindZone(_selectedZone); } }
         internal MapMarker SelectedMarker { get { var map = Map; return map == null || _selectedMarker == null ? null : map.FindMarker(_selectedMarker); } }
@@ -726,12 +818,79 @@ namespace Marabook.App
             var zoneId = zone == null ? null : zone.Id;
             var markerId = marker == null ? null : marker.Id;
             if (zoneId == _selectedZone && markerId == _selectedMarker) return;
+            _highlighted.Clear();
             _selectedZone = zoneId;
             _selectedMarker = markerId;
             var chosen = SelectionChanged;
             if (chosen != null && (zoneId != null || markerId != null)) chosen();
             RefreshSide();
             _canvas.InvalidateVisual();
+        }
+
+        // Les zones mises en lumière sans être choisies : celles qui contiennent le repère révélé (21/11).
+        private readonly HashSet<string> _highlighted = new HashSet<string>(StringComparer.Ordinal);
+        internal bool IsHighlighted(string zoneId) { return zoneId != null && _highlighted.Contains(zoneId); }
+        internal int HighlightedCountForProbe { get { return _highlighted.Count; } }
+
+        /// <summary>RÉVÉLER UN LIEU (21/11, Rémi) : depuis un événement, la
+        /// carte s'ouvre ZOOMÉE sur son repère ou sa zone. Les filtres qui le
+        /// cacheraient sont rallumés, et les zones qui contiennent un repère
+        /// s'éclairent pour le situer.</summary>
+        internal void Reveal(MapZone zone, MapMarker marker)
+        {
+            var map = Map;
+            if (map == null || (zone == null && marker == null)) return;
+            var around = new List<MapZone>();
+            if (marker != null)
+                foreach (var candidate in map.Zones)
+                    if (candidate.Points.Count >= 3 && Maps.Contains(candidate.Points, marker.X, marker.Y)) around.Add(candidate);
+            var zones = _showZones || zone != null || around.Count > 0;
+            var markers = _showMarkers || marker != null;
+            if (zones != _showZones || markers != _showMarkers) SetFilters(zones, markers);
+            Select(zone, marker);
+            _highlighted.Clear();
+            foreach (var candidate in around) _highlighted.Add(candidate.Id);
+
+            // Le cadre à montrer : la zone ; pour un repère, la plus petite zone qui le contient, sinon ses alentours.
+            double minX, minY, maxX, maxY;
+            var framed = zone;
+            if (framed == null)
+                foreach (var candidate in around)
+                    if (framed == null || BoxArea(candidate) < BoxArea(framed)) framed = candidate;
+            if (framed != null && framed.Points.Count > 0)
+            {
+                minX = maxX = framed.Points[0].X;
+                minY = maxY = framed.Points[0].Y;
+                foreach (var point in framed.Points)
+                {
+                    minX = Math.Min(minX, point.X); maxX = Math.Max(maxX, point.X);
+                    minY = Math.Min(minY, point.Y); maxY = Math.Max(maxY, point.Y);
+                }
+                if (marker != null) { minX = Math.Min(minX, marker.X); maxX = Math.Max(maxX, marker.X); minY = Math.Min(minY, marker.Y); maxY = Math.Max(maxY, marker.Y); }
+            }
+            else
+            {
+                var half = Math.Max(map.Width, map.Height) / 12.0;
+                minX = marker.X - half; maxX = marker.X + half;
+                minY = marker.Y - half; maxY = marker.Y + half;
+            }
+            var level = zone != null ? zone.Level : marker.Level;
+            var floor = zone != null ? 1.0 : 2.0; // un repère : au moins deux fois « Tout voir »
+            if (_canvas.Bounds.Width > 0) _canvas.ShowRegion(minX, minY, maxX, maxY, level, floor);
+            else Ui.Post(Avalonia.Threading.DispatcherPriority.Loaded, delegate { if (ReferenceEquals(Map, map)) _canvas.ShowRegion(minX, minY, maxX, maxY, level, floor); });
+            _canvas.InvalidateVisual();
+        }
+
+        private static double BoxArea(MapZone zone)
+        {
+            if (zone == null || zone.Points.Count == 0) return double.MaxValue;
+            double minX = zone.Points[0].X, maxX = minX, minY = zone.Points[0].Y, maxY = minY;
+            foreach (var point in zone.Points)
+            {
+                minX = Math.Min(minX, point.X); maxX = Math.Max(maxX, point.X);
+                minY = Math.Min(minY, point.Y); maxY = Math.Max(maxY, point.Y);
+            }
+            return (maxX - minX) * (maxY - minY);
         }
 
         internal async void FinishZone(List<Pos> points)
@@ -1240,6 +1399,27 @@ namespace Marabook.App
                 remove.Click += delegate { DeleteSelection(); };
                 actions.Children.Add(remove);
                 side.Children.Add(actions);
+
+                // Ce qui s'est passé ICI (21/11) : les événements des frises posés sur ce lieu.
+                var here = Timelines.EventsAt(_project, _item == null ? null : _item.Id, zone != null ? zone.Id : marker.Id);
+                if (here.Count > 0)
+                {
+                    side.Children.Add(Caption("ÉVÉNEMENTS ICI"));
+                    for (var i = 0; i < here.Count && i < 12; i++)
+                    {
+                        var timeline = here[i].Key;
+                        var happened = here[i].Value;
+                        var system = Timelines.SystemOf(_project, timeline);
+                        var when = system == null || happened.IsPending ? "" : Timelines.WhenLabel(system, happened) + " — ";
+                        var row = Buttons.Text(when + (string.IsNullOrEmpty(happened.Title) ? "(sans titre)" : Links.Strip(happened.Title)), "Ouvrir la frise « " + timeline.Title + " » sur cet événement", Buttons.Compact, Buttons.Look.Calm);
+                        row.HorizontalAlignment = HorizontalAlignment.Left;
+                        row.Margin = new Thickness(0, 0, 0, 4);
+                        row.Tag = "map-event-here";
+                        row.Click += delegate { var h = EventRequested; if (h != null) h(timeline, happened.Id); };
+                        side.Children.Add(row);
+                    }
+                    if (here.Count > 12) side.Children.Add(Line("… et " + (here.Count - 12) + " de plus."));
+                }
             }
 
             // ---- Les listes.

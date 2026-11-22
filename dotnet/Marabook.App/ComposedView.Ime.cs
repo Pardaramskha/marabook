@@ -32,7 +32,9 @@ namespace Marabook.App
                 IsVisible = false,
                 TextDecorations = TextDecorations.Underline,
                 Foreground = Brushes.Black,
-                Background = Brushes.Transparent
+                // Sur le fond du papier (21/11) : une longue composition (une phrase en kana avant
+                // sa conversion) se lisait PAR-DESSUS le texte qui suit le curseur.
+                Background = Chrome.PaperBg
             };
             _overlay.Children.Add(_preeditBlock);
             TextInputMethodClientRequested += delegate(object sender, TextInputMethodClientRequestedEventArgs e)
@@ -118,6 +120,28 @@ namespace Marabook.App
             public override Rect CursorRectangle { get { return _view.CaretRectForIme(); } }
             public override TextSelection Selection { get { return new TextSelection(0, 0); } set { } }
             public override void SetPreeditText(string preeditText) { _view.SetPreedit(preeditText); }
+            /// <summary>Le curseur a bougé (21/11) : le système de saisie replace sa fenêtre de
+            /// candidats — sans cet avis, elle restait où la composition avait commencé.</summary>
+            public void CaretMoved() { RaiseCursorRectangleChanged(); }
         }
+
+        private Rect _lastImeRect;
+
+        /// <summary>Après chaque déplacement du curseur : prévenir le système de
+        /// saisie si le rectangle a changé (claviers chinois, japonais, coréen).</summary>
+        private void NotifyImeCaret()
+        {
+            if (_ime == null) return;
+            Rect rect;
+            try { rect = CaretRectForIme(); }
+            catch (Exception) { return; }
+            if (rect == _lastImeRect) return;
+            _lastImeRect = rect;
+            ImeNotifications++;
+            _ime.CaretMoved();
+        }
+
+        /// <summary>Sonde : combien de fois le système de saisie a été prévenu d'un curseur déplacé.</summary>
+        internal int ImeNotifications;
     }
 }

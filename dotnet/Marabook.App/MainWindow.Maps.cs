@@ -128,6 +128,7 @@ namespace Marabook.App
                 UpdateStats();
             };
             _mapView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id); };
+            _mapView.EventRequested += OpenEventOfPlace;
             _mapView.BackRequested += delegate { SelectRoot(Project.KeyMaps); };
             _mapView.RenameRequested += delegate
             {
@@ -137,6 +138,7 @@ namespace Marabook.App
                 UpdateInspector();
             };
             _mapView.ReplaceImageRequested += delegate { ReplaceMapImage(); };
+            _mapView.ImageExported += delegate(string path) { ShowToast(null, "Carte exportée", System.IO.Path.GetFileName(path), System.IO.Path.GetDirectoryName(path), 5); };
             _mapView.WorldSizeRequested += delegate(World world, double circumference) { GiveWorldSize(world, circumference); };
             center.Children.Add(_mapView);
 

@@ -169,11 +169,20 @@ namespace Marabook.App
         public static async Task Run(MainWindow shell)
         {
             Console.WriteLine("== Sonde Avalonia P1-P2 (" + AppPlatform.OsName + ")");
+            ToolsCollapsedAtStart = BinderView.CollapsedSections.Contains("Outils"); // lot 30 : avant tout geste
             try
             {
                 await Settle();
                 // MARABOOK_PROBE_ONLY=export : la sonde de l'export seule (mise au point, 18/11).
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "export") { await ProbeExport(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "rattrapages") { await ProbeCatchUp(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot23") { await ProbeLot23(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "dette") { await ProbeDebt(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "scindee") { await ProbeSplit(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "scenes") { await ProbeScenes(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot28") { await ProbeLot28(shell); await ProbeNewProject(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "atelier") { await ProbeAtelier(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot30") { await ProbeLot30(shell); throw new OperationCanceledException(); }
                 // — La coquille sur le projet d'exemple.
                 Check(shell.Project != null, "le projet d'exemple est ouvert");
                 var roots = shell.Project.Roots;
@@ -2296,7 +2305,7 @@ namespace Marabook.App
                 prefs.Show(shell);
                 await Settle();
                 // …plus ceux des modules chargés (le filet « DLC » et l'onglet de chaque DLC, 26/10 soir).
-                Check(prefs.Tabs.Items.Count == 9 + prefs.ModuleTabCount, "les Préférences ont neuf onglets (" + prefs.Tabs.Items.Count + ", dont " + prefs.ModuleTabCount + " des modules)");
+                Check(prefs.Tabs.Items.Count == 12 + prefs.ModuleTabCount, "les Préférences ont douze onglets — Accessibilité et Dépendances depuis le lot 30 (" + prefs.Tabs.Items.Count + ", dont " + prefs.ModuleTabCount + " des modules)");
                 Check(prefs.Tabs.TabStripPlacement == Dock.Left && prefs.Tabs.Classes.Contains("column"), "…en colonne à gauche (24/10)");
                 Check(prefs.Height >= 420 && Math.Abs(prefs.Height - Math.Max(420, Dialogs.AvailableHeight(shell))) < 1 && prefs.Bounds.Height <= Dialogs.AvailableHeight(shell) + 1, "…et la fenêtre prend toute la hauteur disponible de l'écran sans en sortir (" + prefs.Bounds.Height.ToString("0") + " px sur " + Dialogs.AvailableHeight(shell).ToString("0") + ")");
                 var titles = new List<string>();
@@ -2305,8 +2314,9 @@ namespace Marabook.App
                     "…Raccourcis, DLC et Catalogue de polices en font partie");
                 // — 1.0.6 : le premier onglet s'appelle « Général » (« Personnalisation »
                 //   avant) et porte la case « Animations », cochée par défaut.
-                Check(titles.Count > 0 && titles[0] == "Général" && !titles.Contains("Personnalisation"), "le premier onglet est « Général » (" + (titles.Count > 0 ? titles[0] : "-") + ")");
-                prefs.Tabs.SelectedIndex = 0;
+                // 2.0.0 (21/11) : « Projet » passe devant ; « Général » est le deuxième.
+                Check(titles.Count > 1 && titles[0] == "Projet" && titles[1] == "Personnalisation" && !titles.Contains("Général"), "les premiers onglets sont « Projet » puis « Personnalisation » (" + (titles.Count > 1 ? titles[0] + ", " + titles[1] : "-") + ")");
+                prefs.Tabs.SelectedIndex = 1;
                 await Settle();
                 CheckBox animationsBox = null;
                 foreach (var box in prefs.GetVisualDescendants().OfType<CheckBox>())
@@ -2318,7 +2328,7 @@ namespace Marabook.App
                     await Settle();
                 }
                 Check(prefs.Tabs.SelectedIndex == prefs.Tabs.Items.Count - 1, "chaque onglet s'ouvre sans erreur");
-                prefs.Tabs.SelectedIndex = 0;
+                prefs.Tabs.SelectedIndex = 1; // « Général » (21/11 : « Projet » est passé devant)
                 await Settle();
                 // Diagnostic de rendu : la graisse et la police que voit un
                 // texte courant de l'onglet (le contenu ne doit pas hériter
@@ -2701,12 +2711,22 @@ namespace Marabook.App
                 await ProbeTimelines(shell); // les frises (1.2.0)
                 await ProbeMaps(shell);      // fragment, parallélisme, cartes, analyseur (2.0.0, lot 11)
                 await ProbeExport(shell);    // la refonte de l'export : menu, gestionnaire, fichiers (2.0.0, 18/11)
+                await ProbeCatchUp(shell);   // un fichier par écrit, rétroliens, liste des événements, cartes en image, conjugueur (2.0.0, 20/11)
+                await ProbeSplit(shell);     // la vue scindée : deux éléments au travail, la croix du bas (2.0.0, 21/11)
+                await ProbeScenes(shell);    // un seul caret, fiches de scène, Tableau, Préférences › Projet et modèles (2.0.0, 21/11)
+                await ProbeLot28(shell);     // repasse du Tableau, « Précédent » sur les écrans basculés, sélection multiple, skins (2.0.0, 21/11)
+                await ProbeAtelier(shell);   // la section Outils : l'Atelier, PDFaah, Chop-Chop, Unlocker, contrôles (2.0.0, 21/11)
+                await ProbeLot30(shell);     // clic droit, palette, Préférences, Atelier en tuiles, outils PDF, WGYC (2.0.0, 22/11)
+                await ProbeDebt(shell);      // la dette : très gros paragraphes, annulation par différence, miroir, annotations, idéogrammes (2.0.0, 21/11)
+                await ProbeLot23(shell);     // événements à plusieurs éléments, lieu et tags ; bibliothèque en liste ; natures de champ ; forces du graphe ; fiches en données ; voix haute (2.0.0, 21/11)
                 // ================================================== 1.1.0 : la passe des dialogues (29/10)
                 await ProbeDialogues(shell);
                 // ================================================== 1.1.0 : le lot de correctifs du 29/10
                 await ProbeFixes2910(shell);
                 // ================================================== 1.1.0 : le tutoriel (29/10) — en dernier : il change de projet
                 await ProbeTutorial(shell);
+                // ================================================== 2.0.0 : le projet neuf s'ouvre à sa création (21/11) — après tout : il change de projet
+                await ProbeNewProject(shell);
             }
             catch (OperationCanceledException)
             {
@@ -2732,6 +2752,7 @@ namespace Marabook.App
             var project = shell.Project;
 
             // — La Pile en sections.
+            if (BinderView.CollapsedSections.Contains("Outils")) shell.Binder.ToggleSectionForProbe("Outils"); // repliée au lancement (lot 30)
             var rows = shell.Binder.TopRowsForProbe();
             var joined = string.Join(" | ", rows.ToArray());
             Check(rows.IndexOf("Écriture") >= 0 && rows.IndexOf("Encyclopédie") > rows.IndexOf("Écriture")
@@ -2739,7 +2760,7 @@ namespace Marabook.App
                 "Pile : les sections Écriture, Encyclopédie, Structure, Outils dans l'ordre (" + joined + ")");
             Check(rows.IndexOf("Écrits") == rows.IndexOf("Écriture") + 1 && rows.IndexOf("Recherche") == rows.IndexOf("Écrits") + 1, "…Écrits puis Recherche sous Écriture");
             Check(rows.IndexOf("Fiches") == rows.IndexOf("Encyclopédie") + 1 && rows.IndexOf("Dictionnaire") == rows.IndexOf("Fiches") + 1, "…Fiches puis Dictionnaire sous Encyclopédie");
-            Check(rows.IndexOf("Plans") == rows.IndexOf("Structure") + 1 && rows.IndexOf(BinderView.UnderConstruction) == rows.IndexOf("Outils") + 1, "…Plans sous Structure, « En construction » sous Outils");
+            Check(rows.IndexOf("Plans") == rows.IndexOf("Structure") + 1 && rows.IndexOf("Atelier") == rows.IndexOf("Outils") + 1 && rows.IndexOf(BinderView.UnderConstruction) < 0, "…Plans sous Structure, l'Atelier sous Outils (plus d'« En construction »)");
             Check(rows.Count >= 2 && rows[rows.Count - 1] == "Corbeille" && rows[rows.Count - 2] == "—", "…la Corbeille en dernier, derrière un simple filet");
             shell.Binder.ToggleSectionForProbe("Encyclopédie");
             await Settle();
@@ -3025,7 +3046,7 @@ namespace Marabook.App
             var prefs = new PreferencesDialog(shell, project);
             prefs.Show(shell);
             await Settle();
-            prefs.Tabs.SelectedIndex = 0;
+            prefs.Tabs.SelectedIndex = 1; // « Général » (« Projet » est passé devant, 21/11)
             await Settle();
             var dividers = 0;
             foreach (var border in prefs.GetVisualDescendants().OfType<Border>())

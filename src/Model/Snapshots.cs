@@ -225,6 +225,37 @@ namespace Marabook.Model
             return snapshot;
         }
 
+        /// <summary>La moitié LOURDE d'une capture (21/11) : sérialiser le
+        /// document, compter ses mots, prendre son empreinte. Ne touche pas au
+        /// projet : peut tourner hors du fil d'interface sur un document que
+        /// plus rien ne modifie (un point d'annulation).</summary>
+        public static Snapshot Prepare(BinderItem item, TextDocument document, string label, string origin)
+        {
+            if (item == null || document == null || item.Kind != ItemKind.Text) return null;
+            return new Snapshot
+            {
+                ItemId = item.Id,
+                Date = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                Label = label ?? "",
+                Origin = origin ?? SnapshotOrigin.Manual,
+                Words = Correction.TextStats.Compute(document.ToPlainText()).Words,
+                Fingerprint = DocumentFingerprint(document),
+                Data = Encoding.UTF8.GetBytes(Persistence.PlotFile.SerializeDocument(document))
+            };
+        }
+
+        /// <summary>La moitié légère : ranger l'instantané préparé — rien s'il
+        /// redit le dernier — puis appliquer le plafond. Vrai s'il est entré.</summary>
+        public static bool Commit(Project project, Snapshot prepared, int cap)
+        {
+            if (project == null || prepared == null) return false;
+            var latest = Latest(project, prepared.ItemId);
+            if (latest != null && latest.Fingerprint == prepared.Fingerprint) return false;
+            project.Snapshots.Add(prepared);
+            Trim(project, prepared.ItemId, cap);
+            return true;
+        }
+
         /// <summary>Vrai si un instantané existe déjà aujourd'hui pour l'item
         /// — de cette origine, ou de n'importe laquelle si origin est null
         /// (la capture quotidienne s'efface devant toute capture du jour).</summary>
