@@ -166,6 +166,8 @@ namespace Marabook.App
                 await Settle();
                 Check(chapter.Page != null && chapter.Page.SameLayout(book.Book.Template) && !MenuLabels(shell.Binder.BuildContextMenu(chapter)).Contains("Appliquer le gabarit du livre"), "« Appliquer le gabarit du livre » met l'écrit au format du livre ; l'entrée disparaît ensuite");
 
+                await ProbeRename(shell, loose, chapter, sheet);
+
                 // ================================================ la palette, « Tuile… », « Icône… »
                 Check(ColorPalette.Label("#5B67D8") == "Indigo" && ColorPalette.Label("#c0392b") == "Rouge" && ColorPalette.Label("#123456") == "#123456" && ColorPalette.Describe("#16A085") == "Sarcelle — #16A085", "la palette nomme les couleurs d'origine ; une couleur inconnue garde son code");
                 var mine = ColorPalette.Add("#1b6e5a", "Vert sapin");
@@ -322,6 +324,86 @@ namespace Marabook.App
                 shell.Binder.SelectItem(shell.Project.Category(Project.KeyWritings).Id);
                 await Settle();
             }
+        }
+
+        /// <summary>RENOMMER DEPUIS LA PILE (22/11, bug relevé par Rémi) : le champ de renommage se
+        /// refermait dès que la vue de l'élément, en s'ouvrant, lui reprenait le clavier — on ne
+        /// pouvait renommer qu'un élément déjà ouvert, et pas du tout au double tap d'un pavé tactile.</summary>
+        private static async Task ProbeRename(MainWindow shell, BinderItem open, BinderItem other, BinderItem sheet)
+        {
+            var binder = shell.Binder;
+            var editor = shell.GetVisualDescendants().OfType<EditorView>().FirstOrDefault();
+            Action<Avalonia.Input.Key> press = delegate(Avalonia.Input.Key key)
+            {
+                var box = binder.RenameBoxForProbe;
+                if (box != null) box.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = key });
+            };
+            // Le clavier ne se donne qu'à une fenêtre ACTIVE : si une autre application est devant (la sonde
+            // tourne longtemps, l'auteur travaille à côté), ces scénarios ne prouvent rien et ne sont pas joués.
+            shell.Activate();
+            for (var i = 0; i < 3; i++) await Settle();
+            if (!shell.IsActive) { Console.WriteLine("  la fenêtre de Marabook n'est pas au premier plan : le renommage dans la Pile n'est pas joué (MARABOOK_PROBE_ONLY=lot30, fenêtre devant, le joue)."); return; }
+            // Dans la sonde complète, le voile de l'accueil (une sonde d'avant) tient la coquille ÉTEINTE : rien n'y
+            // prend le clavier. Elle est rallumée le temps de ces scénarios, puis rendue telle quelle.
+            var asleep = new List<Control>();
+            for (Visual v = binder; v != null; v = v.GetVisualParent()) { var c = v as Control; if (c != null && !c.IsEnabled) asleep.Add(c); }
+            foreach (var c in asleep) c.IsEnabled = true;
+            try { await ProbeRenameCore(shell, open, other, sheet, binder, editor, press); }
+            finally { foreach (var c in asleep) c.IsEnabled = false; }
+        }
+
+        private static async Task ProbeRenameCore(MainWindow shell, BinderItem open, BinderItem other, BinderItem sheet, BinderView binder, EditorView editor, Action<Avalonia.Input.Key> press)
+        {
+            binder.SelectItem(open.Id, true);
+            for (var i = 0; i < 4; i++) await Settle();
+            Check(shell.CurrentForProbe == open && binder.RenameBoxForProbe == null, "un écrit est ouvert ; rien n'est en cours de renommage");
+
+            // « Renommer… » sur un AUTRE élément, pas ouvert.
+            binder.Rename(other);
+            for (var i = 0; i < 4; i++) await Settle();
+            var field = binder.RenameBoxForProbe;
+            Check(field != null && field.IsFocused && field.Text == other.Title, "« Renommer… » sur un élément qui n'est pas ouvert : le champ paraît dans la Pile, le clavier dedans");
+            Check(shell.CurrentForProbe == open, "…et l'élément n'est PAS ouvert pour autant : celui d'avant reste à l'écran");
+            // La vue reprend le clavier sans geste de l'auteur (ce que fait un élément qui finit de s'ouvrir).
+            if (editor != null) editor.FocusEditor();
+            for (var i = 0; i < 4; i++) await Settle();
+            Check(binder.RenameBoxForProbe == field && field.IsFocused, "une vue qui reprend le clavier ne referme plus le champ : il le reprend");
+            field.Text = "Chapitre renommé (sonde)";
+            press(Avalonia.Input.Key.Enter);
+            for (var i = 0; i < 3; i++) await Settle();
+            Check(other.Title == "Chapitre renommé (sonde)" && binder.RenameBoxForProbe == null && shell.CurrentForProbe == open, "Entrée valide le nouveau nom ; l'élément ouvert n'a pas changé");
+
+            // Le double-clic : le premier clic OUVRE l'élément, le second demande le renommage — l'ouverture finit après.
+            binder.SelectItem(sheet.Id, true);
+            binder.Rename(sheet);
+            for (var i = 0; i < 6; i++) await Settle();
+            field = binder.RenameBoxForProbe;
+            Check(field != null && field.IsFocused && shell.CurrentForProbe == sheet, "renommer un élément EN TRAIN de s'ouvrir (le double-clic, le double tap) : le champ tient, clavier dedans, une fois la vue posée (" + (field == null ? "pas de champ" : field.IsFocused ? "clavier dedans" : "clavier ailleurs") + ", ouvert : " + (shell.CurrentForProbe == null ? "-" : shell.CurrentForProbe.Title) + ")");
+            if (field != null) field.Text = "Ne sera pas gardé";
+            press(Avalonia.Input.Key.Escape);
+            for (var i = 0; i < 3; i++) await Settle();
+            Check(sheet.Title == "Fiche du lot 30" && binder.RenameBoxForProbe == null, "Échap abandonne : le nom d'avant reste");
+
+            // Une touche qui mène ailleurs (un raccourci) valide ce qui est tapé.
+            binder.Rename(sheet);
+            for (var i = 0; i < 4; i++) await Settle();
+            field = binder.RenameBoxForProbe;
+            if (field != null) field.Text = "Fiche renommée (sonde)";
+            press(Avalonia.Input.Key.F6);
+            var elsewhere = shell.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(delegate(TextBox t) { return !ReferenceEquals(t, field) && t.IsEffectivelyVisible && t.IsEnabled && t.Focusable; });
+            if (elsewhere != null) elsewhere.Focus();
+            for (var i = 0; i < 4; i++) await Settle();
+            Check(sheet.Title == "Fiche renommée (sonde)" && binder.RenameBoxForProbe == null, "le clavier emmené ailleurs par une touche de l'auteur : le nouveau nom est gardé");
+            binder.Rename(sheet);
+            for (var i = 0; i < 4; i++) await Settle();
+            field = binder.RenameBoxForProbe;
+            if (field != null) field.Text = "Fiche du lot 30";
+            press(Avalonia.Input.Key.Tab);
+            for (var i = 0; i < 3; i++) await Settle();
+            Check(sheet.Title == "Fiche du lot 30" && binder.RenameBoxForProbe == null, "Tab valide aussi");
+            other.Title = "Chapitre du lot 30";
+            binder.Rebuild();
+            await Settle();
         }
 
         private static async Task ProbeLot30Atelier(MainWindow shell)

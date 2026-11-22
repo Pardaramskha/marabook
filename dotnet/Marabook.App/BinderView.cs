@@ -1050,6 +1050,13 @@ namespace Marabook.App
                     e.Handled = true;
                     BeginInlineRename(itemRef, panel, title);
                 };
+                // Le double tap d'un pavé tactile (22/11, Rémi) : il n'arrive pas toujours comme un
+                // « second clic » compté — le geste reconnu par Avalonia renomme lui aussi.
+                panel.DoubleTapped += delegate(object sender, TappedEventArgs e)
+                {
+                    e.Handled = true;
+                    BeginInlineRename(itemRef, panel, title);
+                };
             }
             return panel;
         }
@@ -1057,41 +1064,111 @@ namespace Marabook.App
         // ------------------------------------------------------- inline rename
 
         /// <summary>Swaps the header label for a TextBox. Enter or clicking
-        /// elsewhere commits (undoable), Escape cancels.</summary>
-        private void BeginInlineRename(BinderItem item, StackPanel header, TextBlock title)
+        /// elsewhere commits (undoable), Escape cancels.
+        /// 22/11/2026 (Rémi) — LE CHAMP NE SE LAISSE PLUS PRENDRE LE CLAVIER. Il
+        /// validait dès qu'il perdait le focus ; or le clavier lui était repris
+        /// sans que l'auteur ait rien fait : par la vue de l'élément qui finit de
+        /// s'ouvrir (le premier clic d'un double-clic l'ouvre, et l'éditeur prend
+        /// le clavier à la fin du chargement), ou par le menu contextuel qui se
+        /// referme. Le champ paraissait donc et disparaissait aussitôt — sauf sur
+        /// un élément déjà ouvert. Désormais il ne valide que sur un GESTE DE
+        /// L'AUTEUR : Entrée, Tab, un clic ailleurs, une touche qui mène ailleurs
+        /// (un raccourci), ou la fenêtre qui passe derrière une autre. Un focus
+        /// repris sans geste est simplement repris en retour.</summary>
+        private void BeginInlineRename(BinderItem item, StackPanel header, TextBlock title) { BeginInlineRename(item, header, title, null); }
+
+        /// <summary>typed : ce qui était déjà tapé quand la Pile s'est rebâtie sous le champ (null = le nom de l'élément).</summary>
+        private void BeginInlineRename(BinderItem item, StackPanel header, TextBlock title, string typed)
         {
             if (_renameBox != null) return; // one rename at a time
+            var index = header.Children.IndexOf(title);
+            if (index < 0) return;
             var box = new TextBox
             {
-                Text = item.Title,
+                Text = typed ?? item.Title,
                 MinWidth = 120,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = "pile-rename"
             };
             _renameBox = box;
             _renameClosing = false;
-            var index = header.Children.IndexOf(title);
             header.Children.RemoveAt(index);
             header.Children.Insert(index, box);
 
+            var top = TopLevel.GetTopLevel(this);
+            EventHandler<PointerPressedEventArgs> pressedElsewhere = null;
+            var lastKey = DateTime.MinValue;
             Action<bool> finish = delegate(bool commit)
             {
                 if (_renameClosing) return;
                 _renameClosing = true;
                 _renameBox = null;
+                if (top != null && pressedElsewhere != null) top.RemoveHandler(InputElement.PointerPressedEvent, pressedElsewhere);
                 var newTitle = (box.Text ?? "").Trim();
+                // Renommer n'est pas ouvrir : la sélection reste où elle était.
                 if (commit && newTitle.Length > 0 && newTitle != item.Title)
-                    RunAndSelect(new RenameItemAction(item, newTitle, _project), item.Id, null); // les [[liens]] suivent (1.0.5)
+                    RunAndSelect(new RenameItemAction(item, newTitle, _project), null, null); // les [[liens]] suivent (1.0.5)
                 else
                     Rebuild(); // restore the plain label
             };
+            // Un clic ailleurs valide — vu avant tout le monde, où qu'il tombe dans la fenêtre.
+            pressedElsewhere = delegate(object sender, PointerPressedEventArgs e)
+            {
+                var source = e.Source as Visual;
+                if (source != null && (ReferenceEquals(source, box) || box.IsVisualAncestorOf(source))) return;
+                finish(true);
+            };
+            if (top != null) top.AddHandler(InputElement.PointerPressedEvent, pressedElsewhere, RoutingStrategies.Tunnel);
+            box.AddHandler(InputElement.KeyDownEvent, delegate(object sender, KeyEventArgs e) { lastKey = DateTime.UtcNow; }, RoutingStrategies.Tunnel);
             box.KeyDown += delegate(object sender, KeyEventArgs e)
             {
                 if (e.Key == Key.Enter) { e.Handled = true; finish(true); }
                 else if (e.Key == Key.Escape) { e.Handled = true; finish(false); }
+                else if (e.Key == Key.Tab) { e.Handled = true; finish(true); }
             };
-            box.LostFocus += delegate { finish(true); };
-            box.Loaded += delegate { box.Focus(); box.SelectAll(); };
+            Action takeFocus = delegate
+            {
+                if (_renameClosing || !ReferenceEquals(_renameBox, box) || TopLevel.GetTopLevel(box) == null) return;
+                if (!box.IsFocused) box.Focus();
+            };
+            box.LostFocus += delegate
+            {
+                if (_renameClosing) return;
+                var window = top as Window;
+                // Un geste de l'auteur l'a emmené ailleurs (une touche à l'instant), ou la fenêtre n'est plus devant : on valide.
+                if ((DateTime.UtcNow - lastKey).TotalMilliseconds < 400 || (window != null && !window.IsActive)) { finish(true); return; }
+                // Sinon le clavier a été repris sans geste (la vue qui s'ouvre, le menu qui se referme) : on le reprend.
+                Ui.Post(DispatcherPriority.Input, takeFocus);
+            };
+            // La Pile REBÂTIE sous le champ — ouvrir un élément la rebâtit, et le premier clic d'un double-clic
+            // l'ouvre : le champ renaît sur la nouvelle ligne, avec ce qui était déjà tapé. Si la ligne n'est
+            // plus là, ce qui est tapé est gardé.
+            box.DetachedFromVisualTree += delegate
+            {
+                if (_renameClosing) return;
+                Ui.Post(DispatcherPriority.Background, delegate
+                {
+                    if (_renameClosing || !ReferenceEquals(_renameBox, box) || TopLevel.GetTopLevel(box) != null) return;
+                    var text = box.Text;
+                    _renameClosing = true;
+                    _renameBox = null;
+                    if (top != null && pressedElsewhere != null) top.RemoveHandler(InputElement.PointerPressedEvent, pressedElsewhere);
+                    if (TryBeginRename(item, text)) return;
+                    var newTitle = (text ?? "").Trim();
+                    if (newTitle.Length > 0 && newTitle != item.Title) RunAndSelect(new RenameItemAction(item, newTitle, _project), null, null);
+                });
+            };
+            box.Loaded += delegate
+            {
+                box.Focus();
+                if (typed == null) box.SelectAll(); else box.CaretIndex = (box.Text ?? "").Length; // on reprend où l'on tapait
+            };
+            // …et une fois encore quand tout ce que le clic a lancé s'est posé.
+            Ui.Post(DispatcherPriority.Background, takeFocus);
         }
+
+        /// <summary>Sonde : le champ de renommage ouvert dans la Pile, ou null.</summary>
+        internal TextBox RenameBoxForProbe { get { return _renameBox; } }
 
         private void OnNodeExpandedChanged(object sender, RoutedEventArgs e)
         {
@@ -2020,6 +2097,24 @@ namespace Marabook.App
             RunAndSelect(new PinItemAction(item), null, null);
         }
 
+        /// <summary>Ouvre le champ de renommage sur la ligne de cet élément, si elle est dans la Pile : ses
+        /// parents dépliés, amenée à l'écran, SANS être choisie. Vrai si le champ est ouvert.</summary>
+        private bool TryBeginRename(BinderItem item, string typed)
+        {
+            TreeViewItem node;
+            if (item == null || _renameBox != null || !_tree.IsVisible || !_nodesById.TryGetValue(item.Id, out node)) return false;
+            for (var parent = node.Parent as TreeViewItem; parent != null; parent = parent.Parent as TreeViewItem) parent.IsExpanded = true;
+            node.BringIntoView();
+            var header = node.Header as StackPanel;
+            TextBlock title = null;
+            if (header != null)
+                foreach (var child in header.Children)
+                    if (child is TextBlock && !(child is TextBox)) title = (TextBlock)child;
+            if (header == null || title == null) return false;
+            BeginInlineRename(item, header, title, typed);
+            return _renameBox != null;
+        }
+
         public async void Rename(BinderItem item)
         {
             if (item == null) item = SelectedItem;
@@ -2029,21 +2124,14 @@ namespace Marabook.App
             if (_tree.IsVisible
                 && _nodesById.TryGetValue(item.Id, out node))
             {
-                SelectItem(item.Id);
-                var header = node.Header as StackPanel;
-                TextBlock title = null;
-                if (header != null)
-                    foreach (var child in header.Children)
-                        if (child is TextBlock && !(child is TextBox)) title = (TextBlock)child;
-                if (header != null && title != null)
-                {
-                    BeginInlineRename(item, header, title);
-                    return;
-                }
+                // Renommer n'est pas ouvrir (22/11, Rémi) : la ligne est montrée — ses parents dépliés, amenée
+                // à l'écran — sans être choisie. La choisir ouvrait l'élément, dont la vue prenait le clavier
+                // au champ : le renommage se refermait avant qu'on ait pu taper.
+                if (TryBeginRename(item, null)) return;
             }
             var answer = await InputDialog.Ask(Ui.OwnerOf(this), "Renommer", "Nouveau titre :", item.Title);
             if (answer == null || answer == item.Title) return;
-            RunAndSelect(new RenameItemAction(item, answer, _project), item.Id, null); // les [[liens]] suivent (1.0.5)
+            RunAndSelect(new RenameItemAction(item, answer, _project), null, null); // les [[liens]] suivent (1.0.5) ; la sélection ne bouge pas
         }
 
         /// <summary>Renommage par dialogue SANS déplacer la sélection — le
