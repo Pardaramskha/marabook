@@ -159,7 +159,13 @@ namespace Marabook.App
             {
                 var mine = Backlinks.In(links, group);
                 if (mine.Count == 0) continue;
-                panel.Children.Add(new TextBlock { Text = Backlink.GroupLabel(group), Tag = "backlink-group", Foreground = Chrome.SoftText, FontSize = 11, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, panel.Children.Count > 0 ? 8 : 0, 0, 0) });
+                // Le libellé du genre, puis un filet jusqu'au bord droit (24/11, Rémi) : les sections se détachent.
+                var header = new DockPanel { Margin = new Thickness(0, panel.Children.Count > 0 ? 8 : 0, 0, 0) };
+                var caption = new TextBlock { Text = Backlink.GroupLabel(group), Tag = "backlink-group", Foreground = Chrome.SoftText, FontSize = 11, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(caption, Dock.Left);
+                header.Children.Add(caption);
+                header.Children.Add(new Border { Height = 1, Background = Chrome.BorderStrong, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 1, 0, 0), Tag = "backlink-rule" });
+                panel.Children.Add(header);
                 foreach (var link in mine)
                 {
                     var linkRef = link;

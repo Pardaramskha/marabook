@@ -31,6 +31,7 @@ namespace Marabook.Tests
                 Settings(t, dir);
                 Html(t, dir);
                 Pdf(t);
+                Museum(t, dir);
             }
             finally
             {
@@ -43,12 +44,151 @@ namespace Marabook.Tests
 
         private static void Identity(Harness t)
         {
-            t.Equal(5, Skins.Ids.Length, "cinq skins");
+            t.Equal(9, Skins.Ids.Length, "neuf skins : les cinq d'origine et la famille « Museum » (Ascention compris)");
             t.Check(Skins.Ids[0] == Skins.Modern && Skins.Label(Skins.Modern) == "Marabook modern" && Skins.Label(Skins.Classic) == "Marabook classic" && Skins.Label(Skins.Gradient) == "Gradient Garden"
                 && Skins.Label(Skins.Eden) == "Eden Scriptis" && Skins.Label(Skins.Cyberpunk) == "Cyberpunk 2026", "leurs noms : Marabook modern (le premier), Marabook classic, Gradient Garden, Eden Scriptis, Cyberpunk 2026");
             t.Check(Skins.Normalize(null) == Skins.Modern && Skins.Normalize("") == Skins.Modern && Skins.Normalize("un-skin-de-demain") == Skins.Modern && Skins.Normalize("eden") == Skins.Eden, "un réglage absent ou inconnu vaut « modern »");
-            t.Check(Skins.DarkByDefault(Skins.Cyberpunk) && !Skins.DarkByDefault(Skins.Eden) && !Skins.DarkByDefault(Skins.Modern), "seul Cyberpunk 2026 est sombre par défaut");
+            t.Check(Skins.DarkByDefault(Skins.Cyberpunk) && !Skins.DarkByDefault(Skins.Eden) && !Skins.DarkByDefault(Skins.Modern), "Cyberpunk 2026 est sombre par défaut, pas les autres skins d'origine");
             foreach (var id in Skins.Ids) t.Check(Skins.Description(id).Length > 10, "« " + Skins.Label(id) + " » se décrit");
+        }
+
+        /// <summary>La série « Museum » (24/11) : trois skins PREMIUM, leurs trois options
+        /// (accent, fond, effet verre), leur habillage de l'Encyclopédie.</summary>
+        private static void Museum(Harness t, string dir)
+        {
+            var series = new[] { Skins.MuseumFire, Skins.MuseumWood, Skins.MuseumOath, Skins.MuseumAscent };
+            t.Check(Skins.Label(Skins.MuseumFire) == "Gardien du Feu" && Skins.Label(Skins.MuseumWood) == "Bois Blanc" && Skins.Label(Skins.MuseumOath) == "Assermenté", "la série « Museum » : Gardien du Feu, Bois Blanc, Assermenté");
+            foreach (var id in series)
+                t.Check(Skins.IsMuseum(id) && Skins.Premium(id) && Skins.Normalize(id) == id && Skins.Description(id).StartsWith("Museum"), "« " + Skins.Label(id) + " » est un skin PREMIUM de la série");
+            t.Check(!Skins.IsMuseum(Skins.Modern) && !Skins.Premium(Skins.Eden) && !Skins.IsMuseum(null) && !Skins.IsMuseum("museum"), "…les skins d'origine n'en sont pas");
+            t.Check(Skins.DarkByDefault(Skins.MuseumFire) && Skins.DarkByDefault(Skins.MuseumOath) && !Skins.DarkByDefault(Skins.MuseumWood), "Gardien du Feu et Assermenté sont sombres par défaut, Bois Blanc est clair");
+            // « Ascention » (24/11 au soir) : la Citadelle de l'Atelier, renommée.
+            t.Check(Skins.Label(Skins.MuseumAscent) == "Ascention" && Skins.DarkByDefault(Skins.MuseumAscent) && Skins.AccentFor(Skins.MuseumAscent, null) == "#C89B3C" && Skins.MuseumBackground(Skins.MuseumAscent, true) == "#010A13",
+                "« Ascention » : sombre par défaut, or sur bleu nuit");
+            t.Check(Skins.MuseumCaps(Skins.MuseumAscent) && !Skins.MuseumPill(Skins.MuseumAscent) && Skins.MuseumPill(Skins.MuseumFire) && Skins.MuseumPill(Skins.MuseumWood) && Skins.MuseumPill(Skins.MuseumOath) && !Skins.MuseumCaps(Skins.MuseumFire) && !Skins.MuseumPill(Skins.Modern),
+                "…titres en capitales et pas de pilule de sélection ; les trois autres ont la pilule");
+            // La barre à jalons d'un livre.
+            t.Check(Skins.MilestonesPassed(0) == 0 && Skins.MilestonesPassed(0.24) == 0 && Skins.MilestonesPassed(0.25) == 1 && Skins.MilestonesPassed(0.72) == 2 && Skins.MilestonesPassed(0.95) == 3 && Skins.MilestonesPassed(1) == 3,
+                "les jalons d'un livre : 25 % premier jet, 60 % bêta, 95 % relu");
+            t.Check(Skins.BookMilestones.Length == 3 && Skins.BookMilestoneNames.Length == 3 && Skins.BookMilestonePassed.Length == 3, "…trois jalons, chacun son nom et sa mention");
+
+            // L'accent : celui choisi, sinon celui du skin, sinon l'indigo.
+            t.Equal("#E0915A", Skins.AccentFor(Skins.MuseumFire, null), "sans accent choisi, Gardien du Feu apporte son cuivre");
+            t.Equal("#4F7D5B", Skins.AccentFor(Skins.MuseumWood, ""), "…Bois Blanc son vert-de-gris");
+            t.Equal("#C9A45C", Skins.AccentFor(Skins.MuseumOath, "pas une couleur"), "…Assermenté son laiton");
+            t.Equal("#16A085", Skins.AccentFor(Skins.MuseumFire, "#16a085"), "un accent choisi prime sur celui du skin");
+            t.Check(Skins.AccentFor(Skins.Modern, null) == "#5B67D8" && Skins.MuseumAccent(Skins.Eden) == null, "…et hors de la série, l'indigo de Marabook");
+
+            // Le fond : celui du skin, ou celui choisi, borné par le mode.
+            double h, s, l;
+            foreach (var id in series)
+            {
+                t.Equal(Skins.MuseumBackground(id, true), Skins.MuseumBackgroundFor(id, true, null), "« " + Skins.Label(id) + " » : sans choix, le fond de nuit du skin");
+                t.Equal(Skins.MuseumBackground(id, false), Skins.MuseumBackgroundFor(id, false, null), "…et son fond de jour");
+                Skins.ToHsl(Skins.MuseumBackground(id, true), out h, out s, out l);
+                var night = l;
+                Skins.ToHsl(Skins.MuseumBackground(id, false), out h, out s, out l);
+                t.Check(night < 0.24 && l > 0.78, "…l'un sombre, l'autre clair");
+            }
+            Skins.ToHsl(Skins.MuseumBackgroundFor(Skins.MuseumFire, true, "#FFFFFF"), out h, out s, out l);
+            t.Check(l <= 0.245, "un fond blanc choisi au sombre est ramené à 24 % de clarté (" + (l * 100).ToString("0") + " %)");
+            Skins.ToHsl(Skins.MuseumBackgroundFor(Skins.MuseumWood, false, "#102030"), out h, out s, out l);
+            t.Check(l >= 0.775, "un fond de nuit choisi au clair est ramené à 78 % (" + (l * 100).ToString("0") + " %)");
+            t.Equal("#14101F", Skins.MuseumBackgroundFor(Skins.MuseumOath, true, "#14101F"), "un fond dans la plage du mode est gardé tel quel");
+            t.Check(Skins.MuseumBackground(Skins.Modern, true) == null, "pas de fond « Museum » hors de la série");
+
+            // L'effet verre.
+            foreach (var id in series) t.Check(Skins.MuseumGlass(id) == 65, "« " + Skins.Label(id) + " » : 65 % d'effet verre d'origine");
+            t.Check(Skins.MuseumGlassFor(Skins.MuseumFire, -1) == 65 && Skins.MuseumGlassFor(Skins.MuseumFire, 0) == 0 && Skins.MuseumGlassFor(Skins.MuseumFire, 100) == 100 && Skins.MuseumGlassFor(Skins.MuseumFire, 250) == 65,
+                "l'effet verre choisi (0 à 100) prime ; hors plage, celui du skin");
+
+            // Le flou derrière le verre.
+            foreach (var id in series) t.Check(Skins.MuseumBlur(id) == 15, "« " + Skins.Label(id) + " » : 15 px de flou d'origine derrière le verre");
+            t.Check(Skins.MuseumBlurFor(Skins.MuseumFire, -1) == 15 && Skins.MuseumBlurFor(Skins.MuseumFire, 0) == 0 && Skins.MuseumBlurFor(Skins.MuseumFire, 24) == 24 && Skins.MuseumBlurFor(Skins.MuseumFire, 90) == 15,
+                "le flou choisi (0 à 24 px) prime ; hors plage, celui du skin");
+            var blurBefore = AppSettings.SkinBlur;
+            try
+            {
+                AppSettings.PathOverride = Path.Combine(dir, "settings-flou.json");
+                AppSettings.SkinBlur = 14;
+                AppSettings.Save();
+                AppSettings.SkinBlur = -1;
+                AppSettings.Load();
+                t.Check(AppSettings.SkinBlur == 14, "le flou choisi est retenu dans les réglages");
+                AppSettings.SkinBlur = -1;
+                AppSettings.Save();
+                var flou = File.ReadAllText(AppSettings.PathOverride);
+                t.Check(!flou.Contains("skinBlur"), "…celui du skin n'écrit rien");
+                File.WriteAllText(AppSettings.PathOverride, flou.TrimEnd().TrimEnd('}') + ", \"skinBlur\": 300 }");
+                AppSettings.Load();
+                t.Check(AppSettings.SkinBlur == -1, "…un flou hors plage retombe sur celui du skin");
+            }
+            finally { AppSettings.SkinBlur = blurBefore; }
+
+            // Les réglages.
+            string backgroundBefore = AppSettings.SkinBackground;
+            var glassBefore = AppSettings.SkinGlass;
+            try
+            {
+                AppSettings.PathOverride = Path.Combine(dir, "settings-museum.json");
+                AppSettings.Skin = Skins.MuseumOath;
+                AppSettings.SkinBackground = "#14101F";
+                AppSettings.SkinGlass = 70;
+                AppSettings.Save();
+                AppSettings.Skin = null; AppSettings.SkinBackground = null; AppSettings.SkinGlass = -1;
+                AppSettings.Load();
+                t.Check(AppSettings.Skin == Skins.MuseumOath && AppSettings.SkinBackground == "#14101F" && AppSettings.SkinGlass == 70, "le skin, son fond et son verre sont retenus dans les réglages");
+                AppSettings.SkinBackground = null; AppSettings.SkinGlass = -1;
+                AppSettings.Save();
+                var json = File.ReadAllText(AppSettings.PathOverride);
+                t.Check(!json.Contains("skinBackground") && !json.Contains("skinGlass"), "le fond et le verre du skin n'écrivent rien");
+                File.WriteAllText(AppSettings.PathOverride, json.TrimEnd().TrimEnd('}') + ", \"skinBackground\": \"bleu\", \"skinGlass\": 400 }");
+                AppSettings.Load();
+                t.Check(AppSettings.SkinBackground == null && AppSettings.SkinGlass == -1, "un fond illisible et un verre hors plage retombent sur ceux du skin");
+            }
+            finally { AppSettings.SkinBackground = backgroundBefore; AppSettings.SkinGlass = glassBefore; }
+
+            // « Arrondi des angles » (24/11) : un réglage général, retenu, borné de 0 à 2.
+            var cornersBefore = AppSettings.CornerScale;
+            try
+            {
+                AppSettings.PathOverride = Path.Combine(dir, "settings-arrondi.json");
+                AppSettings.CornerScale = 0;
+                AppSettings.Save();
+                AppSettings.CornerScale = 1;
+                AppSettings.Load();
+                t.Check(Math.Abs(AppSettings.CornerScale) < 0.001, "l'arrondi des angles à 0 % est retenu dans les réglages");
+                AppSettings.CornerScale = 1.5;
+                AppSettings.Save();
+                AppSettings.CornerScale = 1;
+                AppSettings.Load();
+                t.Check(Math.Abs(AppSettings.CornerScale - 1.5) < 0.001, "…à 150 % aussi");
+                AppSettings.CornerScale = 1;
+                AppSettings.Save();
+                var json = File.ReadAllText(AppSettings.PathOverride);
+                t.Check(!json.Contains("cornerScale"), "…à 100 %, rien n'est écrit : le fichier de réglages est celui d'avant");
+                File.WriteAllText(AppSettings.PathOverride, json.TrimEnd().TrimEnd('}') + ", \"cornerScale\": 9 }");
+                AppSettings.Load();
+                t.Check(Math.Abs(AppSettings.CornerScale - 1) < 0.001, "…une valeur hors de 0 à 2 retombe sur le dessin d'origine");
+            }
+            finally { AppSettings.CornerScale = cornersBefore; }
+
+            // L'Encyclopédie.
+            var plain = HtmlEncyclopedia.Css(new EncyclopediaOptions());
+            foreach (var id in series)
+            {
+                var css = Skins.HtmlCss(id, Skins.AccentFor(id, null), "", false, false);
+                t.Check(css.StartsWith("@media screen{") && css.Contains("--bg:" + Skins.MuseumBackground(id, false)) && css.Contains("[data-theme=dark]{") && css.Contains("--bg:" + Skins.MuseumBackground(id, true)) && css.Contains("small-caps"),
+                    "« " + Skins.Label(id) + " » habille l'Encyclopédie : son fond de jour, son fond de nuit, des titres en petites capitales");
+                t.Check(!css.Contains("text-shadow") && !css.Contains("Tahoma"), "…sans rien emprunter aux autres skins (ni néons, ni Tahoma)");
+                t.Check(css.Contains("--heading:") && !Skins.HtmlCss(id, "#5B67D8", "", false, true).Contains("--heading:"), "…une police choisie dans la fenêtre d'export prime sur sa garalde");
+                var full = HtmlEncyclopedia.Css(new EncyclopediaOptions { Skin = id });
+                t.Check(full.Contains("@media screen{") && full.IndexOf("@media screen{", StringComparison.Ordinal) < full.IndexOf("@media print", StringComparison.Ordinal) && full.StartsWith(plain.Substring(0, plain.IndexOf("@media print", StringComparison.Ordinal))),
+                    "…après la feuille de base, à l'écran seulement");
+                t.Check(Skins.HtmlStartsDark(id) == Skins.DarkByDefault(id), "…la page s'ouvre au sombre si le skin l'est");
+                var pdf = Skins.PdfSkinFor(id, Skins.AccentFor(id, null), null);
+                t.Check(pdf != null && pdf.Paper != pdf.Text && pdf.HasFrame == Skins.DarkByDefault(id), "…et le « PDF Encyclopédique » a son papier" + (pdf != null && pdf.HasFrame ? ", cerné d'un filet de métal" : ""));
+            }
         }
 
         private static void Colors(Harness t)

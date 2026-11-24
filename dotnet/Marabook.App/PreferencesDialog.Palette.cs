@@ -222,24 +222,128 @@ namespace Marabook.App
         // ------------------------------------------------------------ accessibilité
 
         private CheckBox _contrastCheck;
+        private Slider _zoomSlider;
+        private TextBlock _zoomLabel;
+        private DispatcherTimerLite _zoomTimer;
+        private readonly Dictionary<string, CheckBox> _accessChecks = new Dictionary<string, CheckBox>();
+
+        /// <summary>Une case d'accessibilité : son libellé, ce qu'elle fait, et le réglage qu'elle tient.
+        /// Toutes sont décochées d'office.</summary>
+        private CheckBox AccessCheck(Panel host, string tag, string label, string note, Func<bool> read, Action<bool> write)
+        {
+            var check = new CheckBox { Content = label, IsChecked = read(), Margin = new Thickness(0, host.Children.Count > 1 ? 10 : 6, 0, 0), Tag = tag };
+            check.IsCheckedChanged += delegate
+            {
+                var wanted = check.IsChecked == true;
+                if (read() == wanted) return;
+                write(wanted);
+                RaiseAppearanceChanged();
+            };
+            host.Children.Add(check);
+            if (note != null) host.Children.Add(Note(note, 4, 0, 22));
+            _accessChecks[tag] = check;
+            return check;
+        }
 
         private Control BuildAccessibilityTab()
         {
-            var panel = TabPanel();
-            panel.Children.Add(Caption("Contraste"));
-            _contrastCheck = new CheckBox { Content = "Augmenter le contraste", IsChecked = AppSettings.HighContrast, Margin = new Thickness(0, 6, 0, 0), Tag = "high-contrast" };
-            _contrastCheck.IsCheckedChanged += delegate
+            var page = TabPanel();
+            page.Children.Add(Note("Tout est éteint d'office : Marabook ne change rien tant que vous n'avez rien coché. Chaque réglage s'applique aussitôt, et ne touche jamais à un texte exporté.", 0, 12));
+
+            // ---- voir
+            var see = Group(page, "see");
+            see.Children.Add(Caption("Voir"));
+            _contrastCheck = AccessCheck(see, "high-contrast", "Augmenter le contraste",
+                "Les textes passent au noir franc (au blanc en mode sombre), les textes secondaires et les filets foncent nettement, la couleur d'accent se renforce. Au clair comme au sombre, par-dessus n'importe quel skin.",
+                delegate { return AppSettings.HighContrast; }, delegate(bool on) { AppSettings.HighContrast = on; });
+            AccessCheck(see, "color-blind", "Couleurs adaptées au daltonisme",
+                "Le vert « ça va », l'orange « attention » et le rouge « problème » deviennent bleu, jaune et magenta, que l'on distingue quand on confond le rouge et le vert ; dans les rapports de l'Atelier, un signe (✓, !, ✕) double la couleur.",
+                delegate { return AppSettings.ColorBlindSafe; }, delegate(bool on) { AppSettings.ColorBlindSafe = on; });
+
+            var zoomHead = new TextBlock { Text = "Taille de l'interface", Foreground = Chrome.Ink, Margin = new Thickness(0, 14, 0, 0) };
+            see.Children.Add(zoomHead);
+            var zoomRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+            _zoomSlider = new Slider { Minimum = 100, Maximum = 200, Value = Math.Round(AppSettings.UiZoom * 100), TickFrequency = 5, IsSnapToTickEnabled = true, Width = 260, VerticalAlignment = VerticalAlignment.Center, Tag = "ui-zoom" };
+            _zoomLabel = new TextBlock { Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 12, 0), Width = 52, Tag = "ui-zoom-label" };
+            var zoomReset = Buttons.Text("100 %", "Revenir à la taille d'origine", Buttons.Compact, Buttons.Look.Outline);
+            zoomReset.Tag = "ui-zoom-reset";
+            zoomReset.VerticalAlignment = VerticalAlignment.Center;
+            zoomReset.Click += delegate { _zoomSlider.Value = 100; };
+            zoomRow.Children.Add(_zoomSlider);
+            zoomRow.Children.Add(_zoomLabel);
+            zoomRow.Children.Add(zoomReset);
+            see.Children.Add(zoomRow);
+            Action label = delegate { _zoomLabel.Text = ((int)Math.Round(_zoomSlider.Value)).ToString() + " %"; };
+            label();
+            _zoomSlider.ValueChanged += delegate
             {
-                if (AppSettings.HighContrast == (_contrastCheck.IsChecked == true)) return;
-                AppSettings.HighContrast = _contrastCheck.IsChecked == true;
+                label();
+                // Le réglage glisse : la fenêtre ne change de taille qu'une fois qu'il s'est posé.
+                if (_zoomTimer != null) _zoomTimer.Stop();
+                _zoomTimer = DispatcherTimerLite.After(350, delegate { SetZoom(_zoomSlider.Value / 100.0); });
+            };
+            see.Children.Add(Note("Agrandit tout : menus, boutons, listes, fenêtres, infobulles — de 100 à 200 %. La taille du texte que vous écrivez se règle à part, par le zoom de la barre d'état : les deux se multiplient.", 4, 0));
+
+            see.Children.Add(new TextBlock { Text = "Police de l'interface", Foreground = Chrome.Ink, Margin = new Thickness(0, 14, 0, 4) });
+            var fontBox = new ComboBox { MinWidth = 260, HorizontalAlignment = HorizontalAlignment.Left, Tag = "ui-font" };
+            fontBox.Items.Add("Celle de Marabook");
+            var fonts = Accessibility.InstalledFonts();
+            foreach (var name in fonts) fontBox.Items.Add(name);
+            var current = AppSettings.UiFont == null ? -1 : fonts.FindIndex(delegate(string f) { return string.Equals(f, AppSettings.UiFont, StringComparison.OrdinalIgnoreCase); });
+            fontBox.SelectedIndex = current < 0 ? 0 : current + 1;
+            fontBox.SelectionChanged += delegate
+            {
+                var chosen = fontBox.SelectedIndex <= 0 ? null : fontBox.SelectedItem as string;
+                if (chosen == AppSettings.UiFont) return;
+                AppSettings.UiFont = chosen;
                 RaiseAppearanceChanged();
             };
-            panel.Children.Add(_contrastCheck);
-            panel.Children.Add(Note("Pour qui distingue mal les teintes proches : les textes passent au noir franc (au blanc en mode sombre), les textes secondaires et les filets foncent nettement, la couleur d'accent se renforce, les bordures des champs et des boutons se voient. Le réglage vaut au clair comme au sombre, et par-dessus n'importe quel skin. Il ne change rien à un texte exporté.", 4, 0, 22));
-            return panel;
+            see.Children.Add(fontBox);
+            var hasDyslexic = fonts.Exists(delegate(string f) { return f.StartsWith("OpenDyslexic", StringComparison.OrdinalIgnoreCase) || f.StartsWith("Atkinson", StringComparison.OrdinalIgnoreCase) || f.StartsWith("Lexend", StringComparison.OrdinalIgnoreCase); });
+            see.Children.Add(Note("Parmi les polices installées sur cette machine, celles qu'on recommande quand la lecture est difficile (dyslexie, basse vision). "
+                + (hasDyslexic ? "" : "OpenDyslexic, Atkinson Hyperlegible et Lexend, gratuites, sont faites pour cela : installez-les dans votre système, elles paraîtront ici. ")
+                + "La police de vos textes ne change pas : elle se règle par style.", 4, 0));
+
+            // ---- le clavier
+            var keyboard = Group(page, "keyboard");
+            keyboard.Children.Add(Caption("Au clavier"));
+            AccessCheck(keyboard, "focus-visible", "Montrer nettement ce qui a le clavier",
+                "Quand vous avancez à la touche Tab ou aux flèches, un cadre épais entoure le bouton, la case ou le champ où vous êtes.",
+                delegate { return AppSettings.FocusVisible; }, delegate(bool on) { AppSettings.FocusVisible = on; });
+
+            // ---- le texte
+            var text = Group(page, "text");
+            text.Children.Add(Caption("Dans le texte"));
+            AccessCheck(text, "thick-caret", "Curseur de texte épais", null,
+                delegate { return AppSettings.ThickCaret; }, delegate(bool on) { AppSettings.ThickCaret = on; });
+            AccessCheck(text, "steady-caret", "Curseur de texte qui ne clignote pas", null,
+                delegate { return AppSettings.SteadyCaret; }, delegate(bool on) { AppSettings.SteadyCaret = on; });
+            AccessCheck(text, "underline-links", "Souligner les liens",
+                "Quand les liens sont montrés (le bouton « Afficher les liens » du ruban), ceux qui mènent à une fiche ou à une date sont soulignés à l'écran, en plus de leur couleur. Rien ne change à l'export.",
+                delegate { return AppSettings.UnderlineLinks; }, delegate(bool on) { AppSettings.UnderlineLinks = on; });
+
+            // ---- le lecteur d'écran
+            var reader = Group(page, "reader");
+            reader.Children.Add(Caption("Lecteur d'écran"));
+            AccessCheck(reader, "screen-reader", "Dire le texte des écrits au lecteur d'écran",
+                "Le texte de Marabook est dessiné en vraies pages, qu'un lecteur d'écran (Narrateur, NVDA, JAWS, VoiceOver) ne sait pas lire seul. Cochée, Marabook lui dit lui-même où arrive le curseur : le caractère aux flèches gauche et droite, le mot avec Ctrl, la ligne aux flèches haut et bas, ce qui est sélectionné, et le titre de l'écrit quand il prend le clavier.",
+                delegate { return AppSettings.ScreenReader; }, delegate(bool on) { AppSettings.ScreenReader = on; });
+            reader.Children.Add(Note("Ce n'est pas la lecture native d'un champ de texte : les commandes de lecture propres à votre lecteur d'écran (« lire depuis le curseur », le mode revue) n'agissent pas sur la page ; ce sont les touches de Marabook qui déplacent le curseur et font parler. Les menus, les boutons, les champs et les fiches, eux, se lisent comme partout.", 6, 0, 22));
+            return page;
+        }
+
+        private void SetZoom(double zoom)
+        {
+            zoom = AppSettings.ClampZoom(zoom);
+            if (Math.Abs(zoom - AppSettings.UiZoom) < 0.001) return;
+            AppSettings.UiZoom = zoom;
+            RaiseAppearanceChanged();
         }
 
         internal void SetContrastForProbe(bool on) { _contrastCheck.IsChecked = on; }
+        internal void SetAccessForProbe(string tag, bool on) { _accessChecks[tag].IsChecked = on; }
+        internal void SetZoomForProbe(double zoom) { SetZoom(zoom); if (_zoomSlider != null) _zoomSlider.Value = Math.Round(AppSettings.UiZoom * 100); }
+        internal int AccessChecksForProbe { get { return _accessChecks.Count; } }
 
         // ------------------------------------------------------------ dépendances
 

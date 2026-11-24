@@ -42,6 +42,7 @@ namespace Marabook.App
         public static void FitToScreen(Window window, Window owner)
         {
             if (window == null) return;
+            Accessibility.Dress(window, owner); // le zoom de l'interface (22/11) : avant de mesurer ce qui tient à l'écran
             Screen screen = null;
             try
             {

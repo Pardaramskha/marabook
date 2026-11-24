@@ -947,6 +947,18 @@ namespace Marabook.App
             if (handler != null) handler(link);
         }
 
+        /// <summary>Sonde : le nombre de filets posés à droite des genres de rétroliens.</summary>
+        internal int BacklinkRulesForProbe()
+        {
+            var count = 0;
+            foreach (var child in _backlinksPanel.Children)
+            {
+                var header = child as Panel;
+                if (header != null) foreach (var part in header.Children) if (part is Border && "backlink-rule".Equals(part.Tag)) count++;
+            }
+            return count;
+        }
+
         internal List<string> BacklinksForProbe()
         {
             var lines = new List<string>();
@@ -954,6 +966,9 @@ namespace Marabook.App
             foreach (var child in _backlinksPanel.Children)
             {
                 var line = child as TextBlock;
+                // L'en-tête d'un genre : son libellé, suivi d'un filet (24/11).
+                var header = child as Panel;
+                if (header != null) foreach (var part in header.Children) if (part is TextBlock && "backlink-group".Equals(part.Tag)) line = (TextBlock)part;
                 if (line != null) lines.Add((line.Tag as string == "backlink-group" ? "# " : "") + (line.Inlines != null && line.Inlines.Count > 0 ? line.Inlines.Text : line.Text));
             }
             return lines;

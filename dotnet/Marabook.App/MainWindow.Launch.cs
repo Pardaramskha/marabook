@@ -179,6 +179,8 @@ namespace Marabook.App
         // ------------------------------------------------------------ exposé aux sondes
         public Project Project { get { return _project; } }
         public BinderView Binder { get { return _binder; } }
+        /// <summary>Sonde : l'Accueil.</summary>
+        internal HomeView HomeForProbe { get { return _homeView; } }
         public BookView BookViewPublic { get { return _bookView; } }
         public CorkboardView Corkboard { get { return _corkboard; } }
         public SheetLibraryView SheetLibrary { get { return _sheetLibrary; } }

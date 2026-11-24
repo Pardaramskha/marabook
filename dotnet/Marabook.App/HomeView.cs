@@ -30,38 +30,58 @@ namespace Marabook.App
     /// Pile — un point d'entrée qui rassemble ce qu'on reprend, ce qu'on
     /// épingle et où l'on en est (les raccourcis « Commencer » vivent dans le
     /// panneau Général du rail depuis le batch 43). Rien de neuf : tout
-    /// ce qu'il affiche est déjà calculé ailleurs. Trois blocs FIXES, dans
-    /// un ordre fixe, sur une grille de deux colonnes qui ne retombe en une
-    /// seule que sous 520 px ; cartes raised sur le ground de la zone
-    /// centrale. Les états vides sont un livrable : chaque bloc a son
-    /// invite.</summary>
+    /// ce qu'il affiche est déjà calculé ailleurs.
+    /// REFAIT LE 24/11/2026 AU SOIR (Rémi : « le look donné à la page d'accueil
+    /// dans l'Atelier ») — sous TOUS les skins, de haut en bas :
+    ///  · « OÙ J'EN SUIS » : l'anneau de l'objectif du jour, les mots du jour en
+    ///    grand, l'objectif, la série et le meilleur jour sur une ligne, « Lancer
+    ///    un sprint » et « Régler l'objectif » ; à droite, la carte du sprint tant
+    ///    qu'il y en a un ;
+    ///  · « REPRENDRE » et « ÉPINGLÉS », côte à côte quand la fenêtre est large ;
+    ///  · « LIVRES » : une carte par livre — titre, chapitres, pourcentage des
+    ///    chapitres terminés en grand, la BARRE À JALONS (25 % premier jet, 60 %
+    ///    bêta, 95 % relu), les jalons franchis, le rythme (échéance, taille).
+    /// Les skins « Museum » y ajoutent leurs titres, le filet en orbite et la
+    /// plaque d'un livre terminé. Les états vides sont un livrable : chaque bloc
+    /// a son invite.</summary>
     public class HomeView : ScrollViewer
     {
         /// <summary>Le gabarit du ScrollViewer se cherche par type (27/09).</summary>
         protected override Type StyleKeyOverride { get { return typeof(ScrollViewer); } }
 
-        // Deux colonnes (2-1 : Reprendre et Épinglés côte à côte, « Où j'en
-        // suis » en dessous sur toute la largeur) tant que la FENÊTRE fait
-        // 1 400 px ou plus ; une seule colonne en dessous (14/09 — la largeur
-        // de la vue seule variait avec la Pile et le rail, d'où deux
-        // dispositions à même écran).
+        // Deux colonnes (Reprendre et Épinglés côte à côte, deux livres par
+        // rangée) tant que la FENÊTRE fait 1 400 px ou plus ; une seule en
+        // dessous (14/09 — la largeur de la vue seule variait avec la Pile et
+        // le rail, d'où deux dispositions à même écran).
         private const double WideWindowFrom = 1400;
         private bool _windowHooked;
 
         private Project _project;
         private readonly Grid _grid;
-        private readonly StackPanel _resumeList, _pinnedList, _progressList;
+        private readonly StackPanel _resumeList, _pinnedList;
+        private readonly Grid _hero;
+        private readonly Border _heroCard;
+        private readonly Avalonia.Controls.Primitives.UniformGrid _books;
+        private readonly StackPanel _booksHost;
         private readonly TextBlock _title;
+        private readonly List<TextBlock> _labels = new List<TextBlock>();
+        private GoalRing _ring;
+        private TextBlock _heroTitle;
+        private Border _sprintCard;
 
-        public event Action<BinderItem> OpenRequested;   // clic sur un récent ou un épinglé
+        public event Action<BinderItem> OpenRequested;   // clic sur un récent, un épinglé ou un livre
         public Func<BinderItem, ContextMenu> MenuProvider; // clic droit : le menu de la Pile (14/09)
         public event Action RenameRequested;             // le crayon à côté du nom du projet (b43)
+        public event Action SprintRequested;             // « Lancer un sprint » (24/11)
+        public event Action GoalRequested;               // « Régler l'objectif » : le Journal, où il se règle (24/11)
 
         // Fournis par la coquille (déjà calculés là-bas, b48) : le sprint en
         // cours, les mots et caractères d'un écrit (pour le rythme des livres).
         public Func<SprintStatus> Sprint;
         public Func<BinderItem, int> WordsOf;
         public Func<BinderItem, int> CharsOf;
+        /// <summary>Faux quand le profil cache les sprints : le bouton disparaît.</summary>
+        public Func<bool> SprintsEnabled;
 
         public HomeView()
         {
@@ -91,65 +111,111 @@ namespace Marabook.App
             titleRow.Children.Add(rename);
             column.Children.Add(titleRow);
 
+            // — « Où j'en suis » : l'anneau, les mots du jour, le sprint. Un filet en orbite autour
+            // (série « Museum » ; posé une fois pour toutes, il ne dessine rien sous un autre skin).
+            _hero = new Grid();
+            _hero.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _hero.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            _hero.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _hero.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _hero.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            _heroCard = Frame(null, new Thickness(18, 16, 18, 16));
+            _heroCard.Tag = "home-hero";
+            var layers = new Panel();
+            layers.Children.Add(_hero);
+            layers.Children.Add(Skin.OrbitInside(_heroCard));
+            _heroCard.Child = layers;
+            column.Children.Add(_heroCard);
+
             _grid = new Grid();
             _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             _grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            for (var i = 0; i < 3; i++) _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            for (var i = 0; i < 2; i++) _grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
             _resumeList = new StackPanel();
             _pinnedList = new StackPanel();
-            _progressList = new StackPanel();
             _grid.Children.Add(Card("Reprendre", _resumeList, 0));
             _grid.Children.Add(Card("Épinglés", _pinnedList, 1));
-            _grid.Children.Add(Card("Où j'en suis", _progressList, 2));
             column.Children.Add(_grid);
+
+            // — « Livres » : une carte par livre, à barre à jalons.
+            _books = new Avalonia.Controls.Primitives.UniformGrid { Columns = 1, Margin = new Thickness(-5, 0, -5, -5) };
+            _booksHost = new StackPanel();
+            _booksHost.Children.Add(_books);
+            var booksCard = Card("Livres", _booksHost, 2);
+            booksCard.Tag = "home-books";
+            column.Children.Add(booksCard);
+
             Content = column;
             Ui.OnSizeChanged(this, delegate { Reflow(); });
             Loaded += delegate { HookWindow(); Reflow(); };
         }
 
-        /// <summary>La carte d'un bloc : titre en ink-faint, contenu.</summary>
-        private static Border Card(string title, Control content, int index)
+        /// <summary>L'étiquette d'un bloc : petites capitales espacées — de métal sous un skin
+        /// « Museum », en encre pâle ailleurs (la couleur est reposée à chaque Refresh).</summary>
+        private TextBlock Label(string text)
         {
-            var body = new StackPanel();
-            body.Children.Add(new TextBlock
+            var label = new TextBlock
             {
-                Text = title,
-                FontSize = 12,
+                Text = text.ToUpper(System.Globalization.CultureInfo.CurrentCulture),
+                FontSize = 11,
                 FontWeight = FontWeight.SemiBold,
-                Foreground = Chrome.FaintText,
+                LetterSpacing = 1.4,
+                Foreground = Skin.Museum ? (IBrush)Chrome.Accent : Chrome.FaintText,
                 Margin = new Thickness(0, 0, 0, 8)
-            });
-            body.Children.Add(content);
-            var card = new Border
+            };
+            _labels.Add(label);
+            return label;
+        }
+
+        private static Border Frame(Control child, Thickness padding)
+        {
+            return new Border
             {
                 Background = Chrome.BarBgLight,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(16, 12, 16, 14),
+                Padding = padding,
                 Margin = new Thickness(4),
-                Child = body,
-                Tag = index
+                Child = child
             };
+        }
+
+        /// <summary>La carte d'un bloc : son étiquette, son contenu.</summary>
+        private Border Card(string title, Control content, int index)
+        {
+            var body = new StackPanel();
+            body.Children.Add(Label(title));
+            body.Children.Add(content);
+            var card = Frame(body, new Thickness(16, 12, 16, 14));
+            card.Tag = index;
             return card;
         }
 
         /// <summary>Deux colonnes quand la place le permet, une seule sinon —
-        /// l'ordre des blocs ne change jamais ; un dernier bloc orphelin
-        /// s'étale sur les deux colonnes.</summary>
+        /// l'ordre des blocs ne change jamais.</summary>
         private void Reflow()
         {
             var window = Ui.OwnerOf(this);
             var two = (window != null && window.Bounds.Width > 0 ? window.Bounds.Width : Bounds.Width) >= WideWindowFrom;
-            var count = _grid.Children.Count;
             foreach (Control child in _grid.Children)
             {
                 var index = (int)((Control)child).Tag;
-                var orphan = index == count - 1 && count % 2 == 1;
                 Grid.SetColumn(child, two ? index % 2 : 0);
-                Grid.SetRow(child, two ? index / 2 : index);
-                Grid.SetColumnSpan(child, !two || orphan ? 2 : 1);
+                Grid.SetRow(child, two ? 0 : index);
+                Grid.SetColumnSpan(child, two ? 1 : 2);
+            }
+            _books.Columns = two && _books.Children.Count > 1 ? 2 : 1;
+            // La carte du sprint : à droite quand il y a la place, sous le reste sinon.
+            if (_sprintCard != null)
+            {
+                var beside = Bounds.Width <= 0 || Bounds.Width >= 760;
+                Grid.SetColumn(_sprintCard, beside ? 2 : 0);
+                Grid.SetRow(_sprintCard, beside ? 0 : 1);
+                Grid.SetColumnSpan(_sprintCard, beside ? 1 : 3);
+                _sprintCard.Margin = beside ? new Thickness(18, 0, 0, 0) : new Thickness(0, 14, 0, 0);
+                _sprintCard.Width = beside ? 210 : double.NaN;
             }
         }
 
@@ -177,10 +243,12 @@ namespace Marabook.App
             _project = null;
             _resumeList.Children.Clear();
             _pinnedList.Children.Clear();
-            _progressList.Children.Clear();
+            _hero.Children.Clear();
+            _books.Children.Clear();
+            _sprintCard = null;
         }
 
-        /// <summary>Recalcule les trois blocs depuis le projet — appelé à
+        /// <summary>Recalcule les blocs depuis le projet — appelé à
         /// l'affichage et après une épingle. Rien n'est gardé ici.</summary>
         public void Refresh()
         {
@@ -188,7 +256,9 @@ namespace Marabook.App
             _title.Text = string.IsNullOrEmpty(_project.Name) ? "Accueil" : _project.Name;
             FillResume();
             FillPinned();
-            FillProgress();
+            FillHero();
+            FillBooks();
+            foreach (var label in _labels) label.Foreground = Skin.Museum ? (IBrush)Chrome.Accent : Chrome.FaintText;
             Reflow();
         }
 
@@ -228,99 +298,261 @@ namespace Marabook.App
             if (!any) _pinnedList.Children.Add(Prompt("Clic droit sur un élément → Épingler."));
         }
 
-        /// <summary>Rien de neuf : les mots du jour et l'objectif journalier
-        /// (WritingJournal), l'objectif de session en cours (la coquille),
-        /// une barre par livre (BookProgress, le dessin du batch 32).</summary>
-        private void FillProgress()
+        /// <summary>« Où j'en suis » : rien de neuf — les mots du jour, l'objectif journalier, la
+        /// série et le meilleur jour (WritingJournal), le sprint (la coquille).</summary>
+        private void FillHero()
         {
-            _progressList.Children.Clear();
-            var any = false;
+            _hero.Children.Clear();
+            _sprintCard = null;
             var culture = System.Globalization.CultureInfo.CurrentCulture;
-
             var journal = _project.Journal;
             var today = journal.WordsOn(WritingJournal.Today());
-            if (journal.DailyGoal > 0)
-            {
-                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
-                var ratio = (double)today / journal.DailyGoal;
-                bar.ShowRatio("Aujourd'hui : " + today.ToString("N0", culture) + " / "
-                    + journal.DailyGoal.ToString("N0", culture) + " mots"
-                    + (today >= journal.DailyGoal ? " — objectif atteint !" : ""),
-                    ratio, today >= journal.DailyGoal ? 1 : 0);
-                _progressList.Children.Add(bar);
-                any = true;
-            }
-            else if (today > 0)
-            {
-                _progressList.Children.Add(Line("Aujourd'hui : " + today.ToString("N0", culture)
-                    + (today > 1 ? " mots écrits" : " mot écrit")));
-                any = true;
-            }
+            var goal = journal.DailyGoal;
 
-            // Le sprint (b48) : en cours ou fini, tant qu'il n'est pas refermé.
+            _ring = new GoalRing { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 20, 0) };
+            if (goal > 0) _ring.Show((double)today / goal, Math.Min(999, (int)Math.Floor(100.0 * today / goal)).ToString(culture) + " %", "DU JOUR");
+            else _ring.Show(0, "—", "À RÉGLER");
+            Grid.SetColumn(_ring, 0);
+            _hero.Children.Add(_ring);
+
+            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+            text.Children.Add(Label("Où j'en suis"));
+            _labels.RemoveAt(_labels.Count - 1); // rebâtie à chaque passage : sa couleur est déjà la bonne
+            _heroTitle = new TextBlock
+            {
+                Text = today.ToString("N0", culture) + (today > 1 ? " mots aujourd'hui" : " mot aujourd'hui"),
+                FontSize = 24,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink,
+                TextWrapping = TextWrapping.Wrap
+            };
+            Skin.Title(_heroTitle);
+            text.Children.Add(_heroTitle);
+
+            var parts = new List<string>();
+            if (goal > 0) parts.Add("Objectif " + goal.ToString("N0", culture) + (today >= goal ? " — atteint !" : ""));
+            var streak = journal.Streak();
+            if (streak > 0) parts.Add(streak > 1 ? "série de " + streak + " jours" : "série d'un jour");
+            var best = 0;
+            foreach (var day in journal.Days) if (day.Words > best) best = day.Words;
+            if (best > 0) parts.Add("meilleur jour " + best.ToString("N0", culture));
+            text.Children.Add(new TextBlock
+            {
+                Text = parts.Count == 0 ? "Définis un objectif pour suivre ta progression." : string.Join(" · ", parts.ToArray()),
+                Foreground = Chrome.SoftText,
+                FontSize = 12.5,
+                FontStyle = parts.Count == 0 ? FontStyle.Italic : FontStyle.Normal,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+
             var sprint = Sprint == null ? null : Sprint();
-            if (sprint != null && (sprint.Active || sprint.Finished))
+            var running = sprint != null && (sprint.Active || sprint.Finished);
+            var actions = new WrapPanel { Margin = new Thickness(0, 11, 0, 0) };
+            if (SprintsEnabled == null || SprintsEnabled())
             {
-                var label = sprint.Finished
-                    ? "Sprint terminé : " + sprint.Written.ToString("N0", culture) + (sprint.Written > 1 ? " mots" : " mot")
-                        + " en " + sprint.Elapsed + " min" + (sprint.Goal > 0 && sprint.Written >= sprint.Goal ? " — objectif atteint !" : "")
-                    : "Sprint : " + sprint.Written.ToString("N0", culture)
-                        + (sprint.Goal > 0 ? " / " + sprint.Goal.ToString("N0", culture) : "") + " mots"
-                        + (sprint.SecondsLeft >= 0 ? " — " + System.Math.Ceiling(sprint.SecondsLeft / 60.0) + " min restantes" : " — sprint libre")
-                        + (sprint.Goal > 0 && sprint.Written >= sprint.Goal ? " — objectif atteint !" : "");
-                if (sprint.Goal > 0)
-                {
-                    var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
-                    bar.ShowRatio(label, (double)sprint.Written / sprint.Goal, sprint.Written >= sprint.Goal ? 1 : 0);
-                    _progressList.Children.Add(bar);
-                }
-                else _progressList.Children.Add(Line(label));
-                any = true;
+                var launch = Buttons.Text(sprint != null && sprint.Active ? "Relancer un sprint" : "Lancer un sprint", null, Buttons.Bar, Buttons.Look.Primary);
+                launch.Margin = new Thickness(0, 0, 8, 4);
+                launch.Tag = "home-sprint";
+                launch.Click += delegate { Raise(SprintRequested); };
+                actions.Children.Add(launch);
             }
+            var tune = Buttons.Text("Régler l'objectif", null, Buttons.Bar, Buttons.Look.Outline);
+            tune.Margin = new Thickness(0, 0, 8, 4);
+            tune.Tag = "home-goal";
+            tune.Click += delegate { Raise(GoalRequested); };
+            actions.Children.Add(tune);
+            text.Children.Add(actions);
+            Grid.SetColumn(text, 1);
+            _hero.Children.Add(text);
 
+            if (running)
+            {
+                _sprintCard = SprintCard(sprint, culture);
+                _hero.Children.Add(_sprintCard);
+            }
+        }
+
+        /// <summary>La carte du sprint (b48) : en cours ou fini, tant qu'il n'est pas refermé. Sous un
+        /// skin « Museum », la tranche de métal d'un carton à sa gauche.</summary>
+        private Border SprintCard(SprintStatus sprint, System.Globalization.CultureInfo culture)
+        {
+            var body = new StackPanel { Margin = new Thickness(Skin.Museum ? 22 : 12, 10, 12, 10), VerticalAlignment = VerticalAlignment.Center };
+            body.Children.Add(Label(sprint.Finished ? "Sprint terminé" : "Sprint en cours"));
+            _labels.RemoveAt(_labels.Count - 1);
+            string big;
+            if (sprint.Finished) big = sprint.Written.ToString("N0", culture) + (sprint.Written > 1 ? " mots" : " mot");
+            else if (sprint.SecondsLeft >= 0) big = (sprint.SecondsLeft / 60).ToString("00", culture) + ":" + (sprint.SecondsLeft % 60).ToString("00", culture);
+            else big = sprint.Elapsed + " min";
+            var title = new TextBlock { Text = big, FontSize = 19, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink };
+            Skin.Title(title);
+            body.Children.Add(title);
+            var reached = sprint.Goal > 0 && sprint.Written >= sprint.Goal;
+            string sub;
+            if (sprint.Finished) sub = "en " + sprint.Elapsed + " min" + (sprint.Goal > 0 ? " · objectif " + sprint.Goal.ToString("N0", culture) : "");
+            else sub = (sprint.Minutes > 0 ? "sur " + sprint.Minutes + " min" : "sprint libre") + " · " + sprint.Written.ToString("N0", culture)
+                + (sprint.Goal > 0 ? " / " + sprint.Goal.ToString("N0", culture) : "") + (sprint.Written > 1 ? " mots" : " mot");
+            if (reached) sub += " — objectif atteint !";
+            body.Children.Add(new TextBlock { Text = sub, Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+            if (sprint.Goal > 0)
+            {
+                var track = new Grid { Height = 5, Margin = new Thickness(0, 9, 0, 0) };
+                var ratio = Math.Max(0, Math.Min(1.0, (double)sprint.Written / sprint.Goal));
+                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ratio, GridUnitType.Star) });
+                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1 - ratio, GridUnitType.Star) });
+                var back = new Border { Background = Chrome.Border, CornerRadius = new CornerRadius(2.5) };
+                Grid.SetColumnSpan(back, 2);
+                track.Children.Add(back);
+                track.Children.Add(new Border { Background = reached ? (IBrush)Chrome.Ok : Chrome.Accent, CornerRadius = new CornerRadius(2.5) });
+                body.Children.Add(track);
+            }
+            var layers = new Panel();
+            if (Skin.Museum)
+                layers.Children.Add(new Border { Width = 12, HorizontalAlignment = HorizontalAlignment.Left, Background = Skin.MetalBrush(Chrome.Spine.Color), IsHitTestVisible = false });
+            layers.Children.Add(body);
+            return new Border
+            {
+                Background = Chrome.CardBg,
+                BorderBrush = Chrome.BorderStrong,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                ClipToBounds = true,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Child = layers,
+                Tag = "home-sprint-card"
+            };
+        }
+
+        /// <summary>« Livres » : une carte par livre (BookProgress, BookPace — rien de neuf).</summary>
+        private void FillBooks()
+        {
+            _books.Children.Clear();
+            while (_booksHost.Children.Count > 1) _booksHost.Children.RemoveAt(1);
             foreach (var item in _project.AllItems())
             {
                 if (item.Kind != ItemKind.Book || Recents.InTrash(item)) continue;
-                var progress = BookProgress.Of(item);
-                var bar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 4) };
-                var title = string.IsNullOrEmpty(item.Title) ? "Livre" : item.Title;
-                bar.Show(progress, title + " — pas d'objectif de chapitres");
-                if (progress.HasGoal) bar.Label.Text = title + " — " + BookProgressBar.Describe(progress);
-                _progressList.Children.Add(bar);
-                // Le rythme (b48) : échéance et taille, s'ils sont réglés.
-                var pace = BookPace.Of(item, WordsOf, CharsOf, DateTime.Today);
-                if (pace.HasSizeGoal)
-                {
-                    var sizeBar = new BookProgressBar { Margin = new Thickness(0, 0, 0, 10) };
-                    sizeBar.ShowRatio(pace.Describe(culture), pace.Ratio, pace.Reached ? 1 : 0);
-                    _progressList.Children.Add(sizeBar);
-                }
-                else if (pace.HasDeadline) _progressList.Children.Add(Line(pace.Describe(culture)));
-                else bar.Margin = new Thickness(0, 0, 0, 10);
-                any = true;
+                _books.Children.Add(BookCard(item));
             }
-
-            // La série (b48) : les jours d'affilée, un repère qui donne envie.
-            var streak = journal.Streak();
-            if (streak > 0)
-            {
-                _progressList.Children.Add(Line("Série : " + streak + (streak > 1 ? " jours d'écriture d'affilée" : " jour d'écriture")));
-                any = true;
-            }
-
-            if (!any) _progressList.Children.Add(Prompt("Définis un objectif pour suivre ta progression."));
+            _books.IsVisible = _books.Children.Count > 0;
+            if (_books.Children.Count == 0) _booksHost.Children.Add(Prompt("Les livres du projet apparaîtront ici, avec leur avancement."));
         }
 
-        private static TextBlock Line(string text)
+        /// <summary>La part d'un livre qui est TERMINÉE : ses chapitres à l'état « Terminé », sur son
+        /// objectif de chapitres — ou, sans objectif, sur les chapitres qu'il a.</summary>
+        internal static double DoneShare(BookProgress progress)
         {
-            return new TextBlock
+            var whole = progress.HasGoal ? progress.Goal : progress.Present;
+            return whole <= 0 ? 0 : Math.Min(1.0, (double)progress.Done / whole);
+        }
+
+        private Border BookCard(BinderItem book)
+        {
+            var culture = System.Globalization.CultureInfo.CurrentCulture;
+            var progress = BookProgress.Of(book);
+            var share = DoneShare(progress);
+            var done = share >= 0.999 && progress.Present > 0;
+
+            var body = new StackPanel();
+            var head = new DockPanel { LastChildFill = true };
+            var percent = new TextBlock
             {
-                Text = text,
-                Foreground = Chrome.SoftText,
-                FontSize = 12,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 2, 0, 6)
+                Text = Math.Floor(share * 100).ToString("0", culture) + " %",
+                FontSize = 21,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Accent,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(12, 0, 0, 0)
             };
+            Skin.Title(percent);
+            DockPanel.SetDock(percent, Dock.Right);
+            head.Children.Add(percent);
+            var names = new StackPanel();
+            var title = new TextBlock
+            {
+                Text = string.IsNullOrEmpty(book.Title) ? "Livre" : book.Title,
+                FontSize = 15,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            Skin.Title(title);
+            names.Children.Add(title);
+            var chapters = progress.HasGoal
+                ? progress.Present.ToString("N0", culture) + " / " + progress.Goal.ToString("N0", culture) + " chapitres"
+                : progress.Present.ToString("N0", culture) + (progress.Present > 1 ? " chapitres" : " chapitre");
+            var finished = progress.Present > 0 && progress.Done >= progress.Present && !progress.HasGoal ? "tous terminés"
+                : progress.Done.ToString("N0", culture) + (progress.Done > 1 ? " terminés" : " terminé");
+            names.Children.Add(new TextBlock { Text = chapters + " · " + finished, Foreground = Chrome.FaintText, FontSize = 11.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
+            head.Children.Add(names);
+            body.Children.Add(head);
+
+            var bar = new MilestoneBar { Margin = new Thickness(0, 8, 0, 0) };
+            bar.Show(share);
+            body.Children.Add(bar);
+
+            // Les jalons franchis, puis « Terminé ».
+            var passed = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right, MinHeight = 14, Margin = new Thickness(0, 2, 0, 0) };
+            var glyphs = new[] { "✦ ", "○ ", "▣ " };
+            var count = Skins.MilestonesPassed(share);
+            for (var i = 0; i < count; i++)
+            {
+                if (i > 0) passed.Children.Add(Stage("|", Chrome.FaintText, new Thickness(7, 0, 7, 0)));
+                passed.Children.Add(Stage(glyphs[i] + Skins.BookMilestonePassed[i].ToUpper(culture), Chrome.Accent, new Thickness(0)));
+            }
+            if (done)
+            {
+                if (count > 0) passed.Children.Add(Stage("|", Chrome.FaintText, new Thickness(7, 0, 7, 0)));
+                passed.Children.Add(Stage("✓ TERMINÉ", Chrome.Ok, new Thickness(0)));
+            }
+            body.Children.Add(passed);
+
+            // Le rythme (b48) : échéance et taille, s'ils sont réglés.
+            var pace = BookPace.Of(book, WordsOf, CharsOf, DateTime.Today);
+            if (pace.HasSizeGoal)
+            {
+                var sizeBar = new BookProgressBar { Margin = new Thickness(0, 6, 0, 0) };
+                sizeBar.ShowRatio(pace.Describe(culture), pace.Ratio, pace.Reached ? 1 : 0);
+                body.Children.Add(sizeBar);
+            }
+            else if (pace.HasDeadline)
+                body.Children.Add(new TextBlock { Text = pace.Describe(culture), Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+
+            var layers = new Panel();
+            // Un livre TERMINÉ : la plaque de métal par-dessus le fond (série « Museum » ; rien ailleurs).
+            var plaque = done ? Skin.Plaque() : null;
+            if (plaque != null) layers.Children.Add(new Border { Background = plaque, IsHitTestVisible = false, Margin = new Thickness(-14, -10, -14, -9) });
+            layers.Children.Add(body);
+            var card = new Border
+            {
+                Background = Chrome.CardBg,
+                BorderBrush = done && plaque != null ? (IBrush)Chrome.Accent : Chrome.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 10, 14, 9),
+                Margin = new Thickness(5),
+                ClipToBounds = true,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = layers,
+                Tag = book
+            };
+            card.PointerEntered += delegate { card.BorderBrush = Skin.Museum ? (IBrush)Chrome.Hover : Chrome.Accent; };
+            card.PointerExited += delegate { card.BorderBrush = done && plaque != null ? (IBrush)Chrome.Accent : Chrome.Border; };
+            card.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                if (e.InitialPressMouseButton == MouseButton.Left) { Open(book); return; }
+                if (e.InitialPressMouseButton != MouseButton.Right) return;
+                var menu = MenuProvider == null ? null : MenuProvider(book);
+                if (menu == null) return;
+                menu.PlacementTarget = card;
+                Ui.ShowMenu(menu, card);
+                e.Handled = true;
+            };
+            return card;
+        }
+
+        private static TextBlock Stage(string text, IBrush brush, Thickness margin)
+        {
+            return new TextBlock { Text = text, Foreground = brush, FontSize = 9.5, FontWeight = FontWeight.Medium, LetterSpacing = 1.1, Margin = margin, VerticalAlignment = VerticalAlignment.Center };
         }
 
         // ------------------------------------------------------------ pièces
@@ -408,17 +640,37 @@ namespace Marabook.App
         }
 
         // Pour les tests et les sondes : les lignes cliquables d'un bloc,
-        // les invites d'état vide affichées.
+        // les invites d'état vide affichées, les cartes de livre.
         public List<BinderItem> ResumeItems { get { return ItemsOf(_resumeList); } }
         public List<BinderItem> PinnedItems { get { return ItemsOf(_pinnedList); } }
-        public int ProgressBars { get { return CountOf(_progressList, typeof(BookProgressBar)); } }
+        public List<BinderItem> BookItems { get { return ItemsOf(_books); } }
+        internal string HeroTitleForProbe { get { return _heroTitle == null ? "" : _heroTitle.Text; } }
+        internal double RingRatioForProbe { get { return _ring == null ? -1 : _ring.Ratio; } }
+        internal string RingTextForProbe { get { return _ring == null ? "" : _ring.Text; } }
+        internal bool SprintCardShownForProbe { get { return _sprintCard != null; } }
+        internal Border HeroCardForProbe { get { return _heroCard; } }
+        internal void RaiseSprintForProbe() { Raise(SprintRequested); }
+        internal void RaiseGoalForProbe() { Raise(GoalRequested); }
+
+        /// <summary>Sonde : la barre à jalons de la carte de ce livre (null s'il n'en a pas).</summary>
+        internal MilestoneBar MilestonesOfForProbe(BinderItem book)
+        {
+            foreach (Control child in _books.Children)
+            {
+                var card = child as Border;
+                if (card == null || !ReferenceEquals(card.Tag, book)) continue;
+                foreach (var visual in card.GetVisualDescendants()) if (visual is MilestoneBar) return (MilestoneBar)visual;
+                foreach (var logical in Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(card)) if (logical is MilestoneBar) return (MilestoneBar)logical;
+            }
+            return null;
+        }
 
         public List<string> Prompts
         {
             get
             {
                 var prompts = new List<string>();
-                foreach (var list in new[] { _resumeList, _pinnedList, _progressList })
+                foreach (var list in new Panel[] { _resumeList, _pinnedList, _booksHost })
                     foreach (Control child in list.Children)
                     {
                         var text = child as TextBlock;
@@ -426,13 +678,6 @@ namespace Marabook.App
                     }
                 return prompts;
             }
-        }
-
-        private static int CountOf(Panel list, Type type)
-        {
-            var count = 0;
-            foreach (Control child in list.Children) if (child.GetType() == type) count++;
-            return count;
         }
 
         private static List<BinderItem> ItemsOf(Panel list)

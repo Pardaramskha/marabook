@@ -390,7 +390,18 @@ namespace Marabook.App
             {
                 if (e.Key == Key.Escape) { _searchBox.Text = ""; e.Handled = true; }
             };
-            row.Children.Add(Ui.WithClear(_searchBox, "Vider la recherche"));
+            // Le texte de fond (24/11, Rémi) : une loupe et « Rechercher dans la pile », tant que le champ est vide.
+            var searchHost = Ui.WithClear(_searchBox, "Vider la recherche") as Panel;
+            var hint = new StackPanel { Orientation = Orientation.Horizontal, IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(Marabook.App.Theme.FieldPadding.Left + 2, 0, 0, 0), Opacity = 0.85, Tag = "binder-search-hint" };
+            var glass = Icons.Make("magnifying-glass-bold", 13, Chrome.FaintText);
+            glass.VerticalAlignment = VerticalAlignment.Center;
+            glass.Margin = new Thickness(0, 0, 6, 0);
+            hint.Children.Add(glass);
+            hint.Children.Add(new TextBlock { Text = "Rechercher dans la pile", Foreground = Chrome.FaintText, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            _searchBox.TextChanged += delegate { hint.IsVisible = string.IsNullOrEmpty(_searchBox.Text); };
+            searchHost.ClipToBounds = true;
+            searchHost.Children.Add(hint);
+            row.Children.Add(searchHost);
             bar.Child = row;
             return bar;
         }

@@ -214,6 +214,7 @@ namespace Marabook.App
                     await Settle();
                     var lines = sheetView.BacklinksForProbe();
                     Check(sheetView.BacklinksShownForProbe && lines.Count > 0, "la fiche de Keira a son paper « Rétroliens »");
+                    Check(sheetView.BacklinkRulesForProbe() == lines.Count(delegate(string l) { return l.StartsWith("# "); }) && lines.Any(delegate(string l) { return l.StartsWith("# "); }), "…chaque genre de rétrolien est suivi d'un filet jusqu'au bord (24/11)");
                     Check(lines.Contains("# Écrits") && lines.Contains("# Événements") && lines.Contains("# Cartes"), "rangés par genre : écrits, événements, cartes… (" + string.Join(" / ", lines.Where(delegate(string l) { return l.StartsWith("# "); }).ToArray()) + ")");
                     Check(lines.Any(delegate(string l) { return l.StartsWith("Le sacre (sonde) (assignée"); }) && lines.Any(delegate(string l) { return l.StartsWith("Écrit qui cite (sonde) (lien)"); })
                         && lines.Any(delegate(string l) { return l.StartsWith("Carte des rattrapages (repère « Tour de Keira »)"); }), "chaque ligne dit qui cite, et par quoi");

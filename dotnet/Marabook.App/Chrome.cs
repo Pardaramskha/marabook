@@ -55,6 +55,19 @@ namespace Marabook.App
         public static readonly SolidColorBrush Time = Brush(0x0E, 0x7C, 0x7B);
         public static readonly SolidColorBrush TimeTint = Brush(0xDD, 0xF3, 0xF1);
 
+        // ---- les métaux des skins « Museum » (24/11) : le filet qui « chauffe » (survol, clavier,
+        //      filet en orbite) et la tranche des cartons. Hors de ces skins, ils valent l'accent
+        //      fort et l'accent : rien ne s'en sert, mais ils restent des couleurs justes.
+        public static readonly SolidColorBrush Glow = Brush(0x45, 0x4F, 0xB8);
+        public static readonly SolidColorBrush Spine = Brush(0x5B, 0x67, 0xD8);
+        /// <summary>Le SURVOL des skins « Museum » (24/11 au soir) : une couleur fixe du skin, qui ne suit pas l'accent.</summary>
+        public static readonly SolidColorBrush Hover = Brush(0x45, 0x4F, 0xB8);
+        /// <summary>Le filet où s'emboîtent les onglets (sous leur rangée, sous les menus) et le contour de
+        /// l'onglet actif (24/11 au soir) : le filet courant et l'accent doux ; de MÉTAL sous un skin
+        /// premium, comme le contour des boutons.</summary>
+        public static readonly SolidColorBrush TabGround = Brush(0xD3, 0xD7, 0xE3);
+        public static readonly SolidColorBrush TabEdge = Brush(0xBF, 0xC5, 0xD8);
+
         // ---- couleurs de sens
         public static readonly SolidColorBrush Ok = Brush(0x2E, 0x9E, 0x6B);
         public static readonly SolidColorBrush Warn = Brush(0xC4, 0x82, 0x0E);
@@ -138,8 +151,14 @@ namespace Marabook.App
                 Warn.Color = Rgb(0xC4, 0x82, 0x0E);
                 Danger.Color = Rgb(0xCE, 0x46, 0x46);
             }
+            Glow.Color = AccentStrong.Color;
+            Hover.Color = AccentStrong.Color;
+            Spine.Color = Accent.Color;
             Skin.TunePalette(dark, hue); // le skin retouche la palette (21/11) ; rien pour « modern »
-            if (AppSettings.HighContrast) RaiseContrast(dark, hue); // par-dessus le skin (22/11)
+            if (AppSettings.HighContrast) { RaiseContrast(dark, hue); Glow.Color = AccentStrong.Color; Spine.Color = Accent.Color; } // par-dessus le skin (22/11)
+            TabGround.Color = Skin.Museum ? BorderStrong.Color : Border.Color;
+            TabEdge.Color = Skin.Museum ? Accent.Color : AccentSoft.Color;
+            if (AppSettings.ColorBlindSafe) SafeMeaning(dark);
             SyncCompositionPalette();
         }
 
@@ -211,6 +230,30 @@ namespace Marabook.App
             }
         }
 
+        /// <summary>LES COULEURS DE SENS POUR DALTONIENS (Préférences › Accessibilité, 22/11/2026) : le vert
+        /// « ça va », l'orange « attention » et le rouge « problème » se confondent pour qui voit mal le
+        /// rouge ou le vert. Ils deviennent bleu, jaune-orangé et magenta — trois teintes de la palette
+        /// d'Okabe et Ito, que les trois formes courantes de daltonisme distinguent, et de clartés
+        /// différentes. Là où un simple point de couleur portait le sens, un signe le double (Sign).</summary>
+        private static void SafeMeaning(bool dark)
+        {
+            if (dark)
+            {
+                Ok.Color = Rgb(0x56, 0xB4, 0xE9);
+                Warn.Color = Rgb(0xF0, 0xE4, 0x42);
+                Danger.Color = Rgb(0xEE, 0x8A, 0xC0);
+            }
+            else
+            {
+                Ok.Color = Rgb(0x00, 0x5F, 0x99);
+                Warn.Color = Rgb(0x8F, 0x5F, 0x00);
+                Danger.Color = Rgb(0xA6, 0x1E, 0x6E);
+            }
+        }
+
+        /// <summary>Le signe qui double une couleur de sens (0 : ça va, 1 : attention, 2 : problème).</summary>
+        public static string Sign(int level) { return level >= 2 ? "✕" : level == 1 ? "!" : "✓"; }
+
         /// <summary>Le rapport de contraste WCAG entre deux couleurs (1 à 21).</summary>
         public static double ContrastRatio(Color a, Color b)
         {
@@ -256,6 +299,8 @@ namespace Marabook.App
         public static Color? ParseAccent()
         {
             var hex = AppSettings.AccentColor;
+            // Sans accent choisi, un skin « Museum » apporte le sien (cuivre, vert-de-gris, laiton — 24/11).
+            if (string.IsNullOrEmpty(hex)) hex = Skins.MuseumAccent(AppSettings.Skin);
             if (string.IsNullOrEmpty(hex) || hex.Length != 7 || hex[0] != '#') return null;
             try
             {

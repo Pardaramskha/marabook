@@ -183,6 +183,8 @@ namespace Marabook.App
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot28") { await ProbeLot28(shell); await ProbeNewProject(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "atelier") { await ProbeAtelier(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot30") { await ProbeLot30(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "museum") { await ProbeMuseum(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "acces") { await ProbeAccessibility(shell); throw new OperationCanceledException(); }
                 // — La coquille sur le projet d'exemple.
                 Check(shell.Project != null, "le projet d'exemple est ouvert");
                 var roots = shell.Project.Roots;
@@ -2717,6 +2719,8 @@ namespace Marabook.App
                 await ProbeLot28(shell);     // repasse du Tableau, « Précédent » sur les écrans basculés, sélection multiple, skins (2.0.0, 21/11)
                 await ProbeAtelier(shell);   // la section Outils : l'Atelier, PDFaah, Chop-Chop, Unlocker, contrôles (2.0.0, 21/11)
                 await ProbeLot30(shell);     // clic droit, palette, Préférences, Atelier en tuiles, outils PDF, WGYC (2.0.0, 22/11)
+                await ProbeAccessibility(shell); // zoom, focus, daltonisme, police, curseur, liens, lecteur d'écran (2.0.0, 22/11)
+                await ProbeMuseum(shell);    // la série « Museum » : trois skins PREMIUM et leurs trois options (2.0.0, 24/11)
                 await ProbeDebt(shell);      // la dette : très gros paragraphes, annulation par différence, miroir, annotations, idéogrammes (2.0.0, 21/11)
                 await ProbeLot23(shell);     // événements à plusieurs éléments, lieu et tags ; bibliothèque en liste ; natures de champ ; forces du graphe ; fiches en données ; voix haute (2.0.0, 21/11)
                 // ================================================== 1.1.0 : la passe des dialogues (29/10)

@@ -32,6 +32,9 @@ namespace Marabook.App
         private readonly SpinnerField _goal;
         private bool _accepted;
 
+        /// <summary>Sonde : le dialogue, sans attendre de réponse.</summary>
+        internal static SprintDialog NewForProbe(Window owner) { return new SprintDialog(owner); }
+
         private SprintDialog(Window owner)
         {
             Title = "Lancer un sprint";

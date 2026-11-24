@@ -49,6 +49,8 @@ namespace Marabook.App
             Styles.Add(new SimpleTheme());
             Theme.OverrideResources(Resources);
             Styles.Add(Theme.Build());
+            ModalChrome.Install();
+            PillPearl.Install(); // la perle des pilules (skins « Museum », 24/11) // l'habit des fenêtres de dialogue : cadre arrondi, barre de titre, voile (24/11)
             Skin.Install(this, Styles.Count - 1); // le fond et l'habillage du skin (21/11)
             SmoothScroll.Install(); // le défilement fluide à la molette, partout (0.50.0)
         }
@@ -59,7 +61,9 @@ namespace Marabook.App
             Chrome.Toggle(dark);
             if (Current != null)
                 Current.RequestedThemeVariant = dark ? ThemeVariant.Dark : ThemeVariant.Light;
+            Accessibility.Apply(); // le zoom de l'interface, s'il est demandé (22/11) — avant les styles, qui en dépendent
             Skin.Apply(); // le fond, les styles et l'habillage du skin suivent (21/11)
+            Accessibility.ApplyStyles(); // …puis ceux de l'accessibilité, s'ils ont changé (22/11)
         }
 
         /// <summary>La fenêtre principale, propriétaire des dialogues (null

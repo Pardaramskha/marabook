@@ -21,7 +21,8 @@ using Marabook.Settings;
 namespace Marabook.App
 {
     /// <summary>LES SKINS de l'application (2.0.0, 21/11/2026, Rémi) — Marabook
-    /// modern, Marabook classic, Gradient Garden, Eden Scriptis, Cyberpunk 2026.
+    /// modern, Marabook classic, Gradient Garden, Eden Scriptis, Cyberpunk 2026 ;
+    /// et, depuis le 24/11, la série PREMIUM « Museum » (Skin.Museum.cs).
     /// Un skin, c'est quatre choses, toutes posées ici :
     ///  1. la PALETTE : Chrome.Toggle bâtit celle du thème clair ou sombre, puis
     ///     TunePalette la retouche (les pinceaux restent ceux de Chrome, mutables
@@ -43,7 +44,7 @@ namespace Marabook.App
     /// Un skin ne touche jamais aux pages composées (noir sur blanc), ni à un
     /// export de texte : seuls l'Encyclopédie en HTML et le « PDF
     /// Encyclopédique » le suivent (Model.Skins).</summary>
-    internal static class Skin
+    internal static partial class Skin // la série « Museum » : Skin.Museum.cs (24/11)
     {
         public const string GroundKey = "MbGround", BarKey = "MbBar", BackdropKey = "MbBackdrop";
 
@@ -107,6 +108,7 @@ namespace Marabook.App
                     Surfaces(Rgb(0xDCD9EC), Rgb(0xE6E4F2), Rgb(0xF0EEF9), Rgb(0xF6F5FC), Rgb(0xFFFFFF), Rgb(0xFFFFFF),
                         Chrome.Tint(hue, 0.60, 0.78), Chrome.Tint(hue, 0.70, 0.62), Rgb(0x16122B), Rgb(0x5A5578), Rgb(0x8C88A8));
             }
+            else if (Skins.IsMuseum(id)) TuneMuseum(id, dark, hue);
             // Le papier des fiches : blanc et encre sombre si l'auteur le garde blanc au sombre ;
             // sinon celui du skin (le fond des champs, un cran plus clair que les panneaux).
             if (whitePaper)
@@ -196,6 +198,7 @@ namespace Marabook.App
             var dark = Chrome.Dark;
             var hue = Chrome.HueOf(Chrome.ParseAccent() ?? Color.Parse(Chrome.DefaultAccent));
             var hue2 = Chrome.HueOf(Second);
+            if (Skins.IsMuseum(id)) return MuseumBackdrop(dark);
             if (id == Skins.Gradient)
                 return Linear(dark ? Chrome.Tint(hue, 0.55, 0.11) : Chrome.Tint(hue, 0.80, 0.91), dark ? Chrome.Tint(hue2, 0.55, 0.18) : Chrome.Tint(hue2, 0.80, 0.88), true);
             if (id == Skins.Eden)
@@ -222,6 +225,7 @@ namespace Marabook.App
             var id = Current;
             var dark = Chrome.Dark;
             var bar = Chrome.BarBg.Color;
+            if (Skins.IsMuseum(id)) return MuseumVeil(bar);
             if (id == Skins.Gradient) return new SolidColorBrush(dark ? Color.FromArgb(0x70, 0x08, 0x08, 0x10) : Color.FromArgb(0x8C, 0xFF, 0xFF, 0xFF));
             if (id == Skins.Eden) return new SolidColorBrush(Color.FromArgb(dark ? (byte)0x96 : (byte)0x8A, bar.R, bar.G, bar.B));
             return new SolidColorBrush(Color.FromArgb(0xB4, bar.R, bar.G, bar.B));
@@ -270,6 +274,8 @@ namespace Marabook.App
             app.Resources[BackdropKey] = backdrop ?? Chrome.WindowBg;
             app.Resources[GroundKey] = backdrop == null ? (IBrush)Chrome.WindowBg : Brushes.Transparent;
             app.Resources[BarKey] = backdrop == null ? (IBrush)Chrome.BarBg : BarVeil();
+            // Les fenêtres de dialogue : leurs coins, et leur verre sous un skin « Museum » (24/11).
+            ModalChrome.Publish(app, Round(12), Museum ? MuseumDialogGlass : 1.0, Museum ? Skins.MuseumBlurFor(Current, AppSettings.SkinBlur) : 0, !Museum ? 0 : Skins.MuseumPill(Current) ? 2 : 1);
         }
 
         // ================================================================ 3. la forme
@@ -278,11 +284,34 @@ namespace Marabook.App
         /// en néon et en vieux livre, plus rond en dégradé.</summary>
         public static double Round(double radius)
         {
+            if (radius <= 0) return radius;
+            return SkinRound(radius) * CornerScale;
+        }
+
+        /// <summary>« ARRONDI DES ANGLES » (Préférences › Personnalisation, 24/11/2026, Rémi) : chaque
+        /// surface garde SON rayon (celui du dessin, retouché par le skin) — et tous sont multipliés
+        /// par cette valeur. 1 : le dessin d'origine ; 0 : plus aucun arrondi ; 2 : le double.
+        /// Les ronds (pastilles, points d'état) restent ronds (Dress les reconnaît).</summary>
+        public static double CornerScale
+        {
+            get
+            {
+                var scale = AppSettings.CornerScale;
+                return double.IsNaN(scale) ? 1 : Math.Max(0, Math.Min(2, scale));
+            }
+        }
+
+        /// <summary>Vrai quand RIEN n'est à habiller : « modern », à l'arrondi d'origine.</summary>
+        private static bool Bare { get { return Plain && Math.Abs(CornerScale - 1) < 0.001; } }
+
+        private static double SkinRound(double radius)
+        {
             var id = Current;
-            if (id == Skins.Modern || radius <= 0) return radius;
+            if (id == Skins.Modern) return radius;
             if (id == Skins.Classic) return 0;
             if (id == Skins.Cyberpunk) return Math.Min(radius, 2);
             if (id == Skins.Eden) return Math.Min(radius, 3);
+            if (Skins.IsMuseum(id)) return MuseumRound(id, radius);
             return Math.Min(radius * 1.6, 18);
         }
 
@@ -297,6 +326,7 @@ namespace Marabook.App
                 if (id == Skins.Classic) return new FontFamily("Tahoma, Verdana, Geneva, DejaVu Sans");
                 if (id == Skins.Eden) return new FontFamily("Palatino Linotype, Book Antiqua, Palatino, Georgia, DejaVu Serif");
                 if (id == Skins.Cyberpunk) return new FontFamily("Bahnschrift, DIN Alternate, Segoe UI, Helvetica Neue, DejaVu Sans");
+                if (Skins.IsMuseum(id)) return MuseumUiFont(id);
                 return null;
             }
         }
@@ -464,6 +494,7 @@ namespace Marabook.App
                 styles.Add(Rule(x => x.OfType<ListBoxItem>().Class(":selected"), new Setter(TemplatedControl.ForegroundProperty, new SolidColorBrush(Chrome.Tint(Chrome.HueOf(second), 1.0, dark ? 0.72 : 0.40)))));
                 styles.Add(Rule(x => x.OfType<MenuItem>().Class(":selected").Template().OfType<Border>().Name("root"), new Setter(Border.BoxShadowProperty, glowSecond)));
             }
+            else if (Skins.IsMuseum(id)) AddMuseumStyles(styles);
         }
 
         // ================================================================ 4. l'habillage
@@ -476,8 +507,13 @@ namespace Marabook.App
             AvaloniaProperty.RegisterAttached<Border, Border, object>("SkinOriginalShadow");
         private static readonly object NoBrush = new object();
 
-        private static bool _installed;
+        private static bool _installed, _bare = true;
         private static string _signature;
+        private static readonly AttachedProperty<bool> KeepCornersProperty =
+            AvaloniaProperty.RegisterAttached<Border, Border, bool>("SkinKeepCorners");
+
+        /// <summary>Ce cadre règle ses coins lui-même (il suit un autre cadre) : l'habillage n'y touche pas.</summary>
+        public static void KeepCorners(Border border) { if (border != null) border.SetValue(KeepCornersProperty, true); }
         private static int _themeIndex = -1;
 
         /// <summary>Au démarrage, après le thème : les ressources de fond, et les deux
@@ -487,9 +523,10 @@ namespace Marabook.App
             _themeIndex = themeIndex;
             PublishResources();
             _signature = Signature();
+            _bare = Bare;
             if (_installed) return;
             _installed = true;
-            Control.LoadedEvent.AddClassHandler<Border>(delegate(Border border, RoutedEventArgs e) { if (!Plain) Dress(border); });
+            Control.LoadedEvent.AddClassHandler<Border>(delegate(Border border, RoutedEventArgs e) { if (!Bare) Dress(border); });
             Window.WindowOpenedEvent.AddClassHandler<Window>(delegate(Window window, RoutedEventArgs e)
             {
                 if (Plain) return;
@@ -502,7 +539,8 @@ namespace Marabook.App
 
         private static string Signature()
         {
-            return Current + "|" + (Chrome.Dark ? "1" : "0") + "|" + (AppSettings.AccentColor ?? "") + "|" + (AppSettings.SkinAccent2 ?? "") + "|" + (AppSettings.WhitePaperInDark ? "1" : "0");
+            return Current + "|" + (Chrome.Dark ? "1" : "0") + "|" + (AppSettings.AccentColor ?? "") + "|" + (AppSettings.SkinAccent2 ?? "") + "|" + (AppSettings.WhitePaperInDark ? "1" : "0")
+                + "|" + (AppSettings.SkinBackground ?? "") + "|" + AppSettings.SkinGlass + "|" + AppSettings.SkinBlur + "|" + CornerScale.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         /// <summary>Après un changement d'apparence (Chrome.Toggle est déjà passé) :
@@ -518,8 +556,9 @@ namespace Marabook.App
             _signature = signature;
             PublishResources();
             // « modern » d'un bout à l'autre : les pinceaux mutables suffisent, comme avant.
-            var wasPlain = was != null && was.StartsWith(Skins.Modern + "|", StringComparison.Ordinal);
-            if (Plain && wasPlain) return;
+            var wasBare = _bare;
+            _bare = Bare;
+            if (_bare && wasBare) return;
             if (_themeIndex >= 0 && _themeIndex < app.Styles.Count) app.Styles[_themeIndex] = Theme.Build();
             var desktop = app.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
             if (desktop == null) return;
@@ -534,14 +573,23 @@ namespace Marabook.App
             }
         }
 
+        /// <summary>Rebâtit les styles du thème tels qu'ils doivent être maintenant (22/11 : un réglage
+        /// d'accessibilité — police, focus — a changé sans que le skin bouge).</summary>
+        internal static void RebuildTheme()
+        {
+            var app = Application.Current;
+            if (app == null || _themeIndex < 0 || _themeIndex >= app.Styles.Count) return;
+            app.Styles[_themeIndex] = Theme.Build();
+        }
+
         /// <summary>Les coins d'un cadre fabriqué à la main suivent le skin. Un rond
         /// (pastille, point d'état) reste rond ; un cadre de gabarit suit son contrôle.</summary>
         private static void Dress(Border border)
         {
-            if (border.TemplatedParent != null) return;
+            if (border.TemplatedParent != null || border.GetValue(KeepCornersProperty)) return;
             var stored = border.GetValue(OriginalCornersProperty);
             var shadow = border.GetValue(OriginalShadowProperty);
-            if (Plain)
+            if (Bare)
             {
                 if (stored is CornerRadius) { border.CornerRadius = (CornerRadius)stored; border.ClearValue(OriginalCornersProperty); }
                 if (shadow is BoxShadows) { border.BoxShadow = (BoxShadows)shadow; border.ClearValue(OriginalShadowProperty); }
@@ -618,7 +666,7 @@ namespace Marabook.App
         public static Print.PdfSkin PdfSkin()
         {
             if (Plain) return null;
-            var skin = Skins.PdfSkinFor(Current, AppSettings.AccentColor ?? Chrome.DefaultAccent, AppSettings.SkinAccent2);
+            var skin = Skins.PdfSkinFor(Current, Skins.AccentFor(Current, AppSettings.AccentColor), AppSettings.SkinAccent2);
             if (skin != null && skin.Texture)
             {
                 try

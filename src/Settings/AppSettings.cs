@@ -206,6 +206,14 @@ namespace Marabook.Settings
         public static string Skin;
         /// <summary>La seconde couleur de « Gradient Garden » : "#RRGGBB", null = automatique.</summary>
         public static string SkinAccent2;
+        /// <summary>Les options des skins « Museum » (24/11) : la couleur de fond ("#RRGGBB", null =
+        /// celle du skin) et l'effet verre (0 à 100, -1 = celui du skin).</summary>
+        public static string SkinBackground;
+        public static int SkinGlass = -1;
+        /// <summary>Le flou derrière le verre des skins « Museum » (24/11) : 0 à 24 px, -1 = celui du skin.</summary>
+        public static int SkinBlur = -1;
+        /// <summary>« Arrondi des angles » (24/11) : ce par quoi le rayon de chaque coin est multiplié — 0 (angles droits) à 2, 1 = le dessin d'origine.</summary>
+        public static double CornerScale = 1.0;
         // Les styles globaux (22/09) : la feuille de Préférences › Styles
         // globaux (séparateur de scène compris) et son empreinte — null tant
         // qu'aucun projet ne l'a semée (Settings.GlobalStyles).
@@ -314,6 +322,31 @@ namespace Marabook.Settings
         public static bool SoundsEnabled = true; // les trois sons (succès, enregistrement, rapport d'erreur) — 1.1.0, 31/10
         /// <summary>« Augmenter le contraste » (Préférences › Accessibilité, 22/11) : encres, filets et accent renforcés.</summary>
         public static bool HighContrast;
+        // Les autres réglages d'accessibilité (22/11, Rémi) — TOUS éteints d'office.
+        /// <summary>Le zoom de toute l'interface : 1 (d'office) à 2.</summary>
+        public static double UiZoom = 1.0;
+        public const double UiZoomMin = 1.0, UiZoomMax = 2.0;
+        /// <summary>Un cadre épais autour de ce qui a le clavier, quand on navigue au clavier.</summary>
+        public static bool FocusVisible;
+        /// <summary>Le texte de l'éditeur dit à un lecteur d'écran (annonces au fil du curseur).</summary>
+        public static bool ScreenReader;
+        /// <summary>Vert, orange et rouge « de sens » remplacés par des teintes que les daltoniens distinguent, doublées d'un signe.</summary>
+        public static bool ColorBlindSafe;
+        /// <summary>La police de l'interface, parmi celles du système ; null = celle de Marabook (ou du skin).</summary>
+        public static string UiFont;
+        /// <summary>Le curseur de l'éditeur, plus épais.</summary>
+        public static bool ThickCaret;
+        /// <summary>Le curseur de l'éditeur ne clignote pas.</summary>
+        public static bool SteadyCaret;
+        /// <summary>Les liens du texte (fiches, dates) soulignés à l'écran, en plus de leur couleur.</summary>
+        public static bool UnderlineLinks;
+
+        public static double ClampZoom(double zoom)
+        {
+            if (double.IsNaN(zoom) || zoom < UiZoomMin) return UiZoomMin;
+            if (zoom > UiZoomMax) return UiZoomMax;
+            return Math.Round(zoom * 20) / 20; // par pas de 5 %
+        }
         /// <summary>Les « Liens utiles » ajoutés par l'auteur dans WGYC (Atelier, 22/11) : { titre, adresse }.</summary>
         public static List<string[]> UsefulLinks = new List<string[]>();
         // Les derniers caractères spéciaux insérés (tiroir du ruban, 0.50.0).
@@ -699,6 +732,14 @@ namespace Marabook.Settings
                 if (Skin != null && Model.Skins.Normalize(Skin) == Model.Skins.Modern) Skin = null;
                 SkinAccent2 = Json.AsString(Json.Field(root, "skinAccent2"));
                 if (!Model.Skins.IsHex(SkinAccent2)) SkinAccent2 = null;
+                SkinBackground = Json.AsString(Json.Field(root, "skinBackground"));
+                if (!Model.Skins.IsHex(SkinBackground)) SkinBackground = null;
+                SkinGlass = Json.AsInt(Json.Field(root, "skinGlass"), -1);
+                if (SkinGlass < 0 || SkinGlass > 100) SkinGlass = -1;
+                SkinBlur = Json.AsInt(Json.Field(root, "skinBlur"), -1);
+                if (SkinBlur < 0 || SkinBlur > 24) SkinBlur = -1;
+                CornerScale = Json.AsDouble(Json.Field(root, "cornerScale"), 1.0);
+                if (double.IsNaN(CornerScale) || CornerScale < 0 || CornerScale > 2) CornerScale = 1.0;
                 var globalStyles = Json.Field(root, "globalStyles");
                 GlobalStyles = globalStyles != null ? Persistence.PlotFile.ReadStylesNode(globalStyles) : null;
                 if (GlobalStyles != null) GlobalStyles.EnsureFootnoteStyle(); // réglages d'avant la 0.50.0
@@ -730,6 +771,15 @@ namespace Marabook.Settings
                     }
                 SoundsEnabled = Json.AsBool(Json.Field(root, "sounds"), true);
                 HighContrast = Json.AsBool(Json.Field(root, "highContrast"), false);
+                UiZoom = ClampZoom(Json.AsDouble(Json.Field(root, "uiZoom"), 1.0));
+                FocusVisible = Json.AsBool(Json.Field(root, "focusVisible"), false);
+                ScreenReader = Json.AsBool(Json.Field(root, "screenReader"), false);
+                ColorBlindSafe = Json.AsBool(Json.Field(root, "colorBlindSafe"), false);
+                UiFont = Json.AsString(Json.Field(root, "uiFont"));
+                if (string.IsNullOrWhiteSpace(UiFont)) UiFont = null;
+                ThickCaret = Json.AsBool(Json.Field(root, "thickCaret"), false);
+                SteadyCaret = Json.AsBool(Json.Field(root, "steadyCaret"), false);
+                UnderlineLinks = Json.AsBool(Json.Field(root, "underlineLinks"), false);
                 Model.ColorPalette.FromJson(Json.Field(root, "palette"), Json.Field(root, "paletteDismissed"));
                 UsefulLinks = new List<string[]>();
                 var usefulLinks = Json.AsList(Json.Field(root, "usefulLinks"));
@@ -917,6 +967,10 @@ namespace Marabook.Settings
                 if (AccentColor != null) root["accentColor"] = AccentColor;
                 if (Skin != null) root["skin"] = Skin;
                 if (SkinAccent2 != null) root["skinAccent2"] = SkinAccent2;
+                if (SkinBackground != null) root["skinBackground"] = SkinBackground;
+                if (SkinGlass >= 0) root["skinGlass"] = SkinGlass;
+                if (SkinBlur >= 0) root["skinBlur"] = SkinBlur;
+                if (Math.Abs(CornerScale - 1.0) > 0.001) root["cornerScale"] = CornerScale;
                 if (GlobalStyles != null) root["globalStyles"] = Persistence.PlotFile.BuildStyles(GlobalStyles);
                 if (GlobalStylesStamp.Length > 0) root["globalStylesStamp"] = GlobalStylesStamp;
                 if (Profile != null) root["profile"] = Profile;
@@ -945,6 +999,14 @@ namespace Marabook.Settings
                 }
                 root["sounds"] = SoundsEnabled;
                 if (HighContrast) root["highContrast"] = true;
+                if (UiZoom > 1.001) root["uiZoom"] = UiZoom;
+                if (FocusVisible) root["focusVisible"] = true;
+                if (ScreenReader) root["screenReader"] = true;
+                if (ColorBlindSafe) root["colorBlindSafe"] = true;
+                if (UiFont != null) root["uiFont"] = UiFont;
+                if (ThickCaret) root["thickCaret"] = true;
+                if (SteadyCaret) root["steadyCaret"] = true;
+                if (UnderlineLinks) root["underlineLinks"] = true;
                 if (Model.ColorPalette.Custom.Count > 0) root["palette"] = Model.ColorPalette.ToJson();
                 if (Model.ColorPalette.Dismissed.Count > 0) root["paletteDismissed"] = new List<object>(new List<string>(Model.ColorPalette.Dismissed).ToArray());
                 if (UsefulLinks.Count > 0)

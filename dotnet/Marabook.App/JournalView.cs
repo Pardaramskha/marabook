@@ -424,6 +424,27 @@ namespace Marabook.App
         private StackPanel _achievementsPanel;
         private TextBlock _achievementsCount;
 
+        /// <summary>Série « Museum » (24/11) : un succès OBTENU est posé sur une plaque de métal
+        /// (Skin.Plaque). Sous un autre skin, la ligne est rendue telle quelle.</summary>
+        private static Control Earned(DockPanel row, bool earned)
+        {
+            var plaque = earned ? Skin.Plaque() : null;
+            if (plaque == null) return row;
+            var margin = row.Margin;
+            row.Margin = new Thickness(0);
+            return new Border
+            {
+                Background = plaque,
+                BorderBrush = Chrome.BorderStrong,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(8, 6, 10, 6),
+                Margin = margin,
+                Child = row,
+                Tag = "plaque"
+            };
+        }
+
         /// <summary>Redessine la liste depuis les réglages globaux : grisés
         /// tant que verrouillés, en couleurs (avec la date) une fois obtenus.</summary>
         public void RefreshAchievements()
@@ -467,7 +488,7 @@ namespace Marabook.App
                         Margin = new Thickness(0, 2, 0, 0)
                     });
                 row.Children.Add(text);
-                _achievementsPanel.Children.Add(row);
+                _achievementsPanel.Children.Add(Earned(row, earned));
             }
             // Les SUCCÈS SECRETS (31/10, Rémi) : sous les autres, le nom se voit,
             // la description reste cachée tant qu'ils ne sont pas obtenus ; la
@@ -511,7 +532,7 @@ namespace Marabook.App
                         var handler = SecretAchievementClicked;
                         if (handler != null) handler(idRef);
                     };
-                    _achievementsPanel.Children.Add(row);
+                    _achievementsPanel.Children.Add(Earned(row, earned));
                 }
             }
         }

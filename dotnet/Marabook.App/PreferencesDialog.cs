@@ -609,7 +609,7 @@ namespace Marabook.App
             _skinCards = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left, Tag = "skins" };
             panel.Children.Add(_skinCards);
             _secondRow = new StackPanel { Margin = new Thickness(0, 10, 0, 0), Tag = "skin-second" };
-            panel.Children.Add(_secondRow);
+            _museumRow = new StackPanel { Margin = new Thickness(0, 10, 0, 0), Tag = "skin-museum" }; // les options de la série « Museum » (24/11)
             RebuildSkins();
 
             panel.Children.Add(Caption("Couleur d'accent", 18));
@@ -618,7 +618,7 @@ namespace Marabook.App
             panel.Children.Add(_swatches);
 
             var custom = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
-            var hexBox = new TextBox { Width = 90, Text = AppSettings.AccentColor ?? Chrome.DefaultAccent };
+            var hexBox = _accentHex = new TextBox { Width = 90, Text = Skins.AccentFor(Skin.Current, AppSettings.AccentColor) };
             ToolTip.SetTip(hexBox, "Une couleur personnalisée : #RRGGBB, puis Entrée");
             hexBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -630,11 +630,14 @@ namespace Marabook.App
                 e.Handled = true;
             };
             custom.Children.Add(hexBox);
-            var reset = Buttons.Text("Réinitialiser", null, Buttons.Bar, Buttons.Look.Outline);
-            reset.Margin = new Thickness(8, 0, 0, 0);
-            reset.Click += delegate { SetAccent(null); hexBox.Text = Chrome.DefaultAccent; };
-            custom.Children.Add(reset);
             panel.Children.Add(custom);
+
+            // 24/11 (Rémi) : l'accent juste sous les skins, PUIS les options propres au skin choisi
+            // (seconde couleur, options « Museum »), un seul bouton pour rendre toutes les couleurs,
+            // et l'arrondi des angles.
+            panel.Children.Add(_secondRow);
+            panel.Children.Add(_museumRow);
+            BuildColorsResetAndCorners(panel);
 
             panel = Group(page, "motion");
             panel.Children.Add(Caption("Défilement"));
@@ -740,6 +743,7 @@ namespace Marabook.App
                 if (AppSettings.DarkTheme == (_darkCheck.IsChecked == true)) return;
                 AppSettings.DarkTheme = _darkCheck.IsChecked == true;
                 RaiseAppearanceChanged();
+                if (_skinCards != null && Skin.Museum) RebuildSkins(); // les fonds proposés à un skin « Museum » suivent le mode
             };
             panel.Children.Add(_darkCheck);
             _whitePaper = new CheckBox { Content = "Garder le papier blanc malgré le mode sombre", IsChecked = AppSettings.WhitePaperInDark, Margin = new Thickness(0, 6, 0, 0) };
@@ -762,8 +766,8 @@ namespace Marabook.App
         private WrapPanel _skinCards;
         private StackPanel _secondRow;
 
-        /// <summary>Les cinq cartes de skin (celle en cours cerclée d'accent) et, pour
-        /// les skins à deux couleurs, le choix de la seconde.</summary>
+        /// <summary>Les cartes de skin (celle en cours cerclée d'accent ; les PREMIUM étiquetées), les
+        /// options d'un skin « Museum » et, pour les skins à deux couleurs, le choix de la seconde.</summary>
         private void RebuildSkins()
         {
             _skinCards.Children.Clear();
@@ -774,7 +778,23 @@ namespace Marabook.App
                 var selected = id == current;
                 var column = new StackPanel();
                 column.Children.Add(SkinPreview(id));
-                column.Children.Add(new TextBlock { Text = Skins.Label(id), FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink, Margin = new Thickness(0, 7, 0, 1) });
+                var name = new TextBlock { Text = Skins.Label(id), FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center };
+                if (Skins.Premium(id))
+                {
+                    // Un skin PREMIUM (la série « Museum », 24/11) : une étiquette à côté de son nom.
+                    var title = new DockPanel { Margin = new Thickness(0, 7, 0, 1) };
+                    var premium = new Border
+                    {
+                        Background = Chrome.AccentTint, BorderBrush = Chrome.AccentSoft, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
+                        Padding = new Thickness(5, 0, 5, 1), VerticalAlignment = VerticalAlignment.Center, Tag = "skin-premium",
+                        Child = new TextBlock { Text = "PREMIUM", FontSize = 9, FontWeight = FontWeight.SemiBold, Foreground = Chrome.AccentStrong }
+                    };
+                    DockPanel.SetDock(premium, Dock.Right);
+                    title.Children.Add(premium);
+                    title.Children.Add(name);
+                    column.Children.Add(title);
+                }
+                else { name.Margin = new Thickness(0, 7, 0, 1); column.Children.Add(name); }
                 column.Children.Add(new TextBlock { Text = Skins.Description(id), Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
                 var card = new Border
                 {
@@ -792,6 +812,8 @@ namespace Marabook.App
                 card.PointerReleased += delegate { SetSkin(skinId); };
                 _skinCards.Children.Add(card);
             }
+
+            RebuildMuseumOptions(current);
 
             _secondRow.Children.Clear();
             _secondRow.IsVisible = current == Skins.Gradient || current == Skins.Cyberpunk;
@@ -897,6 +919,18 @@ namespace Marabook.App
                 button = new SolidColorBrush(Chrome.Tint(Chrome.HueOf(accent), 1.0, 0.64));
                 line = new SolidColorBrush(Chrome.Tint(Chrome.HueOf(second), 1.0, 0.60));
                 radius = 1;
+            }
+            else if (Skins.IsMuseum(id))
+            {
+                // Le visage d'origine du skin (sombre pour deux d'entre eux), son métal en bouton et en filets.
+                var night = Skins.DarkByDefault(id);
+                var back = Chrome.ToColor(Ink.Parse(Skins.MuseumBackground(id, night)));
+                var metal = Chrome.ToColor(Ink.Parse(Skins.MuseumAccent(id)));
+                ground = Skin.Linear(Chrome.Blend(back, Colors.Black, night ? 0.22 : 0.08), back, true);
+                paper = new SolidColorBrush(Chrome.Blend(back, Colors.White, night ? 0.09 : 0.55));
+                button = new SolidColorBrush(metal);
+                line = new SolidColorBrush(Chrome.Blend(metal, back, 0.35));
+                radius = id == Skins.MuseumAscent ? 0 : id == Skins.MuseumOath ? 2 : 5;
             }
             else
             {

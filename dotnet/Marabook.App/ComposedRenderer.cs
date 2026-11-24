@@ -618,7 +618,9 @@ namespace Marabook.App
         private static void DrawDecorations(DrawingContext dc, ComposedPiece piece,
             double left, double baseline)
         {
-            if (!piece.Underline && !piece.Strike) return;
+            // Accessibilité (22/11) : les liens du texte (fiches, dates) soulignés À L'ÉCRAN, en plus de leur couleur.
+            var underline = piece.Underline || (Settings.AppSettings.UnderlineLinks && (piece.InkRole == Print.InkRole.Accent || piece.InkRole == Print.InkRole.Time));
+            if (!underline && !piece.Strike) return;
             var w = piece.VisualWidth();
             if (w < 0.1) return;
             var size = piece.FontSizePx > 0 ? piece.FontSizePx : 16;
@@ -626,7 +628,7 @@ namespace Marabook.App
             var ink = Geo.InkBrush(piece);
             var x = left + piece.Origin.X;
             var y = baseline + piece.Origin.Y;
-            if (piece.Underline)
+            if (underline)
             {
                 var offset = face != null ? -face.UnderlinePosition * size : size * 0.09;
                 var thickness = face != null

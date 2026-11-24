@@ -89,6 +89,20 @@ namespace Marabook.App
             // forme transparente n'est posée, sans transition, qu'à l'entrée
             // du pointeur ; de là l'animateur interpole vers l'ombre levée.
             shadowHost.Transitions = transitions;
+            // Les coins de l'hôte SUIVENT ceux de la carte (24/11, Rémi : sous « Gardien du Feu », le halo
+            // de survol d'un livre à couverture gardait des coins de 4 px dans une tuile arrondie à 12).
+            // Un skin ou le réglage « Arrondi des angles » retouche la carte après coup : l'hôte est
+            // recalculé à chaque changement, et l'habillage des skins n'y touche pas lui-même.
+            Skin.KeepCorners(shadowHost);
+            Action follow = delegate
+            {
+                var radius = Math.Max(0, card.CornerRadius.TopLeft - card.BorderThickness.Left);
+                if (Math.Abs(shadowHost.CornerRadius.TopLeft - radius) > 0.01) shadowHost.CornerRadius = new CornerRadius(radius);
+            };
+            card.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property == Border.CornerRadiusProperty || e.Property == Border.BorderThicknessProperty) follow();
+            };
             host.Children.Add(shadowHost);
             if (content != null) host.Children.Add(content);
             card.Child = host;

@@ -89,7 +89,7 @@ namespace Marabook.App
                 };
                 fade.GradientStops.Add(new GradientStop(Color.FromArgb(0, accent.R, accent.G, accent.B), 0.5));
                 fade.GradientStops.Add(new GradientStop(accent, 1.0));
-                titleBar.Background = fade;
+                titleBar.Background = Skin.TileFade(accent) ?? fade; // série « Museum » : une tranche en S (24/11)
             }
             var titleRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             titleRow.Children.Add(ItemIcons.Render(item, 11, Chrome.SoftText));

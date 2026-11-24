@@ -245,6 +245,7 @@ namespace Marabook.App
                 IsVisible = false
             };
             shell.Children.Add(_welcomeVeil);
+            if (_shellGrid != null) _shellGrid.Children.Add(ScreenReader.Region()); // la zone d'annonces du lecteur d'écran (22/11)
             Content = shell;
             // SmoothScroll (WPF) retiré : le ScrollViewer d'Avalonia défile déjà en douceur.
             // Les travaux de fond qui font tourner l'anneau (0.50.0) : le
@@ -384,7 +385,8 @@ namespace Marabook.App
 
         private Control BuildMenuBar()
         {
-            var bar = new Border { [!Border.BackgroundProperty] = Skin.BarBinding };
+            // Un filet sous les menus (24/11, Rémi) : il les sépare du haut de l'application (recherche, onglets).
+            var bar = new Border { [!Border.BackgroundProperty] = Skin.BarBinding, BorderBrush = Chrome.TabGround, BorderThickness = new Thickness(0, 0, 0, 1), Tag = "menu-bar" };
             DockPanel.SetDock(bar, Dock.Top);
             var menu = new Menu { Background = Brushes.Transparent };
 
@@ -986,6 +988,9 @@ namespace Marabook.App
             _homeView.MenuProvider = delegate(BinderItem item) { return _binder.BuildContextMenu(item, true); };
             _homeView.RenameRequested += RenameProject;
             _homeView.Sprint = SprintStatusNow;
+            _homeView.SprintRequested += StartSprint;   // « Lancer un sprint » de l'Accueil (24/11)
+            _homeView.GoalRequested += ShowJournal;     // « Régler l'objectif » : il se règle au Journal
+            _homeView.SprintsEnabled = delegate { return Profiles.Enabled(Profiles.Sprints); };
             _homeView.WordsOf = WordsOfItem;
             _homeView.CharsOf = CharsOfItem;
             center.Children.Add(_homeView);
@@ -5749,7 +5754,7 @@ namespace Marabook.App
                     OffsetY = 2
                 }
             });
-            card.Children.Add(new Border
+            var frame = new Border
             {
                 Background = Chrome.RaisedBg,
                 BorderBrush = Chrome.Accent,
@@ -5757,7 +5762,23 @@ namespace Marabook.App
                 CornerRadius = new CornerRadius(10),
                 Padding = new Thickness(12, 10, 16, 10),
                 Child = row
-            });
+            };
+            card.Children.Add(frame);
+            // Série « Museum » (24/11) : le titre en garalde, un filet qui fait le tour du toast,
+            // et la plaque de métal sur un succès (le toast à écusson) — le cadre du dessous porte le fond.
+            if (Skin.Museum)
+            {
+                Skin.Title(text.Children[1] as TextBlock);
+                if (badge != null) frame.Background = Skin.Plaque();
+                card.Children.Add(new OrbitLine(frame));
+                // L'ombre en BoxShadow, pas en effet : sous un filet qui tourne, un effet était refloué à chaque image.
+                var under = card.Children[0] as Border;
+                if (under != null)
+                {
+                    under.Effect = null;
+                    under.BoxShadow = new BoxShadows(new BoxShadow { OffsetY = 2, Blur = 14, Color = Color.FromArgb(0x4D, 0, 0, 0) });
+                }
+            }
             var toast = new Border
             {
                 Margin = new Thickness(0, 8, 0, 0),
@@ -6359,6 +6380,14 @@ namespace Marabook.App
             if (themeHandler != null) themeHandler();
             if (_sheetView != null) _sheetView.OnThemeChanged(); // l'arbre généalogique fige ses teintes au dessin (1.1.1)
             CodeModuleHost.Instance.SetDarkTheme(AppSettings.DarkTheme); // Mental-O en DLC (26/10)
+            // Accessibilité (22/11) : le curseur épais ou fixe et les liens soulignés se lisent au dessin — les textes ouverts se redessinent.
+            foreach (var visual in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this))
+            {
+                var composed = visual as ComposedView;
+                if (composed == null) continue;
+                composed.RedrawPages();
+                composed.RefreshCaretNow();
+            }
         }
 
         private string _preferencesTab; // l'onglet à montrer d'abord (Aide › Catalogue de DLC…, 1/11)

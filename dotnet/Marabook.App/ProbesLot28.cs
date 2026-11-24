@@ -273,7 +273,7 @@ namespace Marabook.App
             await Settle();
             prefs.Tabs.SelectedIndex = 1;
             await Settle();
-            Check(prefs.SkinCardsForProbe == 5 && !prefs.SecondRowShownForProbe, "Préférences › Général propose cinq skins ; pas de seconde couleur pour « modern »");
+            Check(prefs.SkinCardsForProbe == 9 && !prefs.SecondRowShownForProbe, "Préférences propose neuf skins ; pas de seconde couleur pour « modern »");
             Border card = null;
             foreach (var border in prefs.GetVisualDescendants().OfType<Border>()) if ("skin:modern".Equals(border.Tag)) card = border;
             Check(card != null && Math.Abs(card.CornerRadius.TopLeft - 8) < 0.01, "une carte de skin a ses coins de 8 px sous « modern »");

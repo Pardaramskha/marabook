@@ -61,7 +61,7 @@ namespace Marabook.App
             Focusable = false;
             var host = new Grid();
             // Le filet du bas, SOUS les onglets : l'actif le recouvre de son fond.
-            host.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Bottom });
+            host.Children.Add(new Border { Height = 1, Background = Chrome.TabGround, VerticalAlignment = VerticalAlignment.Bottom }); // de métal sous un skin premium (24/11)
             _plus = Buttons.Icon("plus-bold", "", Buttons.Compact, Buttons.Look.Calm);
             _plus.Focusable = false;
             _plus.Click += delegate { var handler = NewRequested; if (handler != null) handler(); };
@@ -441,14 +441,15 @@ namespace Marabook.App
                         // L'actif (28/10, Rémi) : fond à la teinte d'accent,
                         // contour d'accent doux ; le fond descend d'un pixel
                         // sous la rangée et efface le filet du bas sous lui.
-                        context.DrawGeometry(Chrome.AccentTint, new Pen(Chrome.AccentSoft, 1), geometry);
-                        context.FillRectangle(Chrome.AccentTint, new Rect(r, h - 1, Math.Max(0, w - 2 * r), 1.5));
+                        var fill = Skin.TabFill() ?? Chrome.AccentTint; // skins premium : verre sombre, contour de métal (24/11)
+                        context.DrawGeometry(fill, new Pen(Skin.TabRim() ?? Chrome.TabEdge, 1), geometry);
+                        context.FillRectangle(Skin.TabFoot() ?? Chrome.AccentTint, new Rect(r, h - 1, Math.Max(0, w - 2 * r), 1.5));
                     }
                     else
                     {
                         // Un inactif garde un contour contrasté (28/10, Rémi :
                         // « sinon ils se fondent dans le fond ») ; il s'éclaire au survol.
-                        context.DrawGeometry(_hover ? (IBrush)Chrome.BarBgLight : Chrome.BarBg, new Pen(Chrome.BorderStrong, 1), geometry);
+                        context.DrawGeometry(_hover ? (IBrush)Chrome.BarBgLight : Chrome.BarBg, new Pen(Skin.Museum ? Chrome.TabGround : Chrome.BorderStrong, 1), geometry);
                     }
                 }
             }

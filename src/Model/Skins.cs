@@ -17,7 +17,110 @@ namespace Marabook.Model
     {
         public const string Modern = "modern", Classic = "classic", Gradient = "gradient", Eden = "eden", Cyberpunk = "cyberpunk";
 
-        public static readonly string[] Ids = { Modern, Classic, Gradient, Eden, Cyberpunk };
+        /// <summary>LA SÉRIE « MUSEUM » (2.0.0, 24/11/2026, Rémi) — trois skins PREMIUM d'une même
+        /// famille : verre fumé, filets de métal, titres à empattements. « Gardien du Feu »
+        /// (la nuit, bleu canard et cuivre), « Bois Blanc » (le jour, parchemin et vert-de-gris),
+        /// « Assermenté » (bordeaux et laiton). Chacun a trois options : la couleur d'accent
+        /// (celle de l'application ; sans choix de l'auteur, celle du skin), la couleur de fond
+        /// et l'effet verre.</summary>
+        public const string MuseumFire = "museum-feu", MuseumWood = "museum-bois", MuseumOath = "museum-serment";
+
+        /// <summary>« ASCENTION » (24/11/2026 au soir, Rémi — la « Citadelle » de l'Atelier, renommée) : le
+        /// quatrième skin de la famille. Bleu nuit, filets d'or en dégradé, survol bleu clair, angles
+        /// droits, titres en capitales ; pas de pilule de sélection (une barre d'accent à gauche).</summary>
+        public const string MuseumAscent = "museum-ascension";
+
+        public static readonly string[] Ids = { Modern, Classic, Gradient, Eden, Cyberpunk, MuseumFire, MuseumWood, MuseumOath, MuseumAscent };
+
+        /// <summary>Vrai pour un skin de la série « Museum ».</summary>
+        public static bool IsMuseum(string id)
+        {
+            id = Normalize(id);
+            return id == MuseumFire || id == MuseumWood || id == MuseumOath || id == MuseumAscent;
+        }
+
+        /// <summary>Vrai pour un skin PREMIUM (la série « Museum », pour l'heure).</summary>
+        public static bool Premium(string id) { return IsMuseum(id); }
+
+        /// <summary>L'accent d'un skin « Museum » tant que l'auteur n'en a pas choisi ; null pour les autres skins.</summary>
+        public static string MuseumAccent(string id)
+        {
+            switch (Normalize(id))
+            {
+                case MuseumFire: return "#E0915A";
+                case MuseumWood: return "#4F7D5B";
+                case MuseumOath: return "#C9A45C";
+                case MuseumAscent: return "#C89B3C";
+                default: return null;
+            }
+        }
+
+        /// <summary>L'accent effectif : celui choisi, sinon celui du skin (« Museum »), sinon l'indigo de Marabook.</summary>
+        public static string AccentFor(string id, string chosen)
+        {
+            if (IsHex(chosen)) return chosen.ToUpperInvariant();
+            return MuseumAccent(id) ?? "#5B67D8";
+        }
+
+        /// <summary>Le fond d'origine d'un skin « Museum », au sombre ou au clair ; null pour les autres skins.</summary>
+        public static string MuseumBackground(string id, bool dark)
+        {
+            switch (Normalize(id))
+            {
+                case MuseumFire: return dark ? "#0A1A21" : "#D4E6EF";
+                case MuseumWood: return dark ? "#19150B" : "#D9D2C2";
+                case MuseumOath: return dark ? "#1A080C" : "#EFD4D9";
+                case MuseumAscent: return dark ? "#010A13" : "#D4DDEF";
+                default: return null;
+            }
+        }
+
+        /// <summary>Le fond effectif d'un skin « Museum » : celui choisi, sinon celui du skin. Sa clarté
+        /// est ramenée dans la plage du mode (sombre 3 à 24 %, clair 78 à 97 %) : l'encre reste lisible
+        /// quoi qu'on choisisse.</summary>
+        public static string MuseumBackgroundFor(string id, bool dark, string chosen)
+        {
+            var hex = IsHex(chosen) ? chosen : MuseumBackground(id, dark) ?? (dark ? "#14161B" : "#E2E5EE");
+            double h, s, l;
+            ToHsl(hex, out h, out s, out l);
+            return FromHsl(h, s, Math.Max(dark ? 0.03 : 0.78, Math.Min(dark ? 0.24 : 0.97, l)));
+        }
+
+        /// <summary>L'effet verre d'origine d'un skin « Museum » (0 = barres opaques, 100 = très transparentes).
+        /// Le même pour toute la famille : 65 % (24/11 au soir, Rémi — 44, 31 et 36 ne se voyaient pas assez).</summary>
+        public static int MuseumGlass(string id) { return 65; }
+
+        /// <summary>Le flou d'origine derrière le verre d'un skin « Museum », en pixels : 15 pour toute
+        /// la famille (24/11 au soir, Rémi — 8 et 6 auparavant).</summary>
+        public static int MuseumBlur(string id) { return 15; }
+
+        /// <summary>Vrai pour un skin dont la ligne choisie ou survolée (Pile, menus, listes) est une
+        /// PILULE de verre à perle ; « Ascention » garde une barre d'accent à gauche.</summary>
+        public static bool MuseumPill(string id) { return IsMuseum(id) && Normalize(id) != MuseumAscent; }
+
+        /// <summary>Vrai pour un skin dont les TITRES sont en capitales espacées (« Ascention »).</summary>
+        public static bool MuseumCaps(string id) { return Normalize(id) == MuseumAscent; }
+
+        /// <summary>LA BARRE À JALONS d'un livre (24/11 au soir, d'après le menu « Musée » du jeu) : ce
+        /// qu'un livre a franchi quand la part de ses chapitres TERMINÉS atteint 25, 60 puis 95 %.
+        /// Part, nom court du jalon, mention une fois franchi.</summary>
+        public static readonly double[] BookMilestones = { 0.25, 0.60, 0.95 };
+        public static readonly string[] BookMilestoneNames = { "Premier jet", "Bêta", "Relu" };
+        public static readonly string[] BookMilestonePassed = { "Premier jet bouclé", "Bêta lancée", "Prêt pour le BAT" };
+
+        /// <summary>Le nombre de jalons franchis à cette part (0 à 1).</summary>
+        public static int MilestonesPassed(double ratio)
+        {
+            var count = 0;
+            foreach (var mark in BookMilestones) if (ratio + 1e-9 >= mark) count++;
+            return count;
+        }
+
+        /// <summary>Le flou effectif derrière le verre : celui choisi (0 à 24 px), sinon celui du skin.</summary>
+        public static int MuseumBlurFor(string id, int chosen) { return chosen >= 0 && chosen <= 24 ? chosen : MuseumBlur(id); }
+
+        /// <summary>L'effet verre effectif : celui choisi (0 à 100), sinon celui du skin.</summary>
+        public static int MuseumGlassFor(string id, int chosen) { return chosen >= 0 && chosen <= 100 ? chosen : MuseumGlass(id); }
 
         /// <summary>L'identifiant connu, ou « modern » (réglage absent, ou d'un Marabook plus récent).</summary>
         public static string Normalize(string id)
@@ -34,6 +137,10 @@ namespace Marabook.Model
                 case Gradient: return "Gradient Garden";
                 case Eden: return "Eden Scriptis";
                 case Cyberpunk: return "Cyberpunk 2026";
+                case MuseumFire: return "Gardien du Feu";
+                case MuseumWood: return "Bois Blanc";
+                case MuseumOath: return "Assermenté";
+                case MuseumAscent: return "Ascention";
                 default: return "Marabook modern";
             }
         }
@@ -46,12 +153,16 @@ namespace Marabook.Model
                 case Gradient: return "Des dégradés partout, entre votre couleur d'accent et une seconde couleur.";
                 case Eden: return "Le vieux livre : papier jauni, encre sépia, caractères à empattements.";
                 case Cyberpunk: return "Sombre par défaut, des néons partout.";
+                case MuseumFire: return "Museum — le musée la nuit : verre fumé bleu canard, filets cuivrés, titres à empattements.";
+                case MuseumWood: return "Museum — le musée le jour : parchemin clair, vert-de-gris, bois blond.";
+                case MuseumOath: return "Museum — le cabinet du conservateur : bordeaux profond, laiton, angles nets.";
+                case MuseumAscent: return "Museum — la citadelle : bleu nuit, filets d'or, angles droits, titres en capitales.";
                 default: return "Le look de Marabook.";
             }
         }
 
         /// <summary>Vrai pour un skin qui passe l'application au sombre quand on le choisit.</summary>
-        public static bool DarkByDefault(string id) { return Normalize(id) == Cyberpunk; }
+        public static bool DarkByDefault(string id) { id = Normalize(id); return id == Cyberpunk || id == MuseumFire || id == MuseumOath || id == MuseumAscent; }
 
         // ================================================================ couleurs
 
@@ -139,7 +250,7 @@ namespace Marabook.Model
         public const string TextureFile = "papier.jpg";
 
         /// <summary>Vrai si l'Encyclopédie s'ouvre au sombre sous ce skin, quoi que dise l'option.</summary>
-        public static bool HtmlStartsDark(string id) { return Normalize(id) == Cyberpunk; }
+        public static bool HtmlStartsDark(string id) { return DarkByDefault(id); }
 
         /// <summary>Ce qu'un skin ajoute à la feuille de style de l'Encyclopédie —
         /// vide pour « modern » : le fichier est alors, au caractère près, celui
@@ -152,6 +263,7 @@ namespace Marabook.Model
             if (id == Modern) return "";
             accent = SafeHex(accent, "#5B67D8");
             accent2 = SecondFor(accent, accent2);
+            if (IsMuseum(id)) return MuseumCss(id, accent, customFonts);
             var sb = new StringBuilder();
             sb.Append("@media screen{\n");
             if (id == Classic)
@@ -217,6 +329,37 @@ namespace Marabook.Model
             return sb.ToString();
         }
 
+        /// <summary>La série « Museum » dans l'Encyclopédie : le fond et l'encre du skin (clair et
+        /// sombre), un filet de métal autour des encarts, des titres à empattements en petites
+        /// capitales espacées. L'accent est celui qu'on lui passe (celui de l'application).</summary>
+        private static string MuseumCss(string id, string accent, bool customFonts)
+        {
+            string light = MuseumBackground(id, false), dark = MuseumBackground(id, true);
+            string inkLight, softLight, inkDark, softDark, serif;
+            var radius = "12";
+            if (id == MuseumWood) { inkLight = "#2B2620"; softLight = "#5A5247"; inkDark = "#DEDAD5"; softDark = "#B7B0A6"; serif = "'EB Garamond',Garamond,Georgia,serif"; radius = "10"; }
+            else if (id == MuseumOath) { inkLight = "#1A130A"; softLight = "#46352A"; inkDark = "#F6EEE4"; softDark = "#D8C3B6"; serif = "'Libre Caslon Text','Book Antiqua',Georgia,serif"; radius = "6"; }
+            else if (id == MuseumAscent) { inkLight = "#2B2211"; softLight = "#726D61"; inkDark = "#F0E6D2"; softDark = "#A09B8C"; serif = "Cinzel,'Trajan Pro','Palatino Linotype',Georgia,serif"; radius = "0"; }
+            else { inkLight = "#020F1C"; softLight = "#1F2C34"; inkDark = "#FBFDFF"; softDark = "#C9D8E2"; serif = "'Cormorant Garamond',Garamond,Georgia,serif"; }
+            double h, s, l;
+            ToHsl(accent, out h, out s, out l);
+            var nl = ((char)10).ToString();
+            var sb = new StringBuilder();
+            sb.Append("@media screen{").Append(nl);
+            sb.Append(":root{--accent:").Append(FromHsl(h, Math.Min(s, 0.45), 0.42)).Append(";--bg:").Append(light).Append(";--paper:rgba(255,255,255,.62);--ink:").Append(inkLight).Append(";--soft:").Append(softLight)
+              .Append(";--line:").Append(FromHsl(h, 0.28, 0.62)).Append(";--tint:rgba(255,255,255,.45)");
+            if (!customFonts) sb.Append(";--heading:").Append(serif);
+            sb.Append("}").Append(nl).Append("[data-theme=dark]{--accent:").Append(FromHsl(h, Math.Min(s, 0.68), 0.62)).Append(";--bg:").Append(dark).Append(";--paper:rgba(255,255,255,.055);--ink:").Append(inkDark).Append(";--soft:").Append(softDark)
+              .Append(";--line:").Append(FromHsl(h, 0.33, 0.44)).Append(";--tint:rgba(255,255,255,.08)}").Append(nl);
+            sb.Append("h1{font-weight:500;letter-spacing:.02em}h2{font-variant:small-caps;letter-spacing:.08em;border-bottom:1px solid var(--line)}").Append(nl);
+            if (id == MuseumAscent) sb.Append("h1,h2{text-transform:uppercase;letter-spacing:.06em}*{border-radius:0!important}").Append(nl);
+            sb.Append(".category,.infobox,.letter,.maps-page .map,.apercu{border:1px solid var(--line);border-radius:").Append(radius).Append("px;box-shadow:inset 0 1px 0 rgba(255,255,255,.10)}").Append(nl);
+            sb.Append(".infobox{border-left:6px solid var(--accent)}").Append(nl);
+            sb.Append(".tag{background:transparent;border:1px solid var(--line);color:var(--accent);text-transform:uppercase;letter-spacing:.12em;font-size:.72rem}").Append(nl);
+            sb.Append("}").Append(nl);
+            return sb.ToString();
+        }
+
         // ================================================================ le PDF encyclopédique
 
         /// <summary>L'habillage du « PDF Encyclopédique » : la couleur du papier,
@@ -230,6 +373,10 @@ namespace Marabook.Model
             if (id == Classic) return new Print.PdfSkin { Paper = Ink.Parse("#F1EFE2"), Text = Ink.Parse("#000000"), Soft = Ink.Parse("#444444") };
             if (id == Gradient) return new Print.PdfSkin { Paper = Ink.Parse(Shade(accent, 0.80, 0.955)), Text = Ink.Parse(Shade(accent, 0.45, 0.16)), Soft = Ink.Parse(Shade(accent, 0.25, 0.40)), PaperEnd = Ink.Parse(Shade(SecondFor(accent, accent2), 0.80, 0.93)), Banded = true };
             if (id == Eden) return new Print.PdfSkin { Paper = Ink.Parse("#F1E4C4"), Text = Ink.Parse("#3B2A1A"), Soft = Ink.Parse("#6B5440"), Texture = true };
+            if (id == MuseumFire) return new Print.PdfSkin { Paper = Ink.Parse("#0E2530"), Text = Ink.Parse("#FBFDFF"), Soft = Ink.Parse("#C9D8E2"), Frame = Ink.Parse(Shade(accent, 0.45, 0.54)), HasFrame = true };
+            if (id == MuseumWood) return new Print.PdfSkin { Paper = Ink.Parse("#F3EEE3"), Text = Ink.Parse("#2B2620"), Soft = Ink.Parse("#5A5247") };
+            if (id == MuseumOath) return new Print.PdfSkin { Paper = Ink.Parse("#22090E"), Text = Ink.Parse("#F6EEE4"), Soft = Ink.Parse("#D8C3B6"), Frame = Ink.Parse(Shade(accent, 0.50, 0.57)), HasFrame = true };
+            if (id == MuseumAscent) return new Print.PdfSkin { Paper = Ink.Parse("#0A1428"), Text = Ink.Parse("#F0E6D2"), Soft = Ink.Parse("#A09B8C"), Frame = Ink.Parse(Shade(accent, 0.56, 0.51)), HasFrame = true };
             if (id == Cyberpunk) return new Print.PdfSkin { Paper = Ink.Parse("#0B0914"), Text = Ink.Parse("#ECE9FF"), Soft = Ink.Parse("#9A96B8"), Frame = Ink.Parse(Shade(accent, 1.0, 0.60)), HasFrame = true };
             return null;
         }

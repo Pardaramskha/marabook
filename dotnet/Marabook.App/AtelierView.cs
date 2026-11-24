@@ -521,7 +521,11 @@ namespace Marabook.App
             foreach (var line in lines)
             {
                 var row = new DockPanel { Margin = new Thickness(0, 5, 0, 0) };
-                var dot = new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 5, 9, 0), VerticalAlignment = VerticalAlignment.Top, Background = line[0] == "2" ? (IBrush)Chrome.Danger : line[0] == "1" ? Chrome.Warn : Chrome.Ok };
+                var tone = line[0] == "2" ? (IBrush)Chrome.Danger : line[0] == "1" ? Chrome.Warn : Chrome.Ok;
+                // Accessibilité (22/11) : pour qui confond les couleurs, un signe à la place du point.
+                Control dot = Marabook.Settings.AppSettings.ColorBlindSafe
+                    ? (Control)new TextBlock { Text = Chrome.Sign(line[0] == "2" ? 2 : line[0] == "1" ? 1 : 0), Foreground = tone, FontWeight = FontWeight.Bold, Width = 12, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Top, Tag = "report-sign" }
+                    : new Border { Width = 8, Height = 8, CornerRadius = new CornerRadius(4), Margin = new Thickness(0, 5, 9, 0), VerticalAlignment = VerticalAlignment.Top, Background = tone };
                 SetDock(dot, Dock.Left);
                 row.Children.Add(dot);
                 var text = new SelectableTextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Chrome.Ink, Tag = "atelier-report-line" };

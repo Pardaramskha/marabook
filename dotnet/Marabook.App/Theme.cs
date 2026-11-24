@@ -526,6 +526,8 @@ namespace Marabook.App
 
             // ---- le skin (21/11) : ses styles par-dessus ; rien pour « modern ».
             Skin.AddStyles(styles);
+            // ---- l'accessibilité (22/11) : en tout dernier ; rien tant que rien n'est coché.
+            Accessibility.AddStyles(styles);
             return styles;
         }
 

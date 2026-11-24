@@ -87,6 +87,19 @@ namespace Marabook.App
                 },
                 RenderTransform = new TranslateTransform(60, 0)
             };
+            // Série « Museum » (24/11) : le titre en garalde et un filet en orbite autour du toast.
+            if (Skin.Museum)
+            {
+                Skin.Title(text.Children[0] as TextBlock);
+                // L'ombre en BoxShadow, pas en effet : sous un filet qui tourne, un effet était refloué à chaque image.
+                toast.Effect = null;
+                toast.BoxShadow = new BoxShadows(new BoxShadow { OffsetY = 2, Blur = 14, Color = Color.FromArgb(0x4D, 0, 0, 0) });
+                var layers = new Panel();
+                toast.Child = null;
+                layers.Children.Add(row);
+                layers.Children.Add(Skin.OrbitInside(toast));
+                toast.Child = layers;
+            }
             return toast;
         }
 

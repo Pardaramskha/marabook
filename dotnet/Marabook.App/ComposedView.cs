@@ -280,6 +280,7 @@ namespace Marabook.App
             _dropCaret = new Rectangle { Width = 2, Fill = Chrome.Accent, IsVisible = false };
             _overlay.Children.Add(_dropCaret);
             InitIme(); // les touches mortes sur mac (15/10, 1.0.6)
+            InitReader(); // le lecteur d'écran, s'il est demandé (22/11)
             _column = new Grid
             {
                 Margin = new Thickness(24, 20, 24, 20),
@@ -298,7 +299,8 @@ namespace Marabook.App
                 // c'est elle qui a la main (ses poignées le disent).
                 if (_selectedImage != null) { _caretBar.IsVisible = false; return; }
                 if (CaretHidden != null && CaretHidden()) { _caretBar.IsVisible = false; return; }
-                _caretBar.IsVisible = _item != null && !_caretBar.IsVisible;
+                // Accessibilité (22/11) : un curseur qui ne clignote pas reste allumé.
+                _caretBar.IsVisible = _item != null && (Marabook.Settings.AppSettings.SteadyCaret || !_caretBar.IsVisible);
             };
 
             PointerPressed += OnMouseDown;
@@ -958,6 +960,7 @@ namespace Marabook.App
             var x = CaretX(line, _caretOffset, _engine.Current.LeftPxFor(pageIndex));
             var y = PageTop(pageIndex) + lineY;
             x += PlacePreedit(x, y, line); // le texte en composition (touche morte) devant le caret
+            _caretBar.Width = Accessibility.CaretWidth; // épais si demandé (22/11)
             Canvas.SetLeft(_caretBar, x);
             Canvas.SetTop(_caretBar, y + 1);
             _caretBar.Height = Math.Max(8, line.Height - 2);

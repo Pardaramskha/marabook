@@ -22,6 +22,15 @@ namespace Marabook.Tests
             Pages(t);
             Compact(t);
             Lock(t);
+            Access(t);
+        }
+
+        // ------------------------------------------------------------ l'accessibilité (22/11)
+
+        private static void Access(Harness t)
+        {
+            t.Check(AppSettings.ClampZoom(1) == 1.0 && AppSettings.ClampZoom(0.2) == 1.0 && AppSettings.ClampZoom(double.NaN) == 1.0 && AppSettings.ClampZoom(9) == 2.0, "le zoom de l'interface tient entre 100 et 200 %");
+            t.Check(AppSettings.ClampZoom(1.23) == 1.25 && AppSettings.ClampZoom(1.52) == 1.5 && AppSettings.ClampZoom(1.98) == 2.0, "…par pas de 5 %");
         }
 
         // ------------------------------------------------------------ la palette
