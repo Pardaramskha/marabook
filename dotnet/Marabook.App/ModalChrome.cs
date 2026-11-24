@@ -38,7 +38,7 @@ namespace Marabook.App
         /// commandent, republiées à chaque changement de skin : est-elle là, ne l'est-elle pas, et le
         /// retrait du contenu (le renfoncement du bord droit, les losanges du bord gauche).</summary>
         public const string GalbeKey = "MbDialogGalbe", PlainKey = "MbDialogPlain", MoonKey = "MbDialogMoon";
-        /// <summary>La silhouette des grands dialogues : 0 = le panneau droit, 1 = galbée (« Ascention »),
+        /// <summary>La silhouette des grands dialogues : 0 = le panneau droit, 1 = galbée (« Ascension »),
         /// 2 = LA LUNE et son planétarium (Gardien du Feu, Bois Blanc, Assermenté — 24/11 au soir).</summary>
         private static int _shape;
         private static readonly ConditionalWeakTable<Window, GrandParts> Grands = new ConditionalWeakTable<Window, GrandParts>();
@@ -381,7 +381,7 @@ namespace Marabook.App
         internal static double WidenedForProbe(Window window) { GrandParts parts; return Grands.TryGetValue(window, out parts) ? parts.Added : 0; }
 
         /// <summary>Le titre de la barre : celui de la fenêtre. Sous un skin « Museum », dans la police
-        /// des titres du skin (plus grand sur une silhouette galbée, en capitales sous « Ascention »).</summary>
+        /// des titres du skin (plus grand sur une silhouette galbée, en capitales sous « Ascension »).</summary>
         private static void StyleTitle(Window window, TextBlock title)
         {
             title.Bind(TextBlock.TextProperty, new Binding("Title") { Source = window, Converter = new Avalonia.Data.Converters.FuncValueConverter<string, string>(Skin.TitleText) });

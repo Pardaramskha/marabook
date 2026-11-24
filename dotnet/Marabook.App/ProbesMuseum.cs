@@ -19,7 +19,7 @@ namespace Marabook.App
         private static async Task ProbeMuseum(MainWindow shell)
         {
             var project = shell.Project;
-            Console.WriteLine("-- série « Museum » : Ascention, Gardien du Feu, Bois Blanc, Assermenté (2.0.0, 24/11)");
+            Console.WriteLine("-- série « Museum » : Ascension, Gardien du Feu, Bois Blanc, Assermenté (2.0.0, 24/11)");
             string skinBefore = AppSettings.Skin, accentBefore = AppSettings.AccentColor, groundBefore = AppSettings.SkinBackground;
             int glassBefore = AppSettings.SkinGlass;
             int blurBefore = AppSettings.SkinBlur;

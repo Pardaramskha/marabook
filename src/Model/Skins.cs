@@ -25,7 +25,7 @@ namespace Marabook.Model
         /// et l'effet verre.</summary>
         public const string MuseumFire = "museum-feu", MuseumWood = "museum-bois", MuseumOath = "museum-serment";
 
-        /// <summary>« ASCENTION » (24/11/2026 au soir, Rémi — la « Citadelle » de l'Atelier, renommée) : le
+        /// <summary>« ASCENSION » (24/11/2026 au soir, Rémi — la « Citadelle » de l'Atelier, renommée) : le
         /// quatrième skin de la famille. Bleu nuit, filets d'or en dégradé, survol bleu clair, angles
         /// droits, titres en capitales ; pas de pilule de sélection (une barre d'accent à gauche).</summary>
         public const string MuseumAscent = "museum-ascension";
@@ -95,10 +95,10 @@ namespace Marabook.Model
         public static int MuseumBlur(string id) { return 15; }
 
         /// <summary>Vrai pour un skin dont la ligne choisie ou survolée (Pile, menus, listes) est une
-        /// PILULE de verre à perle ; « Ascention » garde une barre d'accent à gauche.</summary>
+        /// PILULE de verre à perle ; « Ascension » garde une barre d'accent à gauche.</summary>
         public static bool MuseumPill(string id) { return IsMuseum(id) && Normalize(id) != MuseumAscent; }
 
-        /// <summary>Vrai pour un skin dont les TITRES sont en capitales espacées (« Ascention »).</summary>
+        /// <summary>Vrai pour un skin dont les TITRES sont en capitales espacées (« Ascension »).</summary>
         public static bool MuseumCaps(string id) { return Normalize(id) == MuseumAscent; }
 
         /// <summary>LA BARRE À JALONS d'un livre (24/11 au soir, d'après le menu « Musée » du jeu) : ce
@@ -140,7 +140,7 @@ namespace Marabook.Model
                 case MuseumFire: return "Gardien du Feu";
                 case MuseumWood: return "Bois Blanc";
                 case MuseumOath: return "Assermenté";
-                case MuseumAscent: return "Ascention";
+                case MuseumAscent: return "Ascension";
                 default: return "Marabook modern";
             }
         }

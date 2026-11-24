@@ -15,7 +15,7 @@ using Marabook.Settings;
 namespace Marabook.App
 {
     /// <summary>LA SÉRIE « MUSEUM » (2.0.0, 24/11/2026, Rémi) — quatre skins PREMIUM :
-    /// « Gardien du Feu », « Bois Blanc », « Assermenté », et « Ascention » (le soir du 24/11 : bleu
+    /// « Gardien du Feu », « Bois Blanc », « Assermenté », et « Ascension » (le soir du 24/11 : bleu
     /// nuit et or, angles droits, titres en capitales). Conçus dans l'Atelier Muséum
     /// (le dossier de passation du 24/11) : chaque panneau est un cartel posé sur une
     /// vitrine — fond froid, métal chaud réservé à ce qui informe ou réagit.
@@ -32,7 +32,7 @@ namespace Marabook.App
     /// le FILET EN ORBITE (un segment lumineux qui fait le tour d'un cadre en 5 s) et la
     /// police des TITRES. REPASSE DU 24/11 AU SOIR (la spécification finale de l'Atelier) : le
     /// SURVOL a sa couleur (Chrome.Hover), le « validé » la sienne (Chrome.Ok) ; la ligne choisie
-    /// est une PILULE de verre (pas sous « Ascention ») ; le MENU CONTEXTUEL a ses coins coupés
+    /// est une PILULE de verre (pas sous « Ascension ») ; le MENU CONTEXTUEL a ses coins coupés
     /// et un double filet (CutFrame) ; les grands dialogues ont une silhouette GALBÉE (GalbeFrame,
     /// ModalChrome). Tout le reste suit le chemin commun des skins (Skin.cs).</summary>
     internal static partial class Skin
@@ -65,7 +65,7 @@ namespace Marabook.App
             0, 0.971, 0.045,   4, 1.035, 0.078,   1, 0.937, 0.088,   11, 0, 0.116,   11, 0.937, 0.102,   7, 0.36, -0.063,
             -9, 0.3, 0.647,   0, 0.505, 0.42,   0, 0.507, 0.294,   0, 0.5, 0.361,   -1, 0.492, 0.363,   2, 0.703, 0.449 };
 
-        // « Ascention » (la Citadelle de l'Atelier) : bleu nuit, or ; le surlignage est un bleu-vert (135° plus loin).
+        // « Ascension » (la Citadelle de l'Atelier) : bleu nuit, or ; le surlignage est un bleu-vert (135° plus loin).
         private static readonly double[] AscentDark = {
             10, 0.667, 0.059,   11, 0.471, 0.09,   9, 0.39, 0.106,   10, 0.31, 0.129,   8, 0.741, 0.031,   11, 0.24, 0.161,
             -3, 0.5, 0.314,   0, 0.56, 0.51,   0, 0.563, 0.659,   -1, 0.5, 0.882,   -1, 0.45, 0.608,   135, 0.905, 0.412 };
@@ -252,17 +252,17 @@ namespace Marabook.App
             }
         }
 
-        /// <summary>Vrai sous un skin dont les titres sont en CAPITALES espacées (« Ascention »).</summary>
+        /// <summary>Vrai sous un skin dont les titres sont en CAPITALES espacées (« Ascension »).</summary>
         public static bool Caps { get { return Skins.MuseumCaps(Current); } }
 
-        /// <summary>Le texte d'un titre tel que le skin l'écrit : en capitales sous « Ascention ».</summary>
+        /// <summary>Le texte d'un titre tel que le skin l'écrit : en capitales sous « Ascension ».</summary>
         public static string TitleText(string text)
         {
             return Caps && text != null ? text.ToUpper(System.Globalization.CultureInfo.CurrentCulture) : text;
         }
 
         /// <summary>Un titre prend la police des titres du skin, un peu plus grande (une garalde
-        /// a l'œil petit) ; en capitales espacées sous « Ascention » (le texte déjà posé est
+        /// a l'œil petit) ; en capitales espacées sous « Ascension » (le texte déjà posé est
         /// converti : un texte posé APRÈS passe par TitleText). Rien hors de la série « Museum ».</summary>
         public static void Title(TextBlock block)
         {
@@ -315,7 +315,7 @@ namespace Marabook.App
             // Le survol a SA couleur, fixe (24/11 au soir) : le contour la prend, une lueur douce autour.
             var hover = Chrome.Hover.Color;
             if (Current == Skins.MuseumAscent)
-                // « Ascention » : les filets sont en dégradé, de l'or vers le bronze.
+                // « Ascension » : les filets sont en dégradé, de l'or vers le bronze.
                 styles.Add(Rule(x => x.OfType<Button>().Not(y => y.Class(Theme.Calm)), new Setter(TemplatedControl.BorderBrushProperty, Linear(Chrome.Accent.Color, Chrome.BorderStrong.Color, false))));
             styles.Add(Rule(x => x.OfType<Button>().Not(y => y.Class(Theme.Calm)).Class(":pointerover"), new Setter(TemplatedControl.BorderBrushProperty, Chrome.Hover)));
             styles.Add(Rule(x => x.OfType<Button>().Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, none)));
@@ -327,7 +327,7 @@ namespace Marabook.App
             var metalEdge = new SolidColorBrush(Chrome.Blend(Chrome.Accent.Color, Colors.Black, 0.30));
             if (!Skins.MuseumPill(Current))
             {
-                // « Ascention » garde le métal plein.
+                // « Ascension » garde le métal plein.
                 styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary), new Setter(TemplatedControl.BackgroundProperty, metal), new Setter(TemplatedControl.BorderBrushProperty, metalEdge)));
                 styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pointerover"), new Setter(TemplatedControl.BackgroundProperty, metalHot), new Setter(TemplatedControl.BorderBrushProperty, Chrome.Hover)));
                 styles.Add(Rule(x => x.OfType<TabItem>().Class(":selected"), new Setter(TemplatedControl.BackgroundProperty, metal), new Setter(TemplatedControl.BorderBrushProperty, metalEdge)));
@@ -404,7 +404,7 @@ namespace Marabook.App
             styles.Add(Rule(x => x.OfType<Separator>(), new Setter(TemplatedControl.BackgroundProperty, Chrome.BorderStrong), new Setter(Visual.OpacityProperty, 0.55)));
             if (!Skins.MuseumPill(Current))
             {
-                // « Ascention » : la ligne choisie d'un arbre garde une barre de métal à gauche.
+                // « Ascension » : la ligne choisie d'un arbre garde une barre de métal à gauche.
                 styles.Add(Rule(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder"),
                     new Setter(Border.BorderBrushProperty, Chrome.Accent), new Setter(Border.BorderThicknessProperty, new Thickness(2, 0, 0, 0))));
                 return;

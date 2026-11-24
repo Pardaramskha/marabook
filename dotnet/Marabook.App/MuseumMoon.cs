@@ -11,7 +11,7 @@ namespace Marabook.App
     /// <summary>LA LUNE (série « Museum », 24/11/2026 au soir — RETOUCHES.md, pièce 4, d'après la
     /// maquette test-menu.jpg de Rémi, 977 × 783 px) : la silhouette des GRANDS dialogues
     /// (Préférences, Sprint) sous Gardien du Feu, Bois Blanc et Assermenté, à la place de la
-    /// silhouette galbée (qu'« Ascention » garde). Un CORPS rectangulaire où se pose le contenu,
+    /// silhouette galbée (qu'« Ascension » garde). Un CORPS rectangulaire où se pose le contenu,
     /// une grande LUNE qui déborde à droite, coupée en haut et en bas, et une FENTE en croissant
     /// creusée dans la lune. Tout se déduit de la hauteur : k = h / 783.
     ///  · la lune : cercle de centre (W − 147k, 395k), rayon 421k ;

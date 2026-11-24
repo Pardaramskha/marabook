@@ -13,7 +13,7 @@ namespace Marabook.App
 {
     /// <summary>Sonde de la REPASSE DES SKINS « MUSEUM » (2.0.0, 24/11/2026 au soir) : pour chaque
     /// skin de la famille, la couleur du survol et du « validé », la sélection en pilule (ou la
-    /// barre d'« Ascention »), le menu contextuel à coins coupés, la silhouette galbée des grands
+    /// barre d'« Ascension »), le menu contextuel à coins coupés, la silhouette galbée des grands
     /// dialogues, et le NOUVEL ACCUEIL (anneau du jour, carte du sprint, livres à jalons).
     /// Appelée par ProbeMuseum, Préférences ouvertes, sous le skin en question.</summary>
     public static partial class Probes
@@ -46,7 +46,7 @@ namespace Marabook.App
             var moon = prefs.GetVisualDescendants().OfType<MoonFrame>().FirstOrDefault();
             var sky = prefs.GetVisualDescendants().OfType<Planetarium>().FirstOrDefault();
             if (ascent)
-                Check(galbe is GalbeFrame && galbe.IsVisible && galbe.Bounds.Width > 400 && (moon == null || !moon.IsVisible) && ModalChrome.WidenedForProbe(prefs) < 0.5, "…les Préférences prennent la silhouette galbée (pas de lune sous « Ascention »)");
+                Check(galbe is GalbeFrame && galbe.IsVisible && galbe.Bounds.Width > 400 && (moon == null || !moon.IsVisible) && ModalChrome.WidenedForProbe(prefs) < 0.5, "…les Préférences prennent la silhouette galbée (pas de lune sous « Ascension »)");
             else
             {
                 var extra = MoonFrame.Extra(prefs.Bounds.Height);
@@ -99,7 +99,7 @@ namespace Marabook.App
                 await Settle();
             }
 
-            // — La sélection de la Pile : une pilule (une barre sous « Ascention »).
+            // — La sélection de la Pile : une pilule (une barre sous « Ascension »).
             prefs.Hide();
             await Settle();
             var home = project.Category(Project.KeyHome);
@@ -117,7 +117,7 @@ namespace Marabook.App
                 Check(selection != null && selection.CornerRadius.TopLeft >= 12 && selection.BorderBrush is RadialGradientBrush && selection.BoxShadow.Count == 2,
                     "…la ligne choisie de la Pile est une pilule de verre, à reflet et à lueur (coins de " + (selection == null ? 0 : selection.CornerRadius.TopLeft).ToString("0") + " px)");
             var pearl = selection == null ? null : selection.GetVisualDescendants().OfType<PillPearl>().FirstOrDefault();
-            if (ascent) Check(pearl == null || pearl.Strength <= 0, "…pas de perle sous « Ascention »");
+            if (ascent) Check(pearl == null || pearl.Strength <= 0, "…pas de perle sous « Ascension »");
             else
             {
                 Check(pearl != null && pearl.Strength > 0.99 && PillPearl.SizeForProbe >= 8 && Math.Abs(pearl.CenterInBandForProbe.X) < 1 && Math.Abs(selection.Margin.Left - PillPearl.Room) < 0.01,

@@ -44,7 +44,7 @@ namespace Marabook.Tests
 
         private static void Identity(Harness t)
         {
-            t.Equal(9, Skins.Ids.Length, "neuf skins : les cinq d'origine et la famille « Museum » (Ascention compris)");
+            t.Equal(9, Skins.Ids.Length, "neuf skins : les cinq d'origine et la famille « Museum » (Ascension compris)");
             t.Check(Skins.Ids[0] == Skins.Modern && Skins.Label(Skins.Modern) == "Marabook modern" && Skins.Label(Skins.Classic) == "Marabook classic" && Skins.Label(Skins.Gradient) == "Gradient Garden"
                 && Skins.Label(Skins.Eden) == "Eden Scriptis" && Skins.Label(Skins.Cyberpunk) == "Cyberpunk 2026", "leurs noms : Marabook modern (le premier), Marabook classic, Gradient Garden, Eden Scriptis, Cyberpunk 2026");
             t.Check(Skins.Normalize(null) == Skins.Modern && Skins.Normalize("") == Skins.Modern && Skins.Normalize("un-skin-de-demain") == Skins.Modern && Skins.Normalize("eden") == Skins.Eden, "un réglage absent ou inconnu vaut « modern »");
@@ -62,9 +62,9 @@ namespace Marabook.Tests
                 t.Check(Skins.IsMuseum(id) && Skins.Premium(id) && Skins.Normalize(id) == id && Skins.Description(id).StartsWith("Museum"), "« " + Skins.Label(id) + " » est un skin PREMIUM de la série");
             t.Check(!Skins.IsMuseum(Skins.Modern) && !Skins.Premium(Skins.Eden) && !Skins.IsMuseum(null) && !Skins.IsMuseum("museum"), "…les skins d'origine n'en sont pas");
             t.Check(Skins.DarkByDefault(Skins.MuseumFire) && Skins.DarkByDefault(Skins.MuseumOath) && !Skins.DarkByDefault(Skins.MuseumWood), "Gardien du Feu et Assermenté sont sombres par défaut, Bois Blanc est clair");
-            // « Ascention » (24/11 au soir) : la Citadelle de l'Atelier, renommée.
-            t.Check(Skins.Label(Skins.MuseumAscent) == "Ascention" && Skins.DarkByDefault(Skins.MuseumAscent) && Skins.AccentFor(Skins.MuseumAscent, null) == "#C89B3C" && Skins.MuseumBackground(Skins.MuseumAscent, true) == "#010A13",
-                "« Ascention » : sombre par défaut, or sur bleu nuit");
+            // « Ascension » (24/11 au soir) : la Citadelle de l'Atelier, renommée.
+            t.Check(Skins.Label(Skins.MuseumAscent) == "Ascension" && Skins.DarkByDefault(Skins.MuseumAscent) && Skins.AccentFor(Skins.MuseumAscent, null) == "#C89B3C" && Skins.MuseumBackground(Skins.MuseumAscent, true) == "#010A13",
+                "« Ascension » : sombre par défaut, or sur bleu nuit");
             t.Check(Skins.MuseumCaps(Skins.MuseumAscent) && !Skins.MuseumPill(Skins.MuseumAscent) && Skins.MuseumPill(Skins.MuseumFire) && Skins.MuseumPill(Skins.MuseumWood) && Skins.MuseumPill(Skins.MuseumOath) && !Skins.MuseumCaps(Skins.MuseumFire) && !Skins.MuseumPill(Skins.Modern),
                 "…titres en capitales et pas de pilule de sélection ; les trois autres ont la pilule");
             // La barre à jalons d'un livre.
