@@ -918,7 +918,7 @@ namespace Marabook.App
         {
             _corrBar = new Border
             {
-                Background = Chrome.BarBgLight,
+                [!Border.BackgroundProperty] = Skin.SidePanelBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Padding = new Thickness(12, 10, 12, 10)

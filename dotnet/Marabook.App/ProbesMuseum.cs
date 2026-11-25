@@ -160,6 +160,17 @@ namespace Marabook.App
                     Check(Chrome.ContrastRatio(Chrome.RaisedBg.Color, Chrome.Accent.Color) >= 3, "…le texte du bouton principal se lit sur l'accent (" + Chrome.ContrastRatio(Chrome.RaisedBg.Color, Chrome.Accent.Color).ToString("0.0") + ":1)");
                     var expected = (byte)Math.Round(255 * Skin.BarOpacity(Skins.MuseumGlass(id)));
                     Check(Skin.BarAlphaForProbe == expected, "…des barres de verre (" + Skins.MuseumGlass(id) + " % : opacité " + Skin.BarAlphaForProbe + " sur 255)");
+                    // Le verre dépoli des colonnes (25/11) : la Pile et le rail portent la texture sous leur couleur — pas « Ascension ».
+                    var side = Skin.ResourceForProbe(Skin.SideKey) as ImageBrush;
+                    var sidePanel = Skin.ResourceForProbe(Skin.SidePanelKey) as ImageBrush;
+                    if (id == Skins.MuseumAscent)
+                        Check(!Skin.FrostedSides && ReferenceEquals(Skin.ResourceForProbe(Skin.SideKey), Skin.ResourceForProbe(Skin.BarKey)) && ReferenceEquals(Skin.ResourceForProbe(Skin.SidePanelKey), Chrome.BarBgLight), "…pas de verre dépoli sous « Ascension » : la Pile et le rail gardent leurs aplats");
+                    else
+                    {
+                        Check(Skin.GlassTextureFoundForProbe && Skin.FrostedSides && side != null && sidePanel != null && side.TileMode == TileMode.FlipXY, "…la Pile et le rail portent le verre dépoli (la texture, en carreaux retournés)");
+                        Check(Skin.SideReliefForProbe > 0.04 && Skin.SideReliefForProbe < 0.30, "…un relief discret sous la couleur (au plus " + (Skin.SideReliefForProbe * 100).ToString("0") + " % de clair ou de sombre)");
+                        Check(ReferenceEquals(shell.Binder.Background, side), "…la Pile le prend pour fond");
+                    }
                     Check(Skin.UiFont != null && Skin.TitleFont != null && Skin.Plaque() is LinearGradientBrush && OrbitLine.Active, "…une police d'interface, une garalde pour les titres, la plaque, le filet en orbite");
                     Check(prefs.MuseumRowShownForProbe && !prefs.SecondRowShownForProbe, "…ses options se montrent dans les Préférences (pas de seconde couleur)");
                     Border card = null;
@@ -245,9 +256,11 @@ namespace Marabook.App
                 prefs.SetMuseumBlur(Skins.MuseumBlur(Skins.MuseumOath));
                 await Settle();
                 Check(AppSettings.SkinGlass == 0 && Skin.BarAlphaForProbe == 255, "effet verre à 0 % : des barres pleines");
+                Check(!(Skin.ResourceForProbe(Skin.SideKey) is ImageBrush) && ReferenceEquals(Skin.ResourceForProbe(Skin.SidePanelKey), Chrome.BarBgLight), "…et plus de texture sous la Pile ni le rail : rien ne traverse une barre pleine");
                 prefs.SetMuseumGlass(100);
                 await Settle();
                 Check(AppSettings.SkinGlass == 100 && Skin.BarAlphaForProbe == (byte)Math.Round(255 * Skin.BarOpacity(100)), "…à 100 % : des barres de verre (opacité " + Skin.BarAlphaForProbe + " sur 255)");
+                Check(Skin.ResourceForProbe(Skin.SideKey) is ImageBrush && Skin.SideReliefForProbe > 0.30, "…et la texture de la Pile et du rail s'y voit davantage (jusqu'à " + (Skin.SideReliefForProbe * 100).ToString("0") + " %)");
                 Shot(shell, "museum-option-verre-100.png");
 
                 AppSettings.AccentColor = "#16A085";
@@ -271,6 +284,7 @@ namespace Marabook.App
                 for (var i = 0; i < 4; i++) await Settle();
                 Check(Skin.Plain && Chrome.Ink.Color == inkBefore && Chrome.Accent.Color == accentModern && ReferenceEquals(Skin.ResourceForProbe(Skin.BarKey), Chrome.BarBg),
                     "retour à « Marabook modern » : la palette, l'indigo et les barres pleines reviennent");
+                Check(ReferenceEquals(Skin.ResourceForProbe(Skin.SideKey), Chrome.BarBg) && ReferenceEquals(Skin.ResourceForProbe(Skin.SidePanelKey), Chrome.BarBgLight), "…la Pile et le rail retrouvent leurs aplats (ni texture, ni verre)");
                 Check(Skin.Plaque() == null && Skin.TitleFont == null && !OrbitLine.Active && !prefs.MuseumRowShownForProbe, "…ni plaque, ni filet, ni options « Museum »");
                 var plain = NoticeToast.Build("warning-bold", "Titre", "Corps", "Oui", null, null, null);
                 Check(!(plain.Child is Panel) || !((Panel)plain.Child).Children.OfType<OrbitLine>().Any(), "…un toast est celui d'avant");

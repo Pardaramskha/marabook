@@ -26,7 +26,7 @@ namespace Marabook.App
 
         public StyleReportPanel()
         {
-            Background = Chrome.BarBgLight;
+            Skin.SidePanel(this); // un panneau du rail : Chrome.BarBgLight, ou le verre dépoli d'un skin (25/11)
             var head = new DockPanel { Margin = new Thickness(12, 10, 12, 6) };
             SetDock(head, Dock.Top);
             var close = Buttons.Close("Fermer");

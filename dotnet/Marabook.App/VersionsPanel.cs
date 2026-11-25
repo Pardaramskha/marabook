@@ -45,7 +45,7 @@ namespace Marabook.App
 
         public VersionsPanel()
         {
-            Background = Chrome.BarBgLight;
+            Skin.SidePanel(this); // un panneau du rail : Chrome.BarBgLight, ou le verre dépoli d'un skin (25/11)
             var frame = new Border
             {
                 BorderBrush = Chrome.Border,

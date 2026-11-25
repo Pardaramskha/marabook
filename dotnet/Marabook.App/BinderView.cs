@@ -112,7 +112,7 @@ namespace Marabook.App
 
         public BinderView()
         {
-            Skin.Bar(this); // la Pile est du chrome (batch 40) — un voile sur le fond d'un skin (21/11)
+            Skin.Side(this); // la Pile est du chrome (batch 40) — un voile sur le fond d'un skin (21/11), verre dépoli sous trois « Museum » (25/11)
             BorderBrush = Chrome.Border;
             BorderThickness = new Thickness(0, 0, 1, 0);
 

@@ -278,7 +278,9 @@ namespace Marabook.App
             app.Resources[BackdropKey] = backdrop ?? Chrome.WindowBg;
             app.Resources[GroundKey] = backdrop == null ? (IBrush)Chrome.WindowBg : Brushes.Transparent;
             app.Resources[GlowKey] = AscentGlow() ?? (backdrop == null ? (IBrush)Chrome.WindowBg : Brushes.Transparent);
-            app.Resources[BarKey] = backdrop == null ? (IBrush)Chrome.BarBg : BarVeil();
+            var bar = backdrop == null ? (IBrush)Chrome.BarBg : BarVeil();
+            app.Resources[BarKey] = bar;
+            PublishSides(app, bar); // la Pile et le rail : le verre dépoli de trois skins « Museum » (Skin.Glass.cs)
             // Les fenêtres de dialogue : leurs coins, et leur verre sous un skin « Museum » (24/11).
             ModalChrome.Publish(app, Round(12), Museum ? MuseumDialogGlass : 1.0, Museum ? Skins.MuseumBlurFor(Current, AppSettings.SkinBlur) : 0, !Museum ? 0 : Skins.MuseumPill(Current) ? 2 : 1);
         }

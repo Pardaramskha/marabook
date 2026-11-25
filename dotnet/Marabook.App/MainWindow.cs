@@ -799,7 +799,7 @@ namespace Marabook.App
             };
             _binderStrip = new Border
             {
-                [!Border.BackgroundProperty] = Skin.BarBinding,
+                [!Border.BackgroundProperty] = Skin.SideBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 0, 1, 0),
                 IsVisible = false,
@@ -2057,7 +2057,7 @@ namespace Marabook.App
 
             return new Border
             {
-                Background = Chrome.BarBgLight,
+                [!Border.BackgroundProperty] = Skin.SidePanelBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Child = new ScrollViewer
@@ -6067,7 +6067,7 @@ namespace Marabook.App
             layout.Children.Add(_railStack);
             return new Border
             {
-                [!Border.BackgroundProperty] = Skin.BarBinding,
+                [!Border.BackgroundProperty] = Skin.SideBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Child = layout
@@ -6153,7 +6153,7 @@ namespace Marabook.App
             });
             return new Border
             {
-                Background = Chrome.BarBgLight,
+                [!Border.BackgroundProperty] = Skin.SidePanelBinding,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1, 0, 0, 0),
                 Padding = new Thickness(12, 10, 12, 10),

@@ -34,7 +34,8 @@ namespace Marabook.App
     /// SURVOL a sa couleur (Chrome.Hover), le « validé » la sienne (Chrome.Ok) ; la ligne choisie
     /// est une PILULE de verre (pas sous « Ascension ») ; le MENU CONTEXTUEL a ses coins coupés
     /// et un double filet (CutFrame) ; les grands dialogues ont une silhouette GALBÉE (GalbeFrame,
-    /// ModalChrome). Tout le reste suit le chemin commun des skins (Skin.cs).</summary>
+    /// ModalChrome). Le 25/11 : la Pile et le rail portent un VERRE DÉPOLI (une texture sous leur couleur,
+    /// Skin.Glass.cs) — pas sous « Ascension ». Tout le reste suit le chemin commun des skins (Skin.cs).</summary>
     internal static partial class Skin
     {
         /// <summary>Vrai sous un skin de la série « Museum ».</summary>

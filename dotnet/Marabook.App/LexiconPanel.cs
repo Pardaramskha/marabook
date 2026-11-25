@@ -45,7 +45,7 @@ namespace Marabook.App
 
         public LexiconPanel()
         {
-            Background = Chrome.BarBgLight;
+            Skin.SidePanel(this); // un panneau du rail : Chrome.BarBgLight, ou le verre dépoli d'un skin (25/11)
             LastChildFill = true;
 
             var head = new DockPanel { Margin = new Thickness(12, 10, 12, 8) };
