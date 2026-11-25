@@ -4453,10 +4453,7 @@ namespace Marabook.App
 
         private static string SafeFileName(string name)
         {
-            var sb = new System.Text.StringBuilder();
-            foreach (var c in name)
-                sb.Append(Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
-            return sb.Length == 0 ? "document" : sb.ToString();
+            return Persistence.FileNames.Clean(name, "document");
         }
 
         // ============================================================= styles

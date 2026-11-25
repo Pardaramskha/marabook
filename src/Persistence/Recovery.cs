@@ -190,12 +190,8 @@ namespace Marabook.Persistence
 
         private static string SafeName(string name)
         {
-            var sb = new StringBuilder();
-            foreach (var c in (name ?? "").Trim())
-                sb.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
-            var safe = sb.ToString();
-            if (safe.Length > 40) safe = safe.Substring(0, 40);
-            return safe.Length == 0 ? "projet" : safe;
+            var safe = FileNames.Clean(name, "projet");
+            return safe.Length > 40 ? safe.Substring(0, 40) : safe;
         }
     }
 }

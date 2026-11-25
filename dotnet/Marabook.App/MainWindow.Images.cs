@@ -167,7 +167,7 @@ namespace Marabook.App
             var suggested = string.IsNullOrEmpty(info.Name) ? "image" + extension : info.Name;
             if (!suggested.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
                 suggested = System.IO.Path.GetFileNameWithoutExtension(suggested) + extension;
-            foreach (var bad in System.IO.Path.GetInvalidFileNameChars()) suggested = suggested.Replace(bad, '_');
+            suggested = Persistence.FileNames.Replace(suggested);
             var dialogPath = await Ui.PickSaveFile(this, "Enregistrer l'image", FormatLabel(extension) + " (*" + extension + ")|*" + extension + "|Tous les fichiers|*.*", suggested);
             if (dialogPath == null) return;
             try

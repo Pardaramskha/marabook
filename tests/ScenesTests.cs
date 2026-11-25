@@ -393,6 +393,10 @@ namespace Marabook.Tests
                 ProjectTemplates.Save(project, "Roman en trois actes");
                 t.Check(ProjectTemplates.All().Count == 1, "enregistrer sous le même nom remplace");
                 t.Check(ProjectTemplates.CleanName(" a/b:c? ") == "a_b_c_" && ProjectTemplates.CleanName("   ") == "" && !ProjectTemplates.Exists(""), "un nom de modèle devient un nom de fichier sûr");
+                // 25/11 : la même liste d'interdits sur les trois systèmes (FileNames), pas celle du système où l'on tourne.
+                t.Check(FileNames.Replace("a\\b<c>d|e*f\"g\th.png") == "a_b_c_d_e_f_g_h.png", "les caractères que Windows refuse sont remplacés sur tous les systèmes, l'extension gardée");
+                t.Check(FileNames.Clean("Acte 1 : le départ ?", "x") == "Acte 1 _ le départ _" && FileNames.Clean("  fin. . ", "x") == "fin" && FileNames.Clean(" .. ", "x") == "x" && FileNames.Clean(null, "x") == "x", "…les espaces des bords et les points de fin tombent ; un nom vide prend le nom de repli");
+                t.Check(FileNames.Clean("con", "x") == "_con" && FileNames.Clean("NUL.txt", "x") == "_NUL.txt" && FileNames.Clean("Console", "x") == "Console" && FileNames.Clean("LPT1", "x") == "_LPT1", "…et un nom réservé par Windows (CON, NUL, LPT1…) est écarté d'un « _ »");
                 var threw = false;
                 try { ProjectTemplates.Save(project, "  "); } catch (ArgumentException) { threw = true; }
                 t.Check(threw, "un modèle sans nom est refusé");

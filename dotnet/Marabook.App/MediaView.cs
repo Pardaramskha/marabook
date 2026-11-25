@@ -182,10 +182,7 @@ namespace Marabook.App
 
         private static string SafeName(string title)
         {
-            var sb = new StringBuilder();
-            foreach (var c in title)
-                sb.Append(Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
-            return sb.Length == 0 ? "media" : sb.ToString();
+            return Persistence.FileNames.Clean(title, "media");
         }
     }
 }

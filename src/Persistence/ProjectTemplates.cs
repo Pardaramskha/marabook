@@ -55,10 +55,8 @@ namespace Marabook.Persistence
         /// <summary>Un nom de modèle devient un nom de fichier : rogné, sans caractère interdit.</summary>
         public static string CleanName(string name)
         {
-            var sb = new System.Text.StringBuilder();
-            foreach (var c in (name ?? "").Trim())
-                sb.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
-            var clean = sb.ToString().Trim().TrimEnd('.');
+            // FileNames (25/11) : la liste des interdits est la même sur les trois systèmes.
+            var clean = FileNames.Clean(name, "");
             return clean.Length > 80 ? clean.Substring(0, 80).Trim() : clean;
         }
 

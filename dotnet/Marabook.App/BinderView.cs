@@ -2012,10 +2012,7 @@ namespace Marabook.App
 
         private static string SafeName(string name)
         {
-            var sb = new System.Text.StringBuilder();
-            foreach (var c in name ?? "")
-                sb.Append(Array.IndexOf(System.IO.Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c);
-            return sb.Length == 0 ? "carte" : sb.ToString();
+            return Persistence.FileNames.Clean(name, "carte");
         }
 
         /// <summary>La copie d'un item juste après lui (30/09), annulable, choisie.</summary>
