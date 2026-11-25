@@ -59,7 +59,10 @@ namespace Marabook.App
                     homeView.RaiseGoalForProbe();
                     homeView.GoalRequested -= seen;
                     await Settle();
-                    Check(journalShown && !homeView.IsVisible, "…« Régler l'objectif » ouvre le Journal, où il se règle");
+                    // Le Journal est une fenêtre depuis le 25/11 : l'Accueil reste dessous.
+                    Check(journalShown && shell.JournalWindowShownForProbe && homeView.IsVisible, "…« Régler l'objectif » ouvre le Journal, où il se règle — dans sa fenêtre, l'Accueil dessous");
+                    shell.CloseJournalForProbe();
+                    await Settle();
                     shell.Binder.SelectItem(homeRoot.Id);
                     for (var i = 0; i < 3; i++) await Settle();
                     Shot(shell, "accueil-modern.png");

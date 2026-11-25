@@ -46,7 +46,7 @@ namespace Marabook.App
     /// Encyclopédique » le suivent (Model.Skins).</summary>
     internal static partial class Skin // la série « Museum » : Skin.Museum.cs (24/11)
     {
-        public const string GroundKey = "MbGround", BarKey = "MbBar", BackdropKey = "MbBackdrop";
+        public const string GroundKey = "MbGround", BarKey = "MbBar", BackdropKey = "MbBackdrop", GlowKey = "MbGroundGlow";
 
         public static string Current { get { return Skins.Normalize(AppSettings.Skin); } }
         public static bool Plain { get { return Current == Skins.Modern; } }
@@ -246,6 +246,10 @@ namespace Marabook.App
         /// <summary>Le fond d'une vue de la zone centrale : celui de la fenêtre (Chrome.WindowBg), ou
         /// transparent quand le skin peint un fond derrière tout.</summary>
         public static void Ground(Control control) { BindBackground(control, GroundKey); }
+        /// <summary>Le fond d'un TABLEAU DE LIÈGE ou de l'ÉDITEUR DE TEXTE : celui d'une vue du centre
+        /// (Ground) — et, sous « Ascension » seulement, une faible illumination dorée qui monte du coin
+        /// bas droit (Skin.Museum.cs, AscentGlow ; 25/11, Rémi).</summary>
+        public static void GlowGround(Control control) { BindBackground(control, GlowKey); }
         /// <summary>Le fond d'une barre du chrome : Chrome.BarBg, ou un voile sur le fond du skin.</summary>
         public static void Bar(Control control) { BindBackground(control, BarKey); }
         /// <summary>Le fond de la fenêtre principale : Chrome.WindowBg, ou le fond du skin.</summary>
@@ -273,6 +277,7 @@ namespace Marabook.App
             var backdrop = Backdrop();
             app.Resources[BackdropKey] = backdrop ?? Chrome.WindowBg;
             app.Resources[GroundKey] = backdrop == null ? (IBrush)Chrome.WindowBg : Brushes.Transparent;
+            app.Resources[GlowKey] = AscentGlow() ?? (backdrop == null ? (IBrush)Chrome.WindowBg : Brushes.Transparent);
             app.Resources[BarKey] = backdrop == null ? (IBrush)Chrome.BarBg : BarVeil();
             // Les fenêtres de dialogue : leurs coins, et leur verre sous un skin « Museum » (24/11).
             ModalChrome.Publish(app, Round(12), Museum ? MuseumDialogGlass : 1.0, Museum ? Skins.MuseumBlurFor(Current, AppSettings.SkinBlur) : 0, !Museum ? 0 : Skins.MuseumPill(Current) ? 2 : 1);
@@ -568,7 +573,7 @@ namespace Marabook.App
                 foreach (var visual in window.GetVisualDescendants())
                 {
                     var border = visual as Border;
-                    if (border != null) Dress(border);
+                    if (border != null) { Dress(border); RefreshMeter(border); } // les barres reprennent leur dégradé (25/11)
                 }
             }
         }

@@ -887,16 +887,45 @@ namespace Marabook.App
             row.Background = Brushes.Transparent;
             row.Cursor = new Cursor(StandardCursorType.Hand);
             ToolTip.SetTip(row, collapsed ? "Déplier" : "Replier");
-            row.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
-            row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            // TOUTE LA LIGNE replie (25/11, Rémi : « cliquer sur une sous-catégorie sans cliquer tout à
+            // fait sur le texte ouvre une page "Sélectionnez un élément dans la pile" ») : le geste
+            // n'était pris que par l'en-tête — un clic à côté (le retrait à gauche, la marge) tombait
+            // sur la ligne de l'arbre, qui se SÉLECTIONNAIT sans rien porter, et le centre se vidait.
+            // La ligne entière prend désormais le clic ; et si elle est choisie autrement (clavier),
+            // la sélection est révoquée (OnSelectedItemChanged, CategoryRowMark).
+            var line = new TreeViewItem { Header = row, Focusable = false, Tag = CategoryRowMark };
+            line.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            line.AddHandler(InputElement.PointerReleasedEvent, delegate(object sender, PointerReleasedEventArgs e)
             {
                 if (e.InitialPressMouseButton != MouseButton.Left) return;
                 e.Handled = true;
                 if (!SheetLibraryView.CollapsedCategories.Remove(categoryId)) SheetLibraryView.CollapsedCategories.Add(categoryId);
                 Rebuild();
-            };
-            return new TreeViewItem { Header = row, Focusable = false };
+            }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+            return line;
         }
+
+        /// <summary>La marque d'une ligne de sous-catégorie de fiches : ni un élément, ni rien à ouvrir.</summary>
+        internal const string CategoryRowMark = "category-row";
+
+        /// <summary>Sonde (25/11) : la ligne de l'arbre d'une sous-catégorie de fiches.</summary>
+        internal TreeViewItem CategoryRowForProbe(string categoryName)
+        {
+            foreach (var visual in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(_tree))
+            {
+                var line = visual as TreeViewItem;
+                if (line == null || !CategoryRowMark.Equals(line.Tag)) continue;
+                foreach (var inner in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(line))
+                {
+                    var text = inner as TextBlock;
+                    if (text != null && text.Text != null && (categoryName == null || text.Text.StartsWith(categoryName, StringComparison.Ordinal))) return line;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Sonde (25/11) : la ligne d'une sous-catégorie choisie comme le ferait un clic à côté de son nom.</summary>
+        internal void SelectRowForProbe(TreeViewItem line) { if (line != null) { _tree.SelectedItem = line; } }
 
         /// <summary>Sonde (1.0.5-a) : replier ou déplier une catégorie de la Pile.</summary>
         internal void ToggleCategoryRowForProbe(string categoryId)
@@ -1371,6 +1400,14 @@ namespace Marabook.App
                 if (_selectedId == null || !_nodesById.TryGetValue(_selectedId, out node)) node = null;
             }
             else node = (e.AddedItems != null && e.AddedItems.Count > 0 ? e.AddedItems[0] : _selectedNode) as TreeViewItem;
+            // Une ligne de sous-catégorie de fiches n'est pas un élément (25/11) : choisie quand même
+            // (le clavier), elle rend la main à la ligne d'avant — le centre ne se vide plus.
+            if (node != null && CategoryRowMark.Equals(node.Tag))
+            {
+                _keyboardNav = false;
+                RestoreSelection(node);
+                return;
+            }
             _selectedNode = node;
             var id = node == null || !(node.Tag is BinderItem)
                 ? null : ((BinderItem)node.Tag).Id;

@@ -33,10 +33,6 @@ namespace Marabook.App
             close.Click += delegate { var h = CloseRequested; if (h != null) h(); };
             DockPanel.SetDock(close, Dock.Right);
             head.Children.Add(close);
-            var copy = Buttons.Icon("copy-simple-bold", "Copier le bilan dans le presse-papiers", Buttons.Compact, Buttons.Look.Calm);
-            copy.Click += delegate { if (_report != null) { try { Ui.SetClipboardText(this, _report.ToText()); } catch { } } };
-            DockPanel.SetDock(copy, Dock.Right);
-            head.Children.Add(copy);
             var titles = new StackPanel();
             titles.Children.Add(new TextBlock { Text = "Bilan de style", Foreground = Chrome.SoftText, FontSize = 12, FontWeight = FontWeight.SemiBold });
             _title = new TextBlock { Foreground = Chrome.Ink, FontSize = 14, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };

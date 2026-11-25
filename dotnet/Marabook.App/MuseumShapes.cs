@@ -60,6 +60,88 @@ namespace Marabook.App
             // Le second filet : à 55 %, écarté de Ring, sa découpe parallèle à celle du cadre.
             context.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromArgb(0x8C, metal.R, metal.G, metal.B)), 1), Outline(bounds.Deflate(0.5), Cut + Ring * 0.586));
             context.DrawGeometry(Background, new Pen(BorderBrush ?? Chrome.BorderStrong, 1), Outline(bounds.Deflate(Ring + 0.5), Cut));
+            // Le losange du pied (25/11, Rémi) : au milieu du filet du bas, vide — le filet le contourne.
+            FootDiamond.Draw(context, new Point(bounds.Width / 2, bounds.Bottom - Ring - 0.5), Background, BorderBrush ?? Chrome.BorderStrong);
+        }
+    }
+
+    /// <summary>LE LOSANGE DU PIED (série « Museum », 25/11/2026, Rémi) : au milieu de la bordure
+    /// inférieure de chaque menu contextuel et de chaque liste déroulante, un petit losange VIDE
+    /// qui assure la continuité de la bordure — le filet s'ouvre pour le contourner, comme sur le
+    /// bord gauche des Préférences sous « Ascension ». Le menu contextuel le peint lui-même
+    /// (CutFrame) ; les listes déroulantes (ComboBox) et les menus déroulés (MenuItem, menu des
+    /// zones de texte) gardent le cadre du thème : le losange y est un petit contrôle glissé dans
+    /// le cadre à la naissance du gabarit, qui peint à cheval sur son bord bas. Le cadre reçoit du
+    /// skin une marge basse (Room) : sans elle, la moitié qui dépasse sortirait de la fenêtre du menu.
+    /// Il ne peint rien hors de la série « Museum ».</summary>
+    internal sealed class FootDiamond : Control
+    {
+        public const double Half = 4.2, Room = 6;
+        private static bool _installed;
+        private readonly Border _frame;
+
+        /// <summary>Peint le losange centré sur <paramref name="center"/> : le fond du cadre dedans (il
+        /// efface le filet qui passait là), le filet autour.</summary>
+        public static void Draw(DrawingContext context, Point center, IBrush fill, IBrush line)
+        {
+            var diamond = new[] { new Point(center.X - Half, center.Y), new Point(center.X, center.Y - Half), new Point(center.X + Half, center.Y), new Point(center.X, center.Y + Half) };
+            var ground = fill as ISolidColorBrush;
+            // Un fond de verre (translucide) laisserait voir le filet : le losange est peint plein.
+            if (ground != null && ground.Color.A < 255) fill = new SolidColorBrush(Color.FromRgb(ground.Color.R, ground.Color.G, ground.Color.B));
+            context.DrawGeometry(fill ?? Chrome.RaisedBg, new Pen(line ?? Chrome.BorderStrong, 1), new PolylineGeometry(diamond, true));
+        }
+
+        /// <summary>Au démarrage : chaque liste déroulante, chaque menu qui reçoit son gabarit reçoit son losange.</summary>
+        public static void Install()
+        {
+            if (_installed) return;
+            _installed = true;
+            TemplatedControl.TemplateAppliedEvent.AddClassHandler<ComboBox>(delegate(ComboBox box, Avalonia.Controls.Primitives.TemplateAppliedEventArgs e) { Attach(e.NameScope.Find<Avalonia.Controls.Primitives.Popup>("PART_Popup")); });
+            TemplatedControl.TemplateAppliedEvent.AddClassHandler<MenuItem>(delegate(MenuItem item, Avalonia.Controls.Primitives.TemplateAppliedEventArgs e) { Attach(e.NameScope.Find<Avalonia.Controls.Primitives.Popup>("PART_Popup")); });
+            TemplatedControl.TemplateAppliedEvent.AddClassHandler<MenuFlyoutPresenter>(delegate(MenuFlyoutPresenter presenter, Avalonia.Controls.Primitives.TemplateAppliedEventArgs e)
+            {
+                foreach (var child in Avalonia.VisualTree.VisualExtensions.GetVisualChildren(presenter)) { Attach(child as Border); break; }
+            });
+        }
+
+        private static void Attach(Avalonia.Controls.Primitives.Popup popup) { if (popup != null) Attach(popup.Child as Border); }
+
+        /// <summary>Glisse le losange dans le cadre : son contenu passe dans un panneau, le losange à côté.</summary>
+        private static void Attach(Border frame)
+        {
+            if (frame == null || frame.Child == null) return;
+            var held = frame.Child as Panel;
+            if (held != null && "foot-host".Equals(held.Tag)) return;
+            var content = frame.Child;
+            frame.Child = null;
+            var host = new Panel { Tag = "foot-host" };
+            host.Children.Add(content);
+            host.Children.Add(new FootDiamond(frame));
+            frame.Child = host;
+        }
+
+        private FootDiamond(Border frame)
+        {
+            _frame = frame;
+            IsHitTestVisible = false;
+            Tag = "foot-diamond";
+            frame.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property == Visual.BoundsProperty || e.Property == Border.BackgroundProperty || e.Property == Border.BorderBrushProperty) InvalidateVisual();
+            };
+        }
+
+        protected override Size MeasureOverride(Size availableSize) { return new Size(0, 0); }
+
+        /// <summary>Sonde : le centre du losange, dans le repère du cadre.</summary>
+        internal Point CenterInFrameForProbe { get { return new Point(_frame.Bounds.Width / 2, _frame.Bounds.Height - 0.5); } }
+
+        public override void Render(DrawingContext context)
+        {
+            if (!Skin.Museum || _frame.Bounds.Width < 24) return;
+            var origin = _frame.TranslatePoint(new Point(0, 0), this);
+            if (!origin.HasValue) return;
+            Draw(context, new Point(origin.Value.X + _frame.Bounds.Width / 2, origin.Value.Y + _frame.Bounds.Height - 0.5), _frame.Background, _frame.BorderBrush);
         }
     }
 
@@ -161,7 +243,8 @@ namespace Marabook.App
             var radius = Math.Min(Bounds.Width, Bounds.Height) / 2 - 9;
             if (radius < 12) return;
             context.DrawEllipse(null, new Pen(Chrome.Border, 6), center, radius, radius);
-            var lit = Skin.Museum ? (IBrush)Chrome.Glow : _ratio >= 1 ? (IBrush)Chrome.Ok : Chrome.Accent;
+            // Le dégradé fixe des barres (25/11) : enroulé une fois autour de l'anneau, sous « Museum ».
+            var lit = Skin.Museum ? Skin.MeterRing(Chrome.Glow.Color) : _ratio >= 1 ? (IBrush)Chrome.Ok : Chrome.Accent;
             if (_ratio >= 0.999) context.DrawEllipse(null, new Pen(lit, 6), center, radius, radius);
             else if (_ratio > 0.004)
             {
@@ -212,9 +295,16 @@ namespace Marabook.App
             context.DrawRectangle(new SolidColorBrush(Color.FromArgb(0x26, ink.R, ink.G, ink.B)), null, new Rect(0, Top, width, Thick), 2.5, 2.5);
             if (_ratio > 0)
             {
-                var fill = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative) };
-                fill.GradientStops.Add(new GradientStop(Chrome.Accent.Color, 0));
-                fill.GradientStops.Add(new GradientStop(Skin.Museum ? Chrome.Glow.Color : Chrome.AccentStrong.Color, 1));
+                // Sous « Museum », le dégradé FIXE des barres (25/11), tendu sur la piste entière.
+                IBrush fill;
+                if (Skin.Museum) fill = Skin.MeterBrush(Chrome.Glow.Color, width);
+                else
+                {
+                    var plain = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative) };
+                    plain.GradientStops.Add(new GradientStop(Chrome.Accent.Color, 0));
+                    plain.GradientStops.Add(new GradientStop(Chrome.AccentStrong.Color, 1));
+                    fill = plain;
+                }
                 context.DrawRectangle(fill, null, new Rect(0, Top, Math.Max(Thick, width * _ratio), Thick), 2.5, 2.5);
             }
             var face = new Typeface(Skin.UiFont ?? FontFamily.Default, FontStyle.Normal, FontWeight.Medium);
@@ -249,7 +339,7 @@ namespace Marabook.App
 
         private static bool _installed;
         private readonly TemplatedControl _owner;
-        private readonly Border _band;
+        private readonly Control _band;
 
         /// <summary>Au démarrage : chaque ligne d'arbre, chaque entrée de menu qui reçoit son gabarit reçoit sa perle.</summary>
         public static void Install()
@@ -272,7 +362,14 @@ namespace Marabook.App
             host.Children.Add(pearl);
         }
 
-        private PillPearl(TemplatedControl owner, Border band)
+        /// <summary>La perle d'une ligne de LISTE (25/11, Rémi : « corrige la position des puces dans la
+        /// recherche Ctrl+, et dans le gestionnaire de styles ») : peinte jusque-là par le fond de la
+        /// ligne, elle tombait DANS la pilule, sur l'icône ou le début du texte. Elle se pose désormais
+        /// à cheval sur le bord gauche, comme dans la Pile — le gabarit de la ligne la porte
+        /// (Skin.PillListFace).</summary>
+        internal static PillPearl ForList(ListBoxItem owner, Control band) { return new PillPearl(owner, band); }
+
+        private PillPearl(TemplatedControl owner, Control band)
         {
             _owner = owner;
             _band = band;
@@ -281,7 +378,7 @@ namespace Marabook.App
             EventHandler<AvaloniaPropertyChangedEventArgs> changed = delegate(object sender, AvaloniaPropertyChangedEventArgs e)
             {
                 if (e.Property == InputElement.IsPointerOverProperty || e.Property == Border.BackgroundProperty || e.Property == Visual.BoundsProperty
-                    || e.Property == TreeViewItem.IsSelectedProperty || e.Property == MenuItem.IsSelectedProperty) InvalidateVisual();
+                    || e.Property == TreeViewItem.IsSelectedProperty || e.Property == MenuItem.IsSelectedProperty || e.Property == ListBoxItem.IsSelectedProperty) InvalidateVisual();
             };
             band.PropertyChanged += changed;
             owner.PropertyChanged += changed;
@@ -293,6 +390,8 @@ namespace Marabook.App
             {
                 var line = _owner as TreeViewItem;
                 if (line != null) return line.IsSelected;
+                var row = _owner as ListBoxItem;
+                if (row != null) return row.IsSelected;
                 var entry = _owner as MenuItem;
                 return entry != null && entry.IsSelected;
             }
@@ -305,6 +404,7 @@ namespace Marabook.App
             {
                 if (!Skins.MuseumPill(Skin.Current)) return 0;
                 if (Selected) return 1;
+                if (_owner is ListBoxItem) return _owner.IsPointerOver ? 0.55 : 0;
                 return _band.IsPointerOver && _owner is TreeViewItem ? 0.55 : 0;
             }
         }

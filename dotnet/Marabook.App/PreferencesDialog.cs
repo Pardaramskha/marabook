@@ -54,6 +54,7 @@ namespace Marabook.App
         {
             _project = project;
             Title = "Préférences";
+            Classes.Add(Marabook.App.Theme.Switches); // toutes ses cases à cocher sont des interrupteurs animés (25/11)
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             var availableWidth = Dialogs.AvailableWidth(owner);
             var availableHeight = Dialogs.AvailableHeight(owner);

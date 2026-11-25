@@ -183,6 +183,7 @@ namespace Marabook.App
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot28") { await ProbeLot28(shell); await ProbeNewProject(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "atelier") { await ProbeAtelier(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot30") { await ProbeLot30(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot31") { await ProbeLot31(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "museum") { await ProbeMuseum(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "acces") { await ProbeAccessibility(shell); throw new OperationCanceledException(); }
                 // — La coquille sur le projet d'exemple.
@@ -2281,7 +2282,9 @@ namespace Marabook.App
 
                 shell.ShowJournalPublic();
                 await Settle();
-                Check(true, "le Journal perso s'ouvre");
+                Check(shell.JournalWindowShownForProbe, "le Journal perso s'ouvre, dans sa fenêtre (25/11)");
+                shell.CloseJournalForProbe();
+                await Settle();
                 foreach (RightPanel panel in Enum.GetValues(typeof(RightPanel)))
                 {
                     shell.SetRightPanelPublic(panel);
@@ -2720,6 +2723,7 @@ namespace Marabook.App
                 await ProbeAtelier(shell);   // la section Outils : l'Atelier, PDFaah, Chop-Chop, Unlocker, contrôles (2.0.0, 21/11)
                 await ProbeLot30(shell);     // clic droit, palette, Préférences, Atelier en tuiles, outils PDF, WGYC (2.0.0, 22/11)
                 await ProbeAccessibility(shell); // zoom, focus, daltonisme, police, curseur, liens, lecteur d'écran (2.0.0, 22/11)
+                await ProbeLot31(shell);     // correctifs des skins premium, correctifs généraux (2.0.0, 25/11)
                 await ProbeMuseum(shell);    // la série « Museum » : trois skins PREMIUM et leurs trois options (2.0.0, 24/11)
                 await ProbeDebt(shell);      // la dette : très gros paragraphes, annulation par différence, miroir, annotations, idéogrammes (2.0.0, 21/11)
                 await ProbeLot23(shell);     // événements à plusieurs éléments, lieu et tags ; bibliothèque en liste ; natures de champ ; forces du graphe ; fiches en données ; voix haute (2.0.0, 21/11)

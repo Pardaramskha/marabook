@@ -373,6 +373,51 @@ namespace Marabook.App
             }
         }
 
+        private TextBlock _sprintBig, _sprintSub;
+        private ColumnDefinition _sprintFillCol, _sprintRestCol;
+        private Border _sprintFill;
+        private bool _sprintReached;
+
+        private static string SprintBig(SprintStatus sprint, System.Globalization.CultureInfo culture)
+        {
+            if (sprint.Finished) return sprint.Written.ToString("N0", culture) + (sprint.Written > 1 ? " mots" : " mot");
+            if (sprint.SecondsLeft >= 0) return (sprint.SecondsLeft / 60).ToString("00", culture) + ":" + (sprint.SecondsLeft % 60).ToString("00", culture);
+            return sprint.Elapsed + " min";
+        }
+
+        private static string SprintSub(SprintStatus sprint, System.Globalization.CultureInfo culture)
+        {
+            string sub;
+            if (sprint.Finished) sub = "en " + sprint.Elapsed + " min" + (sprint.Goal > 0 ? " · objectif " + sprint.Goal.ToString("N0", culture) : "");
+            else sub = (sprint.Minutes > 0 ? "sur " + sprint.Minutes + " min" : "sprint libre") + " · " + sprint.Written.ToString("N0", culture)
+                + (sprint.Goal > 0 ? " / " + sprint.Goal.ToString("N0", culture) : "") + (sprint.Written > 1 ? " mots" : " mot");
+            if (sprint.Goal > 0 && sprint.Written >= sprint.Goal) sub += " — objectif atteint !";
+            return sub;
+        }
+
+        /// <summary>LE CHRONOMÈTRE DE LA CARTE (25/11, Rémi : « quand on lance un sprint depuis l'accueil,
+        /// le chronomètre ne décompte pas ») : la carte n'était bâtie qu'aux rafraîchissements de
+        /// l'Accueil — au lancement, à la fin — et restait figée entre les deux. La coquille l'appelle
+        /// à chaque seconde du sprint : le temps, les mots et la barre sont reposés sur place, sans
+        /// rebâtir l'Accueil. Sans carte, ou sprint fini (la fin rebâtit tout), rien.</summary>
+        public void TickSprint()
+        {
+            if (_sprintCard == null || _sprintBig == null || Sprint == null) return;
+            var sprint = Sprint();
+            if (sprint == null || !sprint.Active) return;
+            var culture = System.Globalization.CultureInfo.CurrentCulture;
+            _sprintBig.Text = Skin.TitleText(SprintBig(sprint, culture));
+            _sprintSub.Text = SprintSub(sprint, culture);
+            if (_sprintFillCol == null || sprint.Goal <= 0) return;
+            var ratio = Math.Max(0, Math.Min(1.0, (double)sprint.Written / sprint.Goal));
+            _sprintFillCol.Width = new GridLength(ratio, GridUnitType.Star);
+            _sprintRestCol.Width = new GridLength(1 - ratio, GridUnitType.Star);
+            var reached = sprint.Written >= sprint.Goal;
+            if (reached != _sprintReached) { _sprintReached = reached; Skin.RefreshMeter(_sprintFill); }
+        }
+
+        internal string SprintClockForProbe { get { return _sprintBig == null ? null : _sprintBig.Text; } }
+
         /// <summary>La carte du sprint (b48) : en cours ou fini, tant qu'il n'est pas refermé. Sous un
         /// skin « Museum », la tranche de métal d'un carton à sa gauche.</summary>
         private Border SprintCard(SprintStatus sprint, System.Globalization.CultureInfo culture)
@@ -380,30 +425,26 @@ namespace Marabook.App
             var body = new StackPanel { Margin = new Thickness(Skin.Museum ? 22 : 12, 10, 12, 10), VerticalAlignment = VerticalAlignment.Center };
             body.Children.Add(Label(sprint.Finished ? "Sprint terminé" : "Sprint en cours"));
             _labels.RemoveAt(_labels.Count - 1);
-            string big;
-            if (sprint.Finished) big = sprint.Written.ToString("N0", culture) + (sprint.Written > 1 ? " mots" : " mot");
-            else if (sprint.SecondsLeft >= 0) big = (sprint.SecondsLeft / 60).ToString("00", culture) + ":" + (sprint.SecondsLeft % 60).ToString("00", culture);
-            else big = sprint.Elapsed + " min";
-            var title = new TextBlock { Text = big, FontSize = 19, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink };
-            Skin.Title(title);
-            body.Children.Add(title);
-            var reached = sprint.Goal > 0 && sprint.Written >= sprint.Goal;
-            string sub;
-            if (sprint.Finished) sub = "en " + sprint.Elapsed + " min" + (sprint.Goal > 0 ? " · objectif " + sprint.Goal.ToString("N0", culture) : "");
-            else sub = (sprint.Minutes > 0 ? "sur " + sprint.Minutes + " min" : "sprint libre") + " · " + sprint.Written.ToString("N0", culture)
-                + (sprint.Goal > 0 ? " / " + sprint.Goal.ToString("N0", culture) : "") + (sprint.Written > 1 ? " mots" : " mot");
-            if (reached) sub += " — objectif atteint !";
-            body.Children.Add(new TextBlock { Text = sub, Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+            _sprintBig = new TextBlock { Text = SprintBig(sprint, culture), FontSize = 19, FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink };
+            Skin.Title(_sprintBig);
+            body.Children.Add(_sprintBig);
+            _sprintSub = new TextBlock { Text = SprintSub(sprint, culture), Foreground = Chrome.SoftText, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
+            body.Children.Add(_sprintSub);
+            _sprintFillCol = _sprintRestCol = null;
+            _sprintFill = null;
             if (sprint.Goal > 0)
             {
                 var track = new Grid { Height = 5, Margin = new Thickness(0, 9, 0, 0) };
                 var ratio = Math.Max(0, Math.Min(1.0, (double)sprint.Written / sprint.Goal));
-                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ratio, GridUnitType.Star) });
-                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1 - ratio, GridUnitType.Star) });
+                track.ColumnDefinitions.Add(_sprintFillCol = new ColumnDefinition { Width = new GridLength(ratio, GridUnitType.Star) });
+                track.ColumnDefinitions.Add(_sprintRestCol = new ColumnDefinition { Width = new GridLength(1 - ratio, GridUnitType.Star) });
                 var back = new Border { Background = Chrome.Border, CornerRadius = new CornerRadius(2.5) };
                 Grid.SetColumnSpan(back, 2);
                 track.Children.Add(back);
-                track.Children.Add(new Border { Background = reached ? (IBrush)Chrome.Ok : Chrome.Accent, CornerRadius = new CornerRadius(2.5) });
+                _sprintFill = new Border { CornerRadius = new CornerRadius(2.5) };
+                track.Children.Add(_sprintFill);
+                _sprintReached = sprint.Written >= sprint.Goal;
+                Skin.Meter(_sprintFill, track, delegate { return _sprintReached ? Chrome.Ok.Color : Chrome.Accent.Color; }); // dégradé fixe sous « Museum » (25/11)
                 body.Children.Add(track);
             }
             var layers = new Panel();

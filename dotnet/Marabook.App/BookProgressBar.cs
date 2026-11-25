@@ -64,6 +64,9 @@ namespace Marabook.App
             presentGrid.Children.Add(doneBar);
             Grid.SetColumn(presentBar, 0);
             track.Children.Add(presentBar);
+            // Le dégradé fixe des barres (skins « Museum », 25/11) : les deux parts partent du bord gauche de la piste.
+            Skin.Meter(presentBar, track, delegate { return Chrome.Warn.Color; });
+            Skin.Meter(doneBar, track, delegate { return Chrome.Ok.Color; });
             Children.Add(track);
         }
 

@@ -121,12 +121,45 @@ namespace Marabook.App
         /// (CardSelected) et la liste entière (SelectionChanged).</summary>
         private void AnnounceSelection(BinderItem single)
         {
+            _selectedPartId = null; // une carte choisie, ou plus rien : la partie montrée au rail est lâchée (25/11)
+            PaintPartBoxes();
             RefreshSelectionVisuals();
             var chosen = CardSelected;
             if (chosen != null) chosen(single);
             var changed = SelectionChanged;
             if (changed != null) changed(SelectedItems());
         }
+
+        // ------------------------------------------------ la partie montrée au rail (25/11)
+
+        /// <summary>UNE PARTIE DE LIVRE CLIQUÉE (25/11, Rémi) : un clic sur son nom ou sur le fond de sa
+        /// boîte la montre dans le Général du rail (nom, couleur, options), comme une carte — sans
+        /// l'ouvrir. Elle est remplacée dès que l'on clique ailleurs ou sur un écrit.</summary>
+        private string _selectedPartId;
+        private readonly Dictionary<string, Border> _partBoxes = new Dictionary<string, Border>();
+
+        private void SelectPart(BinderItem folder)
+        {
+            if (folder == null) return;
+            _selected.Clear();
+            RefreshSelectionVisuals();
+            _selectedPartId = folder.Id;
+            PaintPartBoxes();
+            var chosen = CardSelected;
+            if (chosen != null) chosen(folder);
+            var changed = SelectionChanged;
+            if (changed != null) changed(SelectedItems());
+        }
+
+        private void PaintPartBoxes()
+        {
+            foreach (var pair in _partBoxes) pair.Value.BorderThickness = new Thickness(pair.Key == _selectedPartId ? 2.6 : 1.4);
+        }
+
+        /// <summary>La partie que le rail montre, ou null.</summary>
+        internal string SelectedPartIdForProbe { get { return _selectedPartId; } }
+        internal Border PartBoxForProbe(string id) { Border box; return _partBoxes.TryGetValue(id, out box) ? box : null; }
+        internal void SelectPartForProbe(BinderItem folder) { SelectPart(folder); }
 
         /// <summary>Plus aucune carte choisie (la coquille, après un lot).</summary>
         public void ClearSelection()
@@ -157,7 +190,7 @@ namespace Marabook.App
         public CorkboardView()
         {
             Focusable = true; // le focus logique quitte la Pile à l'affichage
-            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
+            Skin.GlowGround(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11), sa lueur sous « Ascension » (25/11)
             _templateCards = new WrapPanel { Margin = new Thickness(16, 12, 16, 4), IsVisible = false };
             _templateSeparator = new Border
             {
@@ -297,14 +330,24 @@ namespace Marabook.App
             _trashActions.Children.Add(empty);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
             var layout = new StackPanel();
-            layout.Children.Add(_bookActions);
-            layout.Children.Add(_folderActions);
-            layout.Children.Add(_planActions);
-            layout.Children.Add(_mindMapActions);
-            layout.Children.Add(_writingsActions);
-            layout.Children.Add(_researchActions);
-            layout.Children.Add(_trashActions);
-            layout.Children.Add(BuildFilterHeader());
+            var filterHeader = BuildFilterHeader(); // bâtit aussi le bouton « Curation »
+            // LA LIGNE DU HAUT (25/11, Rémi) : les boutons de création à gauche (une seule de ces
+            // rangées se montre à la fois) et, collé à droite de la même ligne, « Curation » —
+            // l'ancien « Tableau », qui vivait une ligne plus bas, à côté des filtres.
+            var actionRows = new StackPanel();
+            actionRows.Children.Add(_bookActions);
+            actionRows.Children.Add(_folderActions);
+            actionRows.Children.Add(_planActions);
+            actionRows.Children.Add(_mindMapActions);
+            actionRows.Children.Add(_writingsActions);
+            actionRows.Children.Add(_researchActions);
+            actionRows.Children.Add(_trashActions);
+            var topRow = new DockPanel { LastChildFill = true, Tag = "corkboard-top-row" };
+            DockPanel.SetDock(_outlineToggle, Dock.Right);
+            topRow.Children.Add(_outlineToggle);
+            topRow.Children.Add(actionRows);
+            layout.Children.Add(topRow);
+            layout.Children.Add(filterHeader);
             layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
             layout.Children.Add(BuildOutliner());
@@ -339,13 +382,14 @@ namespace Marabook.App
             PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
                 Focus();
-                if (_selected.Count == 0) return;
+                if (_selected.Count == 0 && _selectedPartId == null) return;
                 if (IsWithinCard(e.Source as Visual)) return;
                 _selected.Clear();
-                AnnounceSelection(null);
+                AnnounceSelection(null); // lâche aussi la partie que le rail montrait (25/11)
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
+                if (e.Key == Key.Escape && _selected.Count == 0 && _selectedPartId != null) { AnnounceSelection(null); e.Handled = true; return; }
                 if (_selected.Count == 0) return;
                 if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None)
                 {
@@ -412,10 +456,13 @@ namespace Marabook.App
                 _filterBar.IsVisible = _filterToggle.IsChecked == true
                     ? true : false;
             };
-            // LE TABLEAU (outliner, 21/11) : les mêmes écrits, en lignes et en colonnes.
-            _outlineToggle = Buttons.IconTextToggle("list-dashes-bold", "Tableau",
+            // LA CURATION (l'outliner du 21/11, « Tableau » jusqu'au 24/11) : les mêmes écrits, en lignes
+            // et en colonnes. Sur la ligne du haut, à droite des boutons de création (25/11, Rémi).
+            _outlineToggle = Buttons.IconTextToggle("list-dashes-bold", "Curation",
                 "Les écrits en tableau : état, mots, point de vue, lieu, moment, personnages et synopsis, ligne à ligne. Recliquez pour revenir aux cartes.", Buttons.Bar);
             _outlineToggle.Tag = "outline-toggle";
+            _outlineToggle.VerticalAlignment = VerticalAlignment.Top;
+            _outlineToggle.Margin = new Thickness(8, SheetLibraryView.TopGap, 24, 0);
             _outlineToggle.IsVisible = false;
             _outlineToggle.IsChecked = Marabook.Settings.AppSettings.OutlinerShown;
             _outlineToggle.Click += delegate
@@ -426,7 +473,6 @@ namespace Marabook.App
                 ScreenSteps.Record(this, delegate { SetOutliner(!shown); }, delegate { SetOutliner(shown); });
             };
             var header = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(24, 8, 24, 0) };
-            header.Children.Add(_outlineToggle);
             header.Children.Add(_filterToggle);
             return header;
         }
@@ -966,6 +1012,7 @@ namespace Marabook.App
 
         private void Rebuild()
         {
+            _partBoxes.Clear();
             _cards.Children.Clear();
             _templateCards.Children.Clear();
             _cards.IsVisible = true;
@@ -1257,6 +1304,16 @@ namespace Marabook.App
                 Child = inner
             };
             var folderRef = folder;
+            // Le fond de la boîte, cliqué : la partie se montre au rail (25/11). Une carte se choisit elle-même.
+            _partBoxes[folder.Id] = box;
+            if (folder.Id == _selectedPartId) box.BorderThickness = new Thickness(2.6);
+            box.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(box).Properties.IsLeftButtonPressed || IsWithinCard(e.Source as Visual)) return;
+                Focus();
+                SelectPart(folderRef);
+                e.Handled = true; // le clic « dans le vide » du tableau ne la lâche pas aussitôt
+            };
             // Les LISIÈRES de la boîte (bande haute, bande basse) déposent
             // AVANT ou APRÈS la partie dans le livre — une carte peut donc
             // passer devant une partie (batch 35) ; le fond de la boîte,
@@ -1313,8 +1370,10 @@ namespace Marabook.App
             };
             legend.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
-                if (e.ClickCount != 2) return;
+                if (!e.GetCurrentPoint(legend).Properties.IsLeftButtonPressed) return;
                 e.Handled = true;
+                // Un clic sur le nom : la partie se montre au rail (25/11) ; deux : elle s'ouvre.
+                if (e.ClickCount != 2) { Focus(); SelectPart(folderRef); return; }
                 var handler = Navigate;
                 if (handler != null) handler(folderRef);
             };

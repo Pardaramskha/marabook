@@ -251,7 +251,7 @@ namespace Marabook.App
 
         public ComposedView()
         {
-            Skin.Ground(this); // ground : le fond derrière les pages (b40) — ou le fond d'un skin (21/11)
+            Skin.GlowGround(this); // ground : le fond derrière les pages (b40) — ou le fond d'un skin (21/11), sa lueur sous « Ascension » (25/11)
             HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             Focusable = true;
@@ -279,6 +279,16 @@ namespace Marabook.App
             _overlay.Children.Add(_caretBar);
             _dropCaret = new Rectangle { Width = 2, Fill = Chrome.Accent, IsVisible = false };
             _overlay.Children.Add(_dropCaret);
+            // L'ancre de l'infobulle d'un marqueur de veuve ou d'orpheline (25/11) : le marqueur est
+            // PEINT par la page, il n'a pas de contrôle à lui — ce carré invisible se pose sur celui
+            // que la souris survole, et porte la bulle, à sa gauche.
+            _widowAnchor = new Border { Width = 14, Height = 14, IsVisible = false };
+            ToolTip.SetTip(_widowAnchor, WidowMarkTip);
+            ToolTip.SetPlacement(_widowAnchor, PlacementMode.Left);
+            ToolTip.SetHorizontalOffset(_widowAnchor, -2);
+            ToolTip.SetVerticalOffset(_widowAnchor, 0);
+            _overlay.Children.Add(_widowAnchor);
+            PointerExited += delegate { HideWidowTip(); };
             InitIme(); // les touches mortes sur mac (15/10, 1.0.6)
             InitReader(); // le lecteur d'écran, s'il est demandé (22/11)
             _column = new Grid
@@ -922,6 +932,7 @@ namespace Marabook.App
         {
             for (var i = _overlay.Children.Count - 1; i >= 0; i--)
                 if (!ReferenceEquals(_overlay.Children[i], _caretBar) && !ReferenceEquals(_overlay.Children[i], _dropCaret)
+                    && !ReferenceEquals(_overlay.Children[i], _widowAnchor)
                     && !ReferenceEquals(_overlay.Children[i], _preeditBlock))
                     _overlay.Children.RemoveAt(i);
         }
@@ -1235,46 +1246,92 @@ namespace Marabook.App
         /// <summary>Click on a widow/orphan margin marker: toggles the
         /// paragraph's « autoriser l'aberration » flag and repaginates. The
         /// mark stays (orange = correction active, gris = débrayée).</summary>
-        private bool ToggleWidowMarkAt(PointerPressedEventArgs e)
+        internal const string WidowMarkTip = "Marqueur de veuve ou d'orpheline corrigée. Cliquez pour annuler et inviter le mal chez vous.";
+        private Border _widowAnchor;
+
+        /// <summary>Le marqueur de veuve ou d'orpheline sous un point de la colonne des pages, ou
+        /// null ; <paramref name="box"/> est son carré peint, dans le repère de la colonne.</summary>
+        private WidowMark? WidowMarkAt(Point point, out int pageIndex, out Rect box)
         {
-            if (!ComposedRenderer.ShowWidowMarks) return false; // invisibles : inertes
+            box = default(Rect);
+            pageIndex = -1;
+            if (!ComposedRenderer.ShowWidowMarks) return null; // invisibles : inertes
             var composition = _engine == null ? null : _engine.Current;
-            if (composition == null || composition.Pages.Count == 0) return false;
-            var point = e.GetPosition(_pages);
-            var pageIndex = PageIndexAt(point.Y);
-            var yInPage = point.Y - PageTop(pageIndex);
-            var xInPage = point.X;
+            if (composition == null || composition.Pages.Count == 0) return null;
+            pageIndex = PageIndexAt(point.Y);
+            if (pageIndex < 0 || pageIndex >= composition.Pages.Count) return null;
+            var top = PageTop(pageIndex);
             var left = composition.LeftPxFor(pageIndex);
             foreach (var mark in composition.Pages[pageIndex].WidowMarks)
             {
                 var rect = new Rect(Math.Max(2, left - 22) - 2, mark.Y - 2, 18, 18);
-                if (!rect.Contains(new Point(xInPage, yInPage))) continue;
-                var paragraph = _item.Document.Paragraphs[mark.ParagraphIndex];
-                // Un point d'annulation (29/09) : Ctrl+Z rend le signet, sans
-                // bouger la vue — avant, il défaisait la dernière frappe et
-                // ramenait le caret, souvent des pages plus loin.
-                if (!ReadOnly)
-                {
-                    PushUndo(false);
-                    _undo[_undo.Count - 1].ScrollY = Offset.Y;
-                }
-                paragraph.AllowWidows = !paragraph.AllowWidows;
-                var firstChanged = _engine.Repaginate();
-                // La vue reste où elle est (12/09) : UpdateCaretVisual ramenait
-                // le caret — souvent encore en tête du document — dans la
-                // fenêtre, donc tout en haut, à chaque clic sur un signet.
-                var offset = Offset.Y;
-                RefreshPages(Math.Min(firstChanged, pageIndex));
-                _keepScroll = true;
-                try { UpdateCaretVisual(); }
-                finally { _keepScroll = false; }
-                Offset = new Vector(Offset.X, offset);
-                RaisePageInfo();
-                var handler = Edited;
-                if (handler != null) handler(); // persisté : le projet est sale
-                return true;
+                if (!rect.Contains(new Point(point.X, point.Y - top))) continue;
+                box = new Rect(Math.Max(2, left - 22), top + mark.Y, 14, 14);
+                return mark;
             }
-            return false;
+            return null;
+        }
+
+        /// <summary>La main et l'infobulle sur un marqueur survolé (25/11, Rémi) : on voit qu'il se
+        /// clique, et ce que le clic défait. Vrai si la souris est sur un marqueur.</summary>
+        private bool HoverWidowMark(Point point)
+        {
+            int pageIndex;
+            Rect box;
+            if (WidowMarkAt(point, out pageIndex, out box) == null) { HideWidowTip(); return false; }
+            if (!_widowAnchor.IsVisible || Math.Abs(Canvas.GetLeft(_widowAnchor) - box.X) > 0.5 || Math.Abs(Canvas.GetTop(_widowAnchor) - box.Y) > 0.5)
+            {
+                ToolTip.SetIsOpen(_widowAnchor, false);
+                Canvas.SetLeft(_widowAnchor, box.X);
+                Canvas.SetTop(_widowAnchor, box.Y);
+                _widowAnchor.IsVisible = true;
+            }
+            if (!ToolTip.GetIsOpen(_widowAnchor)) Ui.Post(DispatcherPriority.Background, delegate { if (_widowAnchor.IsVisible) ToolTip.SetIsOpen(_widowAnchor, true); });
+            return true;
+        }
+
+        private void HideWidowTip()
+        {
+            if (_widowAnchor == null || !_widowAnchor.IsVisible) return;
+            ToolTip.SetIsOpen(_widowAnchor, false);
+            _widowAnchor.IsVisible = false;
+        }
+
+        internal bool WidowTipShownForProbe { get { return _widowAnchor != null && _widowAnchor.IsVisible; } }
+        internal bool HoverWidowMarkForProbe(Point point) { return HoverWidowMark(point); }
+
+        private bool ToggleWidowMarkAt(PointerPressedEventArgs e)
+        {
+            int pageIndex;
+            Rect markBox;
+            var found = WidowMarkAt(e.GetPosition(_pages), out pageIndex, out markBox);
+            if (found == null) return false;
+            var mark = found.Value;
+            HideWidowTip();
+            var paragraph = _item.Document.Paragraphs[mark.ParagraphIndex];
+            // Un point d'annulation (29/09) : Ctrl+Z rend le signet, sans
+            // bouger la vue — avant, il défaisait la dernière frappe et
+            // ramenait le caret, souvent des pages plus loin.
+            if (!ReadOnly)
+            {
+                PushUndo(false);
+                _undo[_undo.Count - 1].ScrollY = Offset.Y;
+            }
+            paragraph.AllowWidows = !paragraph.AllowWidows;
+            var firstChanged = _engine.Repaginate();
+            // La vue reste où elle est (12/09) : UpdateCaretVisual ramenait
+            // le caret — souvent encore en tête du document — dans la
+            // fenêtre, donc tout en haut, à chaque clic sur un signet.
+            var offset = Offset.Y;
+            RefreshPages(Math.Min(firstChanged, pageIndex));
+            _keepScroll = true;
+            try { UpdateCaretVisual(); }
+            finally { _keepScroll = false; }
+            Offset = new Vector(Offset.X, offset);
+            RaisePageInfo();
+            var handler = Edited;
+            if (handler != null) handler(); // persisté : le projet est sale
+            return true;
         }
 
         /// <summary>Clic droit sur un mot : réglage fin de la césure — retire
@@ -1739,6 +1796,7 @@ namespace Marabook.App
         {
             var page = e.Source as PageElement;
             if (page == null || _item == null) return;
+            if (HoverWidowMark(e.GetPosition(_pages))) { page.Cursor = new Cursor(StandardCursorType.Hand); return; }
             var imageCursor = ImageCursorAt(e.GetPosition(_pages));
             if (imageCursor != null) { page.Cursor = imageCursor; return; }
             int paragraph, offset;

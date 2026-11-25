@@ -371,6 +371,31 @@ namespace Marabook.App
             styles.Add(Style(x => x.OfType<CheckBox>().Class(":disabled"),
                 new Setter(Visual.OpacityProperty, 0.45)));
 
+            // ---- LES BASCULES DES PRÉFÉRENCES (25/11, Rémi : « remplace TOUTES les checkbox par des
+            // on/off buttons animés ») : dans la fenêtre des Préférences, toute case à cocher — les
+            // siennes et celles des panneaux qu'elle héberge — prend le visage d'un interrupteur :
+            // une piste, un bouton qui glisse (SwitchFace). La case reste une CheckBox : rien ne
+            // change pour le code qui la lit, ni pour le clavier (Espace). Ces règles viennent APRÈS
+            // celles de la case : à priorité égale, la dernière l'emporte. (La fenêtre est reconnue à sa
+            // CLASSE « switches » : une fenêtre dérivée garde la clé de style de Window, un sélecteur
+            // par type ne la verrait pas.)
+            styles.Add(Style(x => x.OfType<Window>().Class(Switches).Descendant().OfType<CheckBox>(),
+                new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<CheckBox>(SwitchFace))));
+            styles.Add(Style(x => x.OfType<Window>().Class(Switches).Descendant().OfType<CheckBox>().Template().OfType<Border>().Name("Track"),
+                new Setter(Border.BackgroundProperty, Chrome.FieldBg),
+                new Setter(Border.BorderBrushProperty, Chrome.BorderStrong)));
+            styles.Add(Style(x => x.OfType<Window>().Class(Switches).Descendant().OfType<CheckBox>().Template().OfType<Border>().Name("Knob"),
+                new Setter(Border.BackgroundProperty, Chrome.SoftText),
+                new Setter(Visual.RenderTransformProperty, SwitchOff)));
+            styles.Add(Style(x => x.OfType<Window>().Class(Switches).Descendant().OfType<CheckBox>().Class(":pointerover").Template().OfType<Border>().Name("Track"),
+                new Setter(Border.BorderBrushProperty, Chrome.Accent)));
+            styles.Add(Style(x => x.OfType<Window>().Class(Switches).Descendant().OfType<CheckBox>().Class(":checked").Template().OfType<Border>().Name("Track"),
+                new Setter(Border.BackgroundProperty, Chrome.Accent),
+                new Setter(Border.BorderBrushProperty, Chrome.Accent)));
+            styles.Add(Style(x => x.OfType<Window>().Class(Switches).Descendant().OfType<CheckBox>().Class(":checked").Template().OfType<Border>().Name("Knob"),
+                new Setter(Border.BackgroundProperty, Brushes.White),
+                new Setter(Visual.RenderTransformProperty, SwitchOn)));
+
             // ---- boutons radio : un rond 16, point blanc sur accent plein choisi
             styles.Add(Style(x => x.OfType<RadioButton>(),
                 new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<RadioButton>(RadioFace)),
@@ -645,6 +670,73 @@ namespace Marabook.App
             return row;
         }
 
+        /// <summary>La classe d'une fenêtre dont les cases à cocher sont des interrupteurs (les Préférences).</summary>
+        public const string Switches = "switches";
+
+        /// <summary>La course du bouton d'un interrupteur, éteint et allumé.</summary>
+        public const double SwitchWidth = 32, SwitchHeight = 18, SwitchKnob = 12, SwitchTravel = SwitchWidth - SwitchKnob - 6;
+        private static readonly Avalonia.Media.Transformation.TransformOperations SwitchOff = Avalonia.Media.Transformation.TransformOperations.Parse("translateX(0px)");
+        private static readonly Avalonia.Media.Transformation.TransformOperations SwitchOn = Avalonia.Media.Transformation.TransformOperations.Parse("translateX(" + SwitchTravel.ToString(System.Globalization.CultureInfo.InvariantCulture) + "px)");
+
+        /// <summary>L'INTERRUPTEUR (25/11) : une piste arrondie (Track) et son bouton (Knob), qui glisse
+        /// d'un bord à l'autre en 160 ms quand la case change — la piste change de couleur du même
+        /// pas. Animations coupées dans les Préférences : il saute, sans transition. Comme pour la
+        /// case (CheckFace) : aucune valeur locale sur ce que les styles d'état changent.</summary>
+        private static Control SwitchFace(TemplatedControl parent, INameScope scope)
+        {
+            var knob = new Border
+            {
+                Name = "Knob",
+                Width = SwitchKnob,
+                Height = SwitchKnob,
+                CornerRadius = new CornerRadius(SwitchKnob / 2),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(2, 0, 0, 0)
+            };
+            var track = new Border
+            {
+                Name = "Track",
+                Width = SwitchWidth,
+                Height = SwitchHeight,
+                CornerRadius = new CornerRadius(SwitchHeight / 2),
+                BorderThickness = new Thickness(1),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = knob
+            };
+            Skin.KeepCorners(track); // un interrupteur reste rond sous tous les skins
+            Skin.KeepCorners(knob);
+            if (Settings.AppSettings.Animations)
+            {
+                var pace = TimeSpan.FromMilliseconds(160);
+                knob.Transitions = new Avalonia.Animation.Transitions
+                {
+                    new Avalonia.Animation.TransformOperationsTransition { Property = Visual.RenderTransformProperty, Duration = pace, Easing = new Avalonia.Animation.Easings.CubicEaseInOut() },
+                    new Avalonia.Animation.BrushTransition { Property = Border.BackgroundProperty, Duration = pace }
+                };
+                track.Transitions = new Avalonia.Animation.Transitions
+                {
+                    new Avalonia.Animation.BrushTransition { Property = Border.BackgroundProperty, Duration = pace },
+                    new Avalonia.Animation.BrushTransition { Property = Border.BorderBrushProperty, Duration = pace }
+                };
+            }
+            var presenter = new ContentPresenter
+            {
+                Name = "Label",
+                Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            presenter.Bind(ContentPresenter.ContentProperty, new TemplateBinding(ContentControl.ContentProperty), BindingPriority.Template);
+            presenter.Bind(ContentPresenter.ContentTemplateProperty, new TemplateBinding(ContentControl.ContentTemplateProperty), BindingPriority.Template);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Background = Brushes.Transparent };
+            row.Children.Add(track);
+            row.Children.Add(presenter);
+            knob.RegisterInNameScope(scope);
+            track.RegisterInNameScope(scope);
+            presenter.RegisterInNameScope(scope);
+            return row;
+        }
+
         /// <summary>L'infobulle : une petite flèche vers le haut (vers le
         /// contrôle, la bulle se pose dessous) puis la pilule ; les deux
         /// suivent Background, la pilule aussi CornerRadius et Padding.</summary>
@@ -667,10 +759,38 @@ namespace Marabook.App
             var pill = new Border { Name = "Pill", Child = presenter };
             pill.Bind(Border.BackgroundProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
             pill.Bind(Border.CornerRadiusProperty, new TemplateBinding(TemplatedControl.CornerRadiusProperty), BindingPriority.Template);
-            var column = new StackPanel { Orientation = Orientation.Vertical };
+            // La bulle posée À GAUCHE de sa cible (25/11, Rémi : le verrou du rail, le marqueur de
+            // veuve) : la flèche du haut s'efface, celle-ci pointe vers la droite, à mi-hauteur.
+            var side = new Path
+            {
+                Name = "ArrowSide",
+                Data = Geometry.Parse("M0,0 L6,6 L0,12 Z"),
+                Width = 6,
+                Height = 12,
+                VerticalAlignment = VerticalAlignment.Center,
+                IsVisible = false
+            };
+            side.Bind(Shape.FillProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
+            var column = new Grid();
+            column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            column.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            column.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            column.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Grid.SetRow(pill, 1);
+            Grid.SetRow(side, 1);
+            Grid.SetColumn(side, 1);
             column.Children.Add(arrow);
             column.Children.Add(pill);
+            column.Children.Add(side);
+            if (Skin.Museum)
+            {
+                // Skins « Museum » (25/11, Rémi) : une légère ombre portée sous la bulle, pour qu'elle
+                // se lise sur n'importe quel fond. La marge lui laisse la place dans la fenêtre de la bulle.
+                pill.BoxShadow = BoxShadows.Parse("0 2 7 0 #73000000");
+                column.Margin = new Thickness(TipShadowRoom, 0, TipShadowRoom, TipShadowRoom + 3);
+            }
             arrow.RegisterInNameScope(scope);
+            side.RegisterInNameScope(scope);
             pill.RegisterInNameScope(scope);
             presenter.RegisterInNameScope(scope);
             // La flèche vise le CENTRE du contrôle survolé (28/09 soir : à
@@ -678,21 +798,30 @@ namespace Marabook.App
             // dépassait le bouton — Avalonia centre la bulle dessous, et la
             // fait glisser au bord de l'écran). Recalculé à chaque passe de
             // mise en page de la bulle ; sans changement, rien n'est reposé.
-            parent.LayoutUpdated += delegate { AimArrow(parent, arrow, pill); };
+            parent.LayoutUpdated += delegate { AimArrow(parent, arrow, side, pill); };
             return column;
         }
+
+        /// <summary>La place laissée à l'ombre d'une infobulle, de chaque côté (skins « Museum »).</summary>
+        internal const double TipShadowRoom = 7;
 
         /// <summary>Pose la flèche de l'infobulle sous le milieu du contrôle
         /// qu'elle décrit : la cible est le PlacementTarget du Popup qui
         /// porte la bulle (parent logique de son PopupRoot), l'écart se lit
         /// en pixels d'écran puis revient en unités logiques.</summary>
-        private static void AimArrow(TemplatedControl tip, Path arrow, Border pill)
+        private static void AimArrow(TemplatedControl tip, Path arrow, Path side, Border pill)
         {
             var root = tip.GetVisualRoot() as PopupRoot;
             if (root == null) return;
             var popup = ((ILogical)root).LogicalParent as Popup;
             var target = popup != null ? popup.PlacementTarget : null;
             if (target == null || !target.IsAttachedToVisualTree() || pill.Bounds.Width <= 0) return;
+            // Posée à gauche (ToolTip.Placement = Left sur la cible) : la flèche de côté, centrée
+            // en hauteur comme Avalonia centre la bulle sur sa cible ; rien d'autre à viser.
+            var left = ToolTip.GetPlacement(target) == PlacementMode.Left;
+            if (side.IsVisible != left) side.IsVisible = left;
+            if (arrow.IsVisible == left) arrow.IsVisible = !left;
+            if (left) return;
             PixelPoint targetCenter, tipOrigin, tipProbe;
             try
             {
@@ -710,7 +839,8 @@ namespace Marabook.App
             // d'écran correspondant, quel que soit le système.
             var scale = (tipProbe.X - tipOrigin.X) / 100.0;
             if (scale <= 0) scale = root.RenderScaling > 0 ? root.RenderScaling : 1;
-            var x = (targetCenter.X - tipOrigin.X) / scale - arrow.Width / 2;
+            var shell = arrow.Parent as Control; // la marge laissée à l'ombre décale le repère
+            var x = (targetCenter.X - tipOrigin.X) / scale - arrow.Width / 2 - (shell == null ? 0 : shell.Margin.Left);
             var max = pill.Bounds.Width - arrow.Width - 6;
             if (x > max) x = max;
             if (x < 6) x = 6;

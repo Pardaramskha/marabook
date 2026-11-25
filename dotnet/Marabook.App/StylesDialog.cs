@@ -58,6 +58,9 @@ namespace Marabook.App
             Content = root;
         }
 
+        /// <summary>Sonde : le dialogue, sans attendre de réponse.</summary>
+        internal static StylesDialog NewForProbe(Window owner, StyleSheet source) { return new StylesDialog(owner, source, StyleScopeContext.GlobalOnly()); }
+
         public static async Task<StyleSheet> Show(Window owner, StyleSheet source)
         {
             return await Show(owner, source, StyleScopeContext.GlobalOnly());

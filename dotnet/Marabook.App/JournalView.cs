@@ -177,6 +177,7 @@ namespace Marabook.App
                 }
             };
             Ui.OnSizeChanged(_progressTrack, delegate { UpdateProgressFill(); });
+            Skin.Meter(_progressFill, _progressTrack, delegate { return Chrome.Accent.Color; }); // dégradé fixe (25/11)
             today.Children.Add(_progressTrack);
             _todayCaption = new TextBlock
             {
@@ -771,8 +772,8 @@ namespace Marabook.App
                 {
                     Width = barWidth,
                     Height = height,
-                    Background = Chrome.Accent,
-                    Opacity = isToday ? 1.0 : (days[i] > 0 ? 0.55 : 0.25),
+                    Background = Skin.Museum ? Skin.MeterBrushUp(Chrome.Accent.Color, height, plotHeight) : Chrome.Accent, // dégradé fixe (25/11)
+                    Opacity = isToday ? 1.0 : (days[i] > 0 ? (Skin.Museum ? 0.80 : 0.55) : 0.25),
                     CornerRadius = new CornerRadius(3, 3, 0, 0),
                     [ToolTip.TipProperty] = Cap(dates[i].ToString("ddd d MMM", culture)) + " — "
                         + days[i].ToString("N0", culture)

@@ -141,13 +141,13 @@ namespace Marabook.App
                 var texts = shell.BookViewForProbe.TextsForProbe;
                 var toggle = texts.OutlineToggleForProbe;
                 Check(shell.VisibleView == "book" || shell.BookViewForProbe.IsVisible, "le livre est ouvert");
-                Check(toggle.IsVisible && !texts.OutlinerShownForProbe, "l'onglet Textes d'un livre a un bouton « Tableau » ; les cartes d'abord");
+                Check(toggle.IsVisible && !texts.OutlinerShownForProbe, "l'onglet Textes d'un livre a un bouton « Curation » (ex-« Tableau ») ; les cartes d'abord");
                 toggle.IsChecked = true;
                 toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Settle();
                 await Settle();
                 var outliner = texts.OutlinerForProbe;
-                Check(texts.OutlinerShownForProbe && AppSettings.OutlinerShown, "« Tableau » remplace les cartes par le tableau (et s'en souvient)");
+                Check(texts.OutlinerShownForProbe && AppSettings.OutlinerShown, "« Curation » remplace les cartes par le tableau (et s'en souvient)");
                 var rows = outliner.RowsForProbe;
                 var kinds = "";
                 foreach (var row in rows) kinds += row.Kind == OutlineRowKind.Folder ? "D" : row.Kind == OutlineRowKind.Text ? "E" : "s";
@@ -188,7 +188,7 @@ namespace Marabook.App
                 toggle.IsChecked = false;
                 toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 await Settle();
-                Check(!texts.OutlinerShownForProbe && !AppSettings.OutlinerShown, "recliquer « Tableau » rend les cartes");
+                Check(!texts.OutlinerShownForProbe && !AppSettings.OutlinerShown, "recliquer « Curation » rend les cartes");
 
                 // ------------------------------------------------ Préférences › Projet et les modèles
                 var prefs = new PreferencesDialog(shell, project);

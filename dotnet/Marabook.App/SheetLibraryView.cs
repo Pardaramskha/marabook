@@ -84,6 +84,116 @@ namespace Marabook.App
         public event Action<bool> EpochRequested; // le bouton « Époque » (1.2.0) : vrai = régler la frise et la date
         public event Action<string> AchievementEvent; // succès à événement (12/09)
 
+        // ------------------------------------------------ la sous-catégorie montrée au rail (25/11)
+
+        /// <summary>UNE SOUS-CATÉGORIE CLIQUÉE (25/11, Rémi) : un clic sur sa boîte — son nom ou son
+        /// fond, ouverte ou repliée — la montre dans le Général du rail (nom, couleur, options) :
+        /// plus besoin de passer par les trois points. Null : plus aucune (clic ailleurs, fiche choisie).</summary>
+        public event Action<SheetCategory> CategorySelected;
+        private string _selectedCategoryId;
+        private readonly Dictionary<string, Border> _subBoxes = new Dictionary<string, Border>();
+
+        /// <summary>La sous-catégorie montrée au rail, ou null.</summary>
+        public SheetCategory SelectedCategory { get { return _selectedCategoryId == null || _project == null ? null : _project.FindSheetCategory(_selectedCategoryId); } }
+
+        private bool IsWithinSubBox(Visual source)
+        {
+            while (source != null)
+            {
+                var border = source as Border;
+                if (border != null && _subBoxes.ContainsValue(border)) return true;
+                source = source.GetVisualParent();
+            }
+            return false;
+        }
+
+        private static bool IsWithinButton(Visual source)
+        {
+            while (source != null)
+            {
+                if (source is Button) return true;
+                source = source.GetVisualParent();
+            }
+            return false;
+        }
+
+        /// <summary>Choisit (ou lâche, null) la sous-catégorie que le rail montre.</summary>
+        internal void SelectCategory(SheetCategory category)
+        {
+            var id = category == null ? null : category.Id;
+            if (id != null && _selected.Count > 0)
+            {
+                _selected.Clear();
+                RefreshSelectionVisuals();
+                var changed = SelectionChanged;
+                if (changed != null) changed(SelectedItems());
+            }
+            _selectedCategoryId = id;
+            PaintSubBoxes();
+            var handler = CategorySelected;
+            if (handler != null) handler(category);
+        }
+
+        /// <summary>La sous-catégorie est lâchée sans prévenir : la coquille montre déjà autre chose.</summary>
+        private void DropCategory()
+        {
+            if (_selectedCategoryId == null) return;
+            _selectedCategoryId = null;
+            PaintSubBoxes();
+        }
+
+        /// <summary>Le rail a cessé de la montrer (navigation) : la boîte perd son trait.</summary>
+        public void ClearCategorySelection() { DropCategory(); }
+
+        private void PaintSubBoxes()
+        {
+            foreach (var pair in _subBoxes) pair.Value.BorderThickness = new Thickness(pair.Key == _selectedCategoryId ? 2.6 : 1.4);
+        }
+
+        /// <summary>Le Général du rail renomme la sous-catégorie (annulable).</summary>
+        internal void RenameCategory(SheetCategory category, string name)
+        {
+            var newName = (name ?? "").Trim();
+            if (category == null || newName.Length == 0 || newName == category.Name) return;
+            var oldName = category.Name;
+            var sub = category.IsSub && _project.ParentOf(category) != null;
+            _history.Run(new SheetStructureAction(sub ? "Sous-catégorie renommée" : "Catégorie renommée",
+                delegate { category.Name = newName; }, delegate { category.Name = oldName; }));
+            NotifyChanged();
+            RebuildRows();
+        }
+
+        /// <summary>…change sa couleur (annulable ; null = aucune).</summary>
+        internal void SetCategoryColor(SheetCategory category, string value)
+        {
+            if (category == null) return;
+            var previous = category.Color;
+            _history.Run(new SheetStructureAction("Couleur de la sous-catégorie", delegate { category.Color = value; }, delegate { category.Color = previous; }));
+            NotifyChanged();
+            RebuildRows();
+        }
+
+        /// <summary>…la replie ou la déplie.</summary>
+        internal void ToggleCategoryCollapsed(SheetCategory category)
+        {
+            if (category == null) return;
+            if (!CollapsedCategories.Remove(category.Id)) CollapsedCategories.Add(category.Id);
+            RebuildRows();
+        }
+
+        internal void EditCategoryFields(SheetCategory category) { if (category != null) EditSubFields(category); }
+        internal void NewSheetInCategory(SheetCategory category) { NewSheetIn(category); }
+        internal void RemoveCategory(SheetCategory category) { if (category != null) DeleteCategory(category); }
+        internal void ExportCategory(SheetCategory category) { var handler = ExportCategoryRequested; if (handler != null && category != null) handler(category); }
+        internal int CountInCategory(SheetCategory category)
+        {
+            var count = 0;
+            if (category == null || _project == null) return 0;
+            foreach (var sheet in Source()) if (_project.SheetCategoryOf(sheet) == category) count++;
+            return count;
+        }
+        internal Border SubBoxForProbe(string id) { Border box; return _subBoxes.TryGetValue(id, out box) ? box : null; }
+
         private static bool IsWithinCard(Visual source)
         {
             while (source != null)
@@ -107,6 +217,7 @@ namespace Marabook.App
 
         private void AnnounceSelection(BinderItem single)
         {
+            if (single != null || _selected.Count > 0) DropCategory(); // une fiche choisie remplace la sous-catégorie au rail (25/11)
             RefreshSelectionVisuals();
             var chosen = CardSelected;
             if (chosen != null) chosen(single);
@@ -189,19 +300,22 @@ namespace Marabook.App
 
         public SheetLibraryView()
         {
-            Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
+            Skin.GlowGround(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11), sa lueur sous « Ascension » (25/11)
             Focusable = true;
             // Un clic dans le vide (ou Échap) désélectionne ; Suppr envoie le
             // lot à la corbeille (1.0.3).
             PointerPressed += delegate(object sender, PointerPressedEventArgs e)
             {
                 Focus();
+                // Un clic hors d'une boîte de sous-catégorie lâche celle que le rail montrait (25/11).
+                if (_selectedCategoryId != null && !IsWithinSubBox(e.Source as Visual)) SelectCategory(null);
                 if (_selected.Count == 0 || IsWithinCard(e.Source as Visual)) return;
                 _selected.Clear();
                 AnnounceSelection(null);
             };
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
+                if (e.Key == Key.Escape && _selectedCategoryId != null && _selected.Count == 0) { SelectCategory(null); e.Handled = true; return; }
                 if (_selected.Count == 0) return;
                 if (e.Key == Key.Escape) { _selected.Clear(); AnnounceSelection(null); e.Handled = true; return; }
                 if (e.Key == Key.Delete && e.KeyModifiers == KeyModifiers.None && _selected.Count > 1)
@@ -693,6 +807,7 @@ namespace Marabook.App
             _rows.Children.Clear();
             _cardsById.Clear();
             _cardOrder.Clear();
+            _subBoxes.Clear();
             if (_project == null) return;
             var needle = Correction.FrenchTokenizer.Fold((_searchBox.Text ?? "").Trim());
             var searching = needle.Length > 0;
@@ -1907,12 +2022,7 @@ namespace Marabook.App
                 var name = await InputDialog.Ask(Ui.OwnerOf(this),
                     "Renommer " + kindLabel, "Nom de " + kindLabel + " :", category.Name);
                 if (name == null || name.Trim().Length == 0) return;
-                var newName = name.Trim();
-                var oldName = category.Name;
-                _history.Run(new SheetStructureAction(sub ? "Sous-catégorie renommée" : "Catégorie renommée",
-                    delegate { category.Name = newName; }, delegate { category.Name = oldName; }));
-                NotifyChanged();
-                RebuildRows();
+                RenameCategory(category, name);
             };
             menu.Items.Add(rename);
 
@@ -1937,13 +2047,7 @@ namespace Marabook.App
                 menu.Items.Add(fields);
                 // La couleur (1.0.5-a) : le nuancier des dossiers, annulable.
                 var colour = new MenuItem { Header = "Couleur", Icon = ColorMenus.Dot(category.Color, 1, Chrome.Border) };
-                ColorMenus.Fill(colour, Ui.OwnerOf(this), _project, category.Color, delegate(string value)
-                {
-                    var previous = category.Color;
-                    _history.Run(new SheetStructureAction("Couleur de la sous-catégorie", delegate { category.Color = value; }, delegate { category.Color = previous; }));
-                    NotifyChanged();
-                    RebuildRows();
-                });
+                ColorMenus.Fill(colour, Ui.OwnerOf(this), _project, category.Color, delegate(string value) { SetCategoryColor(category, value); });
                 menu.Items.Add(colour);
                 menu.Items.Add(new Separator());
                 var removeSub = new MenuItem { Header = "Supprimer la sous-catégorie" };
@@ -2230,6 +2334,8 @@ namespace Marabook.App
                 if (e.InitialPressMouseButton != MouseButton.Left) return;
                 if (!CollapsedCategories.Remove(subRef.Id)) CollapsedCategories.Add(subRef.Id);
                 RebuildRows();
+                // Montrée au rail : son option « Replier / Déplier » suit (25/11).
+                if (_selectedCategoryId == subRef.Id) { var shown = CategorySelected; if (shown != null) shown(subRef); }
             };
             var icon = Icons.Make("folder-bold", 13, accent.HasValue ? (IBrush)new SolidColorBrush(accent.Value) : Chrome.SoftText) as Control;
             if (icon != null) { icon.VerticalAlignment = VerticalAlignment.Center; icon.Margin = new Thickness(0, 0, 6, 0); title.Children.Add(icon); }
@@ -2288,6 +2394,17 @@ namespace Marabook.App
                 Tag = sub.Id // sonde
             };
             MakeDropZone(box, sub, rest); // une tuile lâchée dans la boîte bascule dans la sous-catégorie (1.1.0)
+            // Un clic sur la boîte — son nom, son fond, ouverte ou repliée — la montre au rail (25/11).
+            // Pas sur une tuile (elle se choisit elle-même), ni sur ses boutons (« + », trois points).
+            _subBoxes[sub.Id] = box;
+            if (sub.Id == _selectedCategoryId) box.BorderThickness = new Thickness(2.6);
+            box.PointerPressed += delegate(object sender, PointerPressedEventArgs e)
+            {
+                if (!e.GetCurrentPoint(box).Properties.IsLeftButtonPressed) return;
+                var source = e.Source as Visual;
+                if (IsWithinCard(source) || IsWithinButton(source)) return;
+                SelectCategory(subRef);
+            };
             _rows.Children.Add(box);
         }
 

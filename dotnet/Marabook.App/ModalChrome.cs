@@ -34,7 +34,7 @@ namespace Marabook.App
         public const double TitleHeight = 38;
         public const string CornerKey = "MbDialogCorner", TopCornerKey = "MbDialogTopCorner", GlassKey = "MbDialogGlass";
         /// <summary>LA SILHOUETTE GALBÉE (24/11 au soir) : sous un skin « Museum », les grands dialogues
-        /// (Préférences, Sprint) quittent le panneau rectangulaire pour elle. Trois ressources la
+        /// (les Préférences) quittent le panneau rectangulaire pour elle. Trois ressources la
         /// commandent, republiées à chaque changement de skin : est-elle là, ne l'est-elle pas, et le
         /// retrait du contenu (le renfoncement du bord droit, les losanges du bord gauche).</summary>
         public const string GalbeKey = "MbDialogGalbe", PlainKey = "MbDialogPlain", MoonKey = "MbDialogMoon";
@@ -310,8 +310,10 @@ namespace Marabook.App
             return root;
         }
 
-        /// <summary>Vrai pour un GRAND dialogue, qui prend la silhouette galbée sous un skin « Museum ».</summary>
-        internal static bool Grand(Window window) { return window is PreferencesDialog || window is SprintDialog; }
+        /// <summary>Vrai pour un GRAND dialogue, qui prend la silhouette galbée sous un skin « Museum ».
+        /// « Lancer un sprint » n'en est plus (25/11, Rémi) : une fenêtre classique, le panneau droit
+        /// de tous les autres dialogues.</summary>
+        internal static bool Grand(Window window) { return window is PreferencesDialog; }
 
         private static GrandParts Parts(Window window)
         {

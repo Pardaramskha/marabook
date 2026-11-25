@@ -69,14 +69,9 @@ namespace Marabook.App
         // Les entrées et boutons que le profil (1.1.0) peut cacher.
         private MenuItem _sprintMenu, _namesMenu, _newSheetMenu, _templatesMenu, _insertLinkMenu, _sheetsMenu;
         private Button _homeStartSheet, _homeStartPlan;
-        private bool _journalOpen; // le journal masque l'inspecteur
-        // La FEUILLE du journal (03/10) : un papier aux coins hauts arrondis
-        // qui se glisse depuis le bas par-dessus la vue en cours, et redescend
-        // quand on la quitte. C'est elle qui est dans la grille du centre.
-        private Border _journalSheet;
-        private Panel _journalHost; // transparent pendant la glisse (la vue d'en dessous se voit), fond de fenêtre une fois posée
-        private TranslateTransform _journalSlide;
-        private int _journalMotion;
+        // La FENÊTRE du journal (25/11) : ouverte par-dessus l'application, comme les Préférences ;
+        // null tant qu'elle est fermée. (Du 03/10 au 24/11 : une feuille glissée sur le centre.)
+        private JournalDialog _journalDialog;
         private Grid _centerHost; // hôte du toast de célébration
         private StackPanel _toastHost;          // succès : toasts en bas à droite de la fenêtre (12/09)
         private BusyIndicator _busy;            // l'anneau d'activité de la ligne des menus (0.50.0)
@@ -965,6 +960,7 @@ namespace Marabook.App
             _sheetLibrary.ExportCategoryRequested += delegate(SheetCategory category) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Category(category.Id)); }; // l'Encyclopédie (31/10)
             _sheetLibrary.ExportSheetRequested += delegate(BinderItem item) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Sheet(item.Id)); };
             _sheetLibrary.SelectionChanged += InspectGroup; // la sélection multiple (1.0.3)
+            _sheetLibrary.CategorySelected += InspectCategory; // une sous-catégorie cliquée : le Général la montre (25/11)
             _sheetLibrary.BatchMenuProvider = BuildBatchMenu;
             _sheetLibrary.DeleteManyRequested += TrashMany;
             _sheetLibrary.EpochRequested += ToggleEpoch; // le bouton « Époque » (1.2.0)
@@ -1117,26 +1113,12 @@ namespace Marabook.App
             center.Children.Add(BuildGraphView()); // le graphe relationnel (1.1.0)
             center.Children.Add(BuildAtelierView()); // l'Atelier, section Outils (2.0.0, 21/11)
 
-            _journalView = new JournalView { IsVisible = false, Background = Brushes.Transparent }; // le fond est celui de la feuille (coins ronds)
+            // Le Journal perso : sa vue n'est plus dans la grille du centre (25/11) — la fenêtre du
+            // journal (JournalDialog) l'héberge le temps qu'elle est ouverte.
+            _journalView = new JournalView { IsVisible = false, Background = Brushes.Transparent }; // le fond est celui de la fenêtre
             _journalView.Changed += delegate { MarkDirty(); CheckDailyGoal(); };
-            _journalView.SprintRequested += StartSprint; // « Démarrer un sprint » de la carte Sprints (14/09)
+            _journalView.SprintRequested += delegate { CloseJournal(); StartSprint(); }; // « Démarrer un sprint » de la carte Sprints (14/09) : le journal se referme, on va écrire
             _journalView.SecretAchievementClicked += OnSecretAchievementClicked; // les succès secrets (31/10)
-            _journalSlide = new TranslateTransform(0, 0);
-            _journalSheet = new Border
-            {
-                IsVisible = false,
-                Background = Chrome.WindowBg,
-                BorderBrush = Chrome.Border,
-                BorderThickness = new Thickness(0, 1, 0, 0),
-                CornerRadius = new CornerRadius(14, 14, 0, 0),
-                Margin = new Thickness(0, 14, 0, 0), // la page « commence » sous une bande de la vue d'en dessous et continue vers le bas
-                BoxShadow = new BoxShadows(new BoxShadow { OffsetX = 0, OffsetY = -6, Blur = 22, Color = Color.FromArgb(0x38, 0, 0, 0) }),
-                RenderTransform = _journalSlide,
-                Child = _journalView
-            };
-            _journalHost = new Grid { IsVisible = false, Background = Brushes.Transparent, ZIndex = 10 }; // par-dessus toutes les vues du centre
-            _journalHost.Children.Add(_journalSheet);
-            center.Children.Add(_journalHost);
 
             // Sortie du mode calme : une pastille discrète en haut à droite des
             // pages — s'affirme au survol.
@@ -1732,6 +1714,7 @@ namespace Marabook.App
             _graphSection = new ContentControl { IsVisible = false, Margin = new Thickness(0, 0, 0, 14) };
             panel.Children.Add(_graphSection);
             panel.Children.Add(BuildBatchSection()); // le Général en mode lot (1.0.3)
+            panel.Children.Add(BuildGroupSection()); // une sous-catégorie de fiches, une partie de livre cliquée au tableau (25/11)
             // Une carte mentale (26/10 soir) : l'inspecteur du module — les réglages
             // de la boîte, du texte, du lien ou du groupe sélectionné — à la place
             // du synopsis.
@@ -1842,6 +1825,7 @@ namespace Marabook.App
             var fill = new Border { Background = Chrome.Accent, CornerRadius = new CornerRadius(3), Tag = "goal-fill" };
             Grid.SetColumn(fill, 0);
             track.Children.Add(fill);
+            Skin.Meter(fill, track, delegate { return Chrome.Accent.Color; }); // dégradé fixe sous « Museum » (25/11)
             _goalSection.Children.Add(track);
             _goalLabel = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11, Margin = new Thickness(0, 3, 0, 0), TextWrapping = TextWrapping.Wrap, Tag = "goal-label" };
             _goalSection.Children.Add(_goalLabel);
@@ -2340,7 +2324,7 @@ namespace Marabook.App
             RelationKinds.Active = project.RelationSchema; // les natures de relation du projet (1.1.0)
             RememberDisk(path, project.SaveId); // la référence du disque (1.0.3)
             AcquireLock(path);                  // « ce projet est ouvert sur … »
-            _current = null; _inspected = null; _inspectedGroup = null;
+            _current = null; _inspected = null; _inspectedGroup = null; _inspectedCategory = null;
             _dirty = false;
             CodeModuleHost.Instance.NotifyProjectChanged(); // un autre projet : les liens des cartes se relisent (26/10 soir)
             _readOnlyBanner.IsVisible = project.ReadOnlyNewerFormat
@@ -2364,6 +2348,7 @@ namespace Marabook.App
             if (_compareWindow != null) _compareWindow.Close();
             _mediaView.Clear();
             _corkboard.Clear();
+            CloseJournal(); // la fenêtre du journal ne survit pas au projet (25/11)
             _journalView.Clear();
             _pinnedPanel.SetProject(project, project.Styles);
             _binder.ExpansionKey = IsTutorialPath(path) ? null : path; // la Pile dépliée telle que laissée (31/10)
@@ -3524,7 +3509,7 @@ namespace Marabook.App
             try
             {
                 CommitActive();
-                _current = item; _inspected = null; _inspectedGroup = null;
+                _current = item; _inspected = null; _inspectedGroup = null; _inspectedCategory = null;
                 ShowItem(item);
                 TabsFollow(item); // l'onglet actif montre ce que la Pile vient d'ouvrir (1.1.0)
             }
@@ -3624,7 +3609,6 @@ namespace Marabook.App
 
             HideCenterViews();
             DropStyleReportIfStale(item); // le bilan de style ne suit pas un autre écrit (09/10)
-            SlideJournalOut(); // la feuille du journal redescend sur la vue qui arrive (03/10)
             ScheduleBinderRebuild(); // la Pile se rafraîchit à la navigation (29/10, Rémi)
             if (item == null || item.Kind != ItemKind.Text) { _statusPages.Text = ""; _statusBook.Text = ""; _docPages = 0; }
 
@@ -3849,108 +3833,51 @@ namespace Marabook.App
             _placeholder.IsVisible = false;
         }
 
-        /// <summary>Ouvre le Journal perso au centre (entrée fixe de la Pile).
-        /// Aucun élément d'arbre : la sélection courante est simplement rendue,
-        /// et tout clic dans la Pile reprend la main. La feuille se glisse
-        /// depuis le bas par-dessus la vue en cours (03/10) ; celle-ci se
-        /// range une fois couverte.</summary>
-        private void ShowJournal()
+        /// <summary>Ouvre le JOURNAL PERSO — une fenêtre posée par-dessus l'application, comme les
+        /// Préférences (25/11, Rémi ; avant : une feuille glissée sur la zone centrale, qui en chassait
+        /// la vue en cours). Rien ne bouge dessous : ni la sélection de la Pile, ni l'élément ouvert,
+        /// ni le rail. Elle se ferme par sa croix ou par Échap. Déjà ouverte : elle se rafraîchit et
+        /// repasse devant. Pendant le tutoriel, elle est montrée sans bloquer (à regarder, pas à toucher).</summary>
+        private async void ShowJournal()
         {
-            if (_journalView.IsVisible)
+            if (_project == null) return;
+            if (_journalDialog != null)
             {
                 _journalView.Refresh();
+                _journalDialog.Activate();
                 return;
             }
-            _navigating = true;
-            try
-            {
-                CommitActive();
-                _current = null; _inspected = null; _inspectedGroup = null;
-                _placeholder.IsVisible = false;
-                _journalView.Load(_project);
-                RememberRightWidth();
-                _journalOpen = true;
-                ApplyPanelVisibility();
-                SlideJournalIn();
-            }
-            finally
-            {
-                _navigating = false;
-            }
-            UpdateInspector();
-            UpdateStats();
-        }
-
-        /// <summary>La feuille monte depuis le bas (320 ms, sortie cubique),
-        /// image par image comme la Pile ; sans animation (sonde, démarrage)
-        /// elle est posée d'un coup. Arrivée, la vue d'en dessous se range.</summary>
-        private void SlideJournalIn()
-        {
+            CommitActive(); // les mots de l'écrit en cours comptent dans le journal qu'on ouvre
+            _journalView.Load(_project);
             _journalView.IsVisible = true;
-            _journalSheet.IsVisible = true;
-            _journalHost.IsVisible = true;
-            _journalHost.Background = Brushes.Transparent;
-            var generation = ++_journalMotion;
-            var top = _rightAnimationsOn ? TopLevel.GetTopLevel(this) : null;
-            var travel = _journalHost.Bounds.Height;
-            if (top == null || travel < 1)
+            var dialog = _journalDialog = new JournalDialog(this, _journalView);
+            dialog.Closed += delegate
             {
-                _journalSlide.Y = 0;
-                _journalHost.Background = Chrome.WindowBg;
-                HideCenterViews();
+                if (!ReferenceEquals(_journalDialog, dialog)) return;
+                _journalDialog = null;
+                _journalView.IsVisible = false; // les rafraîchissements du journal s'arrêtent
+                RefreshHomeIfShown(); // l'objectif du jour a pu être réglé : l'Accueil le reprend
+                UpdateStats();
+            };
+            if (TutorialActive)
+            {
+                TutorialOpen(dialog);
+                dialog.Show(this);
                 return;
             }
-            _journalSlide.Y = travel;
-            var started = DateTime.Now;
-            Action frame = null;
-            frame = delegate
-            {
-                if (generation != _journalMotion) return;
-                var t = Math.Min(1, (DateTime.Now - started).TotalMilliseconds / 320.0);
-                var eased = 1 - Math.Pow(1 - t, 3);
-                _journalSlide.Y = travel * (1 - eased);
-                if (t >= 1) { _journalSlide.Y = 0; _journalHost.Background = Chrome.WindowBg; HideCenterViews(); }
-                else top.RequestAnimationFrame(delegate { frame(); });
-            };
-            frame();
+            await Dialogs.ShowModal(dialog, this);
         }
 
-        /// <summary>La feuille redescend (260 ms, entrée cubique) par-dessus la
-        /// vue qui arrive, puis se range ; l'inspecteur revient aussitôt.</summary>
-        private void SlideJournalOut()
+        /// <summary>Referme le Journal perso s'il est ouvert (changement de projet, sprint lancé depuis lui).</summary>
+        private void CloseJournal()
         {
-            var wasOpen = _journalOpen;
-            if (_journalOpen)
-            {
-                _journalOpen = false;
-                ApplyPanelVisibility(); // l'inspecteur revient en quittant le journal
-            }
-            _journalView.IsVisible = false; // les rafraîchissements du journal s'arrêtent tout de suite
-            if (!_journalHost.IsVisible) return;
-            _journalHost.Background = Brushes.Transparent; // la vue qui arrive se voit sous la feuille
-            var generation = ++_journalMotion;
-            var top = wasOpen && _rightAnimationsOn ? TopLevel.GetTopLevel(this) : null;
-            var travel = _journalHost.Bounds.Height;
-            if (top == null || travel < 1)
-            {
-                _journalHost.IsVisible = false;
-                _journalSlide.Y = 0;
-                return;
-            }
-            var from = _journalSlide.Y;
-            var started = DateTime.Now;
-            Action frame = null;
-            frame = delegate
-            {
-                if (generation != _journalMotion) return;
-                var t = Math.Min(1, (DateTime.Now - started).TotalMilliseconds / 260.0);
-                var eased = t * t * t;
-                _journalSlide.Y = from + (travel - from) * eased;
-                if (t >= 1) { _journalHost.IsVisible = false; _journalSlide.Y = 0; }
-                else top.RequestAnimationFrame(delegate { frame(); });
-            };
-            frame();
+            var dialog = _journalDialog;
+            if (dialog != null) dialog.Close();
         }
+
+        internal bool JournalWindowShownForProbe { get { return _journalDialog != null && _journalDialog.IsVisible; } }
+        internal Window JournalWindowForProbe { get { return _journalDialog; } }
+        internal void CloseJournalForProbe() { CloseJournal(); }
 
         // ----- routing to whichever editor is on screen -----
 
@@ -5343,11 +5270,17 @@ namespace Marabook.App
             if (_project == null || !Profiles.Enabled(Profiles.Sprints)) return; // profil sans sprints (1.1.0) : le raccourci se tait
             var choice = await SprintDialog.Ask(this);
             if (choice == null) return;
+            BeginSprint(choice.Minutes, choice.Goal);
+        }
+
+        /// <summary>Le sprint part : la pastille, le minuteur, la carte de l'Accueil.</summary>
+        private void BeginSprint(int minutes, int goal)
+        {
             if (_sprintActive) FinishSprint();
-            _sessionGoal = choice.Goal;
+            _sessionGoal = goal;
             _sessionBaseWords = ProjectWords();
             _sprintStart = DateTime.Now;
-            _sprintMinutes = choice.Minutes;
+            _sprintMinutes = minutes;
             _sprintActive = true;
             _sprintFinished = false;
             _sprintPill.BorderBrush = Chrome.Accent;
@@ -5366,6 +5299,8 @@ namespace Marabook.App
         private void TickSprint()
         {
             if (!_sprintActive) return;
+            // La carte de l'Accueil décompte avec la pastille (25/11) : elle restait figée au lancement.
+            if (_homeView != null && _homeView.IsVisible) _homeView.TickSprint();
             var elapsed = DateTime.Now - _sprintStart;
             var words = SprintWords();
             var culture = CultureInfo.CurrentCulture;
@@ -5432,6 +5367,13 @@ namespace Marabook.App
             _sprintFinished = false;
             if (_sprintPill != null) _sprintPill.IsVisible = false;
         }
+
+        // — Sonde (25/11) : un sprint lancé sans dialogue, reculé dans le temps, un battement du minuteur.
+        internal void BeginSprintForProbe(int minutes, int goal) { BeginSprint(minutes, goal); }
+        internal void AgeSprintForProbe(int seconds) { _sprintStart = _sprintStart.AddSeconds(-seconds); }
+        internal void TickSprintForProbe() { TickSprint(); }
+        internal void CloseSprintForProbe() { CloseSprint(); }
+        internal Border RailLockForProbe { get { return _railLock; } }
 
         private SprintStatus SprintStatusNow()
         {
@@ -6018,7 +5960,7 @@ namespace Marabook.App
         {
             var shown = ShownRightPanel();
             if (!AppSettings.RailLocked || shown != RightPanel.None || AppSettings.RightPanel == RightPanel.None
-                || _journalOpen || _calmMode || _project == null) return shown;
+                || _calmMode || _project == null) return shown;
             foreach (var candidate in RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport, HasCalculatorPanel))
                 if (IsPanelAvailable(candidate)) return candidate;
             return shown;
@@ -6026,7 +5968,7 @@ namespace Marabook.App
 
         private bool IsPanelAvailable(RightPanel panel)
         {
-            return RightPanels.Available(panel, _journalOpen || _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel, HasStyleReport, HasCalculatorPanel);
+            return RightPanels.Available(panel, _calmMode, _project != null, PanelKind(), PanelHomeRoot(), _sidePin != null, HasLexiconPanel, HasStyleReport, HasCalculatorPanel);
         }
 
         /// <summary>La nature qui décide du panneau de droite (30/09) : la
@@ -6043,7 +5985,8 @@ namespace Marabook.App
         /// autres racines de la Pile ont l'onglet grisé.</summary>
         private bool PanelHomeRoot()
         {
-            return _inspected == null && (CurrentIsHomeRoot() || IsGraphItem(_current));
+            // …et la racine Fiches le temps qu'une sous-catégorie cliquée s'y montre (25/11).
+            return _inspectedCategory != null || (_inspected == null && (CurrentIsHomeRoot() || IsGraphItem(_current)));
         }
 
         /// <summary>La nature de l'élément courant, null sans sélection — ce
@@ -6109,6 +6052,11 @@ namespace Marabook.App
                 Background = Brushes.Transparent,
                 Cursor = new Cursor(StandardCursorType.Hand)
             };
+            // L'infobulle à GAUCHE de l'icône, flèche vers elle (25/11, Rémi) : collé au bas de la
+            // fenêtre, le verrou n'avait pas la place dessous — la bulle sautait au-dessus, flèche en l'air.
+            ToolTip.SetPlacement(_railLock, PlacementMode.Left);
+            ToolTip.SetHorizontalOffset(_railLock, -2);
+            ToolTip.SetVerticalOffset(_railLock, 0);
             _railLock.PointerReleased += delegate { ToggleRailLock(); };
             _railLock.PointerEntered += delegate { _railLock.Background = Chrome.Border; };
             _railLock.PointerExited += delegate { UpdateRailLock(); };
@@ -6319,7 +6267,7 @@ namespace Marabook.App
         private void UpdateRail()
         {
             if (_rail == null) return;
-            var railOn = !_journalOpen && !_calmMode;
+            var railOn = !_calmMode;
             _rail.IsVisible = railOn ? true : false;
             _railCol.Width = new GridLength(railOn ? RailWidth : 0);
             var offered = RightPanels.Offered(PanelKind(), PanelHomeRoot(), HasLexiconPanel, HasStyleReport, HasCalculatorPanel);
@@ -6485,6 +6433,8 @@ namespace Marabook.App
         {
             _inspected = item;
             _inspectedGroup = null;
+            if (item != null && _inspectedCategory != null) { _inspectedCategory = null; _sheetLibrary.ClearCategorySelection(); } // une fiche remplace la sous-catégorie (25/11)
+            if (IsBookPart(item)) OpenGeneralPanel(); // une partie cliquée ouvre le Général (25/11)
             OpenInspectorForSheet(item);
             UpdateInspector();
         }
@@ -6519,6 +6469,21 @@ namespace Marabook.App
                 // Retour du mode lot : ce qu'il avait masqué et que la suite ne
                 // repose pas d'elle-même.
                 _batchSection.IsVisible = false;
+                _statsSection.IsVisible = (_inspStats.Text ?? "").Length > 0 ? true : false;
+            }
+            if (CategoryInspected())
+            {
+                // Une sous-catégorie de fiches cliquée au tableau (25/11) : le Général à son visage.
+                ShowCategoryInspector(_inspectedCategory);
+                _loadingInspector = false;
+                ApplyPanelVisibility();
+                return;
+            }
+            if (_groupCategoryMode)
+            {
+                // Retour de ce visage : comme pour le mode lot.
+                _groupCategoryMode = false;
+                _groupSection.IsVisible = false;
                 _statsSection.IsVisible = (_inspStats.Text ?? "").Length > 0 ? true : false;
             }
             var item = InspectedItem; // la tuile cliquée au tableau, sinon l'élément ouvert (29/09)
@@ -6607,6 +6572,7 @@ namespace Marabook.App
                 RefreshGoalBars(); // l'objectif et la limite d'un écrit (1.1.0)
                 RefreshTagChips(); // les tags d'une fiche (1.1.0)
             }
+            RefreshPartSection(); // une partie de livre cliquée au tableau : son nom, ses options (25/11)
             _loadingInspector = false;
 
             // À l'Accueil, le Général s'efface derrière les raccourcis

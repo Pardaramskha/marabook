@@ -63,13 +63,13 @@ namespace Marabook.App
             Check(title != null && title.FontFamily == Skin.TitleFont && title.Text == Skin.TitleText(prefs.Title), "…leur titre est dans la police des titres (« " + (title == null ? "" : title.Text) + " »)");
             Check(GalbeFrame.Outline(new Size(900, 660), 0).Bounds.Width > 850 && GalbeFrame.Outline(new Size(360, 240), 0).Bounds.Height > 200, "…le tracé tient pour un grand et pour un petit dialogue");
 
-            // — Le dialogue de sprint, galbé lui aussi.
+            // — Le dialogue de sprint : une fenêtre classique (25/11), le panneau droit des autres dialogues.
             var sprint = SprintDialog.NewForProbe(prefs);
             sprint.Show(prefs);
             for (var i = 0; i < 3; i++) await Settle();
             var sprintGalbe = sprint.GetVisualDescendants().OfType<GalbeFrame>().FirstOrDefault();
             var sprintMoon = sprint.GetVisualDescendants().OfType<MoonFrame>().FirstOrDefault();
-            Check(ascent ? sprintGalbe != null && sprintGalbe.IsVisible : sprintMoon != null && sprintMoon.IsVisible && sprint.Bounds.Width > MoonFrame.Extra(sprint.Bounds.Height) + 300 && sprint.Bounds.Width < MoonFrame.Extra(sprint.Bounds.Height) + 480, "…« Lancer un sprint » aussi, à la taille de son contenu (" + sprint.Bounds.Width.ToString("0") + " px)");
+            Check(sprintGalbe == null && sprintMoon == null && ModalChrome.DressedForProbe(sprint) && sprint.Bounds.Width > 300 && sprint.Bounds.Width < 480, "…« Lancer un sprint » est une fenêtre classique : ni silhouette galbée ni lune, à la taille de son contenu (" + sprint.Bounds.Width.ToString("0") + " px)");
             Shot(sprint, "museum-" + id + "-sprint.png");
             sprint.Close();
             await Settle();

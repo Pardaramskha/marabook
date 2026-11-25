@@ -395,12 +395,18 @@ namespace Marabook.App
                 new Setter(TemplatedControl.BorderBrushProperty, Current == Skins.MuseumAscent ? Linear(Chrome.Accent.Color, Chrome.BorderStrong.Color, false) : (IBrush)Chrome.BorderStrong),
                 new Setter(TemplatedControl.PaddingProperty, new Thickness(5, 7, 5, 7)),
                 new Setter(TemplatedControl.TemplateProperty, new Avalonia.Controls.Templates.FuncControlTemplate<ContextMenu>(CutMenuFace))));
-            styles.Add(Rule(x => x.OfType<MenuItem>().Template().OfType<Popup>().Child().OfType<Border>(), new Setter(Border.BorderBrushProperty, Chrome.BorderStrong)));
+            // Menus déroulés et listes déroulantes : un filet de métal, et la place du LOSANGE DU PIED
+            // (FootDiamond, 25/11), à cheval sur leur bord bas.
+            var footRoom = new Thickness(0, 0, 0, FootDiamond.Room);
+            styles.Add(Rule(x => x.OfType<MenuItem>().Template().OfType<Popup>().Child().OfType<Border>(), new Setter(Border.BorderBrushProperty, Chrome.BorderStrong), new Setter(Layoutable.MarginProperty, footRoom)));
+            styles.Add(Rule(x => x.OfType<ComboBox>().Template().OfType<Popup>().Child().OfType<Border>(), new Setter(Border.BorderBrushProperty, Chrome.BorderStrong), new Setter(Layoutable.MarginProperty, footRoom)));
+            styles.Add(Rule(x => x.OfType<MenuFlyoutPresenter>().Template().OfType<Border>(), new Setter(Border.BorderBrushProperty, Chrome.BorderStrong), new Setter(Layoutable.MarginProperty, footRoom)));
+            // L'INFOBULLE (25/11, Rémi) : elle se pare de la couleur dominante du skin — l'accent,
+            // forcé — et son texte prend l'encre qui s'y lit le mieux, claire ou sombre (TipInk) ;
+            // l'ombre portée est posée par le gabarit (Theme.TipFace).
             styles.Add(Rule(x => x.OfType<ToolTip>(),
-                new Setter(TemplatedControl.BackgroundProperty, Chrome.RaisedBg),
-                new Setter(TemplatedControl.ForegroundProperty, Chrome.Ink),
-                new Setter(TemplatedControl.BorderBrushProperty, Chrome.BorderStrong),
-                new Setter(TemplatedControl.BorderThicknessProperty, new Thickness(1))));
+                new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Chrome.Accent.Color)),
+                new Setter(TemplatedControl.ForegroundProperty, new SolidColorBrush(TipInk(Chrome.Accent.Color)))));
             styles.Add(Rule(x => x.OfType<Separator>(), new Setter(TemplatedControl.BackgroundProperty, Chrome.BorderStrong), new Setter(Visual.OpacityProperty, 0.55)));
             if (!Skins.MuseumPill(Current))
             {
@@ -443,8 +449,10 @@ namespace Marabook.App
             var pearlRoom = new Thickness(PillPearl.Room, 0, 0, 0);
             var glassPlain = new SolidColorBrush(Color.FromArgb(0xE6, body.R, body.G, body.B));
             var glassOver = new SolidColorBrush(Color.FromArgb(0x8C, body.R, body.G, body.B));
-            var glassOverList = PillBrush(Color.FromArgb(0x8C, body.R, body.G, body.B), Color.FromArgb(0x8C, glow.R, glow.G, glow.B));
-            var glassOn = PillBrush(Color.FromArgb(0xE6, body.R, body.G, body.B), glow);
+            // Les listes (25/11) : le verre seul — leur perle n'est plus peinte par le fond (elle tombait
+            // sur l'icône de la ligne), elle est posée à cheval sur le bord par le gabarit (PillListFace).
+            var glassOverList = glassOver;
+            var glassOn = glassPlain;
             var thin = new Thickness(1);
             // — La Pile et les arbres.
             // Coins et épaisseur se règlent sur la LIGNE (le gabarit les lie à sa bande) : un style sans
@@ -470,8 +478,10 @@ namespace Marabook.App
                 }
             // — Les listes (« Ouvrir par le nom », les fenêtres à liste).
             styles.Add(Rule(x => x.OfType<ListBoxItem>(),
+                new Setter(TemplatedControl.TemplateProperty, new FuncControlTemplate<ListBoxItem>(PillListFace)),
                 new Setter(TemplatedControl.CornerRadiusProperty, pill), new Setter(TemplatedControl.BorderThicknessProperty, thin), new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent)));
             styles.Add(Rule(x => x.OfType<ListBoxItem>().Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
+                new Setter(Layoutable.MarginProperty, pearlRoom),
                 new Setter(ContentPresenter.CornerRadiusProperty, pill), new Setter(ContentPresenter.BorderThicknessProperty, thin), new Setter(ContentPresenter.BorderBrushProperty, Brushes.Transparent)));
             styles.Add(Rule(x => x.OfType<ListBoxItem>().Class(":pointerover").Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"),
                 new Setter(ContentPresenter.BackgroundProperty, glassOverList), new Setter(ContentPresenter.BorderBrushProperty, edgeSoft), new Setter(ContentPresenter.CornerRadiusProperty, pill), new Setter(ContentPresenter.BorderThicknessProperty, thin), new Setter(ContentPresenter.BoxShadowProperty, shineOver)));
@@ -497,22 +507,56 @@ namespace Marabook.App
             styles.Add(Rule(x => x.OfType<ListBoxItem>().Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"), new Setter(ContentPresenter.BoxShadowProperty, none)));
         }
 
-        /// <summary>Le fond d'une pilule de LISTE : le verre, et la perle (un losange clair, son halo)
-        /// posée sur son bord gauche. Un seul pinceau : posé à gauche et centré en hauteur, non étiré,
-        /// il déborde largement de la ligne, qui n'en montre que ce qu'il lui faut. (La Pile et les
-        /// menus ont mieux : une perle à cheval sur le bord, PillPearl.)</summary>
-        private static IBrush PillBrush(Color glass, Color pearl)
+        /// <summary>Le gabarit d'une ligne de LISTE sous un skin à pilule (25/11) : celui du thème —
+        /// un présentateur qui suit le fond, le filet, les coins et les marges de la ligne — plus la
+        /// PERLE (PillPearl), à cheval sur le bord gauche de la pilule comme dans la Pile et les menus.</summary>
+        private static Control PillListFace(ListBoxItem item, INameScope scope)
         {
-            const double W = 4000, H = 120, R = 3.8, X = R + 0.5;
-            var group = new DrawingGroup();
-            group.Children.Add(new GeometryDrawing { Geometry = new RectangleGeometry(new Rect(0, 0, W, H)), Brush = new SolidColorBrush(glass) });
-            var halo = new RadialGradientBrush();
-            halo.GradientStops.Add(new GradientStop(Color.FromArgb((byte)(pearl.A * 0x8C / 255), pearl.R, pearl.G, pearl.B), 0));
-            halo.GradientStops.Add(new GradientStop(Color.FromArgb(0, pearl.R, pearl.G, pearl.B), 1));
-            group.Children.Add(new GeometryDrawing { Geometry = new EllipseGeometry(new Rect(X - 11, H / 2 - 9, 22, 18)), Brush = halo });
-            var diamond = new[] { new Point(X - R, H / 2), new Point(X, H / 2 - R), new Point(X + R, H / 2), new Point(X, H / 2 + R) };
-            group.Children.Add(new GeometryDrawing { Geometry = new PolylineGeometry(diamond, true), Brush = new SolidColorBrush(pearl) });
-            return new DrawingBrush(group) { Stretch = Stretch.None, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Center };
+            var presenter = new ContentPresenter { Name = "PART_ContentPresenter" };
+            var priority = Avalonia.Data.BindingPriority.Template;
+            presenter.Bind(ContentPresenter.BackgroundProperty, new Avalonia.Data.TemplateBinding(TemplatedControl.BackgroundProperty), priority);
+            presenter.Bind(ContentPresenter.BorderBrushProperty, new Avalonia.Data.TemplateBinding(TemplatedControl.BorderBrushProperty), priority);
+            presenter.Bind(ContentPresenter.BorderThicknessProperty, new Avalonia.Data.TemplateBinding(TemplatedControl.BorderThicknessProperty), priority);
+            presenter.Bind(ContentPresenter.CornerRadiusProperty, new Avalonia.Data.TemplateBinding(TemplatedControl.CornerRadiusProperty), priority);
+            presenter.Bind(ContentPresenter.ContentProperty, new Avalonia.Data.TemplateBinding(ContentControl.ContentProperty), priority);
+            presenter.Bind(ContentPresenter.ContentTemplateProperty, new Avalonia.Data.TemplateBinding(ContentControl.ContentTemplateProperty), priority);
+            presenter.Bind(ContentPresenter.PaddingProperty, new Avalonia.Data.TemplateBinding(TemplatedControl.PaddingProperty), priority);
+            presenter.Bind(ContentPresenter.HorizontalContentAlignmentProperty, new Avalonia.Data.TemplateBinding(ContentControl.HorizontalContentAlignmentProperty), priority);
+            presenter.Bind(ContentPresenter.VerticalContentAlignmentProperty, new Avalonia.Data.TemplateBinding(ContentControl.VerticalContentAlignmentProperty), priority);
+            presenter.RegisterInNameScope(scope);
+            var host = new Panel();
+            host.Children.Add(presenter);
+            host.Children.Add(PillPearl.ForList(item, presenter));
+            return host;
+        }
+
+        /// <summary>L'ILLUMINATION D'« ASCENSION » (25/11, Rémi) : le fond des tableaux de liège et de
+        /// l'éditeur de texte prend un léger dégradé doré — la couleur dominante — qui part du coin bas
+        /// droit vers le haut gauche et revient au fond habituel vers le quart du chemin, comme une
+        /// faible lueur. Transparent au-delà : le fond peint du skin reste dessous. Null sous tout
+        /// autre skin.</summary>
+        internal static IBrush AscentGlow()
+        {
+            if (Current != Skins.MuseumAscent) return null;
+            var gold = Chrome.Accent.Color;
+            var brush = new LinearGradientBrush { StartPoint = new RelativePoint(1, 1, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 0, RelativeUnit.Relative) };
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(Chrome.Dark ? (byte)0x3D : (byte)0x33, gold.R, gold.G, gold.B), 0));
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(Chrome.Dark ? (byte)0x14 : (byte)0x10, gold.R, gold.G, gold.B), AscentGlowReach * 0.55));
+            brush.GradientStops.Add(new GradientStop(Color.FromArgb(0, gold.R, gold.G, gold.B), AscentGlowReach));
+            return brush;
+        }
+
+        /// <summary>Où la lueur d'« Ascension » a rejoint le fond habituel, sur le chemin du coin bas droit au coin haut gauche.</summary>
+        internal const double AscentGlowReach = 0.25;
+
+        /// <summary>L'encre d'une infobulle posée sur <paramref name="ground"/> : la plus lisible des
+        /// deux, presque blanche ou presque noire (rapport de contraste WCAG). L'une des deux passe
+        /// toujours 4,5 : c'est la police qui s'adapte, jamais la couleur du skin.</summary>
+        internal static Color TipInk(Color ground)
+        {
+            var pale = Color.FromRgb(0xFF, 0xFF, 0xFF);
+            var deep = Color.FromRgb(0x14, 0x12, 0x10);
+            return Chrome.ContrastRatio(pale, ground) >= Chrome.ContrastRatio(deep, ground) ? pale : deep;
         }
 
         private static LinearGradientBrush Rim(Color top, Color middle, Color bottom)
