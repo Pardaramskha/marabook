@@ -58,6 +58,8 @@
     <EmbeddedResource Include="..\..\assets\textures\*.jpg" LogicalName="textures/%(Filename)%(Extension)" />
     <!-- Les images de tête des DLC (1/11, Rémi) : assets/dlc/<fichier>, montrées par la fenêtre d'un module. -->
     <EmbeddedResource Include="..\..\assets\dlc\*.jpg;..\..\assets\dlc\*.png" LogicalName="dlc/%(Filename)%(Extension)" />
+    <!-- Les images des profils (2.0.0, 25/11, Rémi) : assets/profils/<profil>.png, en tête de chaque tuile du choix du profil. -->
+    <EmbeddedResource Include="..\..\assets\profils\*.png" LogicalName="profils/%(Filename)%(Extension)" />
     <!-- Le dictionnaire d'orthographe à côté de la DLL (1/11) : SpellChecker le
          cherche dans <exe>/dict ; publish.ps1 le copie dans l'archive, mais la
          sonde de l'intégration continue tourne sur bin/ — sans cette copie,

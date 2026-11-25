@@ -183,6 +183,7 @@ namespace Marabook.App
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot28") { await ProbeLot28(shell); await ProbeNewProject(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "atelier") { await ProbeAtelier(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot30") { await ProbeLot30(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "profils") { await ProbeProfiles(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot31") { await ProbeLot31(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "museum") { await ProbeMuseum(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "acces") { await ProbeAccessibility(shell); throw new OperationCanceledException(); }
@@ -3122,7 +3123,14 @@ namespace Marabook.App
                 Check(!ComposedRenderer.ShowWidowMarks, "…les marqueurs de veuves et d'orphelines se taisent");
                 Check(!shell.Editor.WidowMarksButtonVisibleForProbe, "…et le bouton Veuves/Orphelines du ruban se cache (29/10)");
 
+                // « Moi-même » hérite du profil quitté (2.0.0, 25/11) : venu d'Écrivain·e, il cache ce qu'Écrivain·e cachait.
                 Profiles.Choose(Profiles.Custom);
+                await Settle();
+                Check(AppSettings.HiddenFeatures.SetEquals(Profiles.HiddenBy(Profiles.Writer)) && !bookView.FormatTabShownForProbe && shell.NewSheetMenuShownForProbe,
+                    "profil Moi-même, venu d'Écrivain·e : il en hérite les cases (" + AppSettings.HiddenFeatures.Count + " décochées), le livre reste sans Gabarits & Format");
+                Profiles.Choose(Profiles.Everything);
+                Profiles.Choose(Profiles.Custom);
+                Check(AppSettings.HiddenFeatures.Count == 0, "…venu de Cinglé·e : tout est coché");
                 Profiles.SetHidden(Profiles.Sprints, true);
                 await Settle();
                 Check(bookView.FormatTabShownForProbe && !shell.SprintMenuShownForProbe && shell.NewSheetMenuShownForProbe && ComposedRenderer.ShowWidowMarks,
@@ -3148,6 +3156,7 @@ namespace Marabook.App
                 var start = welcome.GetVisualDescendants().OfType<Button>().FirstOrDefault(b => Equals(b.Tag, "profile-start"));
                 var tiles = welcome.GetVisualDescendants().OfType<Border>().Count(b => b.Tag is string && ((string)b.Tag).StartsWith("profile:"));
                 Check(welcome.ShowsProfileChoice && start != null && !start.IsEnabled && tiles == 4, "l'accueil du premier lancement montre les quatre profils et « Commencer » éteint");
+                await ProbeProfileTiles(shell, welcome);
                 welcome.Release();
                 await Settle();
             }
@@ -3157,6 +3166,139 @@ namespace Marabook.App
                 Profiles.LoadHidden(hiddenBefore);
                 Profiles.Notify();
                 await Settle();
+            }
+        }
+
+        /// <summary>Les profils en CHOIX DE DIFFICULTÉ (2.0.0, 25/11) : trois colonnes — banderole,
+        /// image collée aux bords et à la banderole, nom, description, sept puces — et « Moi-même »
+        /// en tuile-ligne dessous ; la tuile survolée s'agrandit ; cliquer « Moi-même » hérite du
+        /// profil quitté ; sous un skin premium, tranche en S à la banderole et filet en orbite au
+        /// survol seulement. MARABOOK_PROBE_SHOTS : profils-*.png.</summary>
+        private static async Task ProbeProfileTiles(MainWindow shell, WelcomeWindow welcome)
+        {
+            var chooser = welcome.GetVisualDescendants().OfType<ProfileChooser>().FirstOrDefault();
+            Check(chooser != null, "le sélecteur de profil est dans l'accueil");
+            if (chooser == null) return;
+            var columns = new[] { Profiles.Writer, Profiles.Publisher, Profiles.Everything };
+            var good = 0;
+            var detail = "";
+            foreach (var key in columns)
+            {
+                var profile = Profiles.Find(key);
+                Border frame = chooser.FrameForProbe(key), banner = chooser.BannerForProbe(key), clip = chooser.ClipForProbe(key);
+                var picture = chooser.PictureForProbe(key);
+                var said = banner == null ? "" : string.Join(" ", banner.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock block) { return block.Text; }));
+                var perks = frame.GetVisualDescendants().OfType<DockPanel>().Count(delegate(DockPanel line) { return "profile-perk".Equals(line.Tag); });
+                var texts = frame.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock block) { return block.Text; }).ToList();
+                var at = picture == null || picture.Source == null ? default(Point?) : picture.TranslatePoint(new Point(0, 0), clip);
+                var bannerAt = banner.TranslatePoint(new Point(0, 0), clip);
+                // Collée à gauche, à droite et à la banderole ; jamais déformée (carrée) ; seul son bas peut être rogné, elle garde au moins 60 % de sa hauteur.
+                var crop = chooser.CropForProbe(key);
+                var glued = at.HasValue && bannerAt.HasValue && Math.Abs(at.Value.X) < 0.01 && Math.Abs(picture.Bounds.Width - clip.Bounds.Width) < 0.01
+                    && Math.Abs(bannerAt.Value.Y) < 0.01 && Math.Abs(at.Value.Y - banner.Bounds.Height) < 0.01 && Math.Abs(picture.Bounds.Height - picture.Bounds.Width) < 0.5
+                    && crop.Bounds.Height <= picture.Bounds.Height + 0.01 && crop.Bounds.Height >= picture.Bounds.Width * 0.6 - 1.5;
+                var ok = said == "Difficulté : " + profile.Difficulty && glued && perks == 7 && texts.Contains(profile.Name) && texts.Contains(profile.Help) && banner.Background is Avalonia.Media.LinearGradientBrush;
+                if (ok) good++;
+                else detail += " [" + key + " : « " + said + " », image " + (picture == null ? "absente" : picture.Bounds.ToString()) + " dans " + clip.Bounds.Size + ", cadre de l'image " + crop.Bounds + ", à " + at + ", banderole à " + bannerAt + ", " + perks + " puces]";
+            }
+            Check(good == 3, "trois colonnes : banderole de difficulté en dégradé, image collée aux bords et à la banderole, nom, description, sept puces" + detail);
+            Border first = chooser.FrameForProbe(columns[0]), second = chooser.FrameForProbe(columns[1]), third = chooser.FrameForProbe(columns[2]), own = chooser.FrameForProbe(Profiles.Custom);
+            Check(Math.Abs(first.Bounds.Y - second.Bounds.Y) < 0.01 && Math.Abs(second.Bounds.Y - third.Bounds.Y) < 0.01 && first.Bounds.X < second.Bounds.X && second.Bounds.X < third.Bounds.X
+                && Math.Abs(first.Bounds.Width - third.Bounds.Width) < 1.5 && Math.Abs(first.Bounds.Height - third.Bounds.Height) < 0.5,
+                "…côte à côte, de même taille (" + first.Bounds.Size + " | " + second.Bounds.Size + " | " + third.Bounds.Size + ")");
+            Check(own.Bounds.Y >= first.Bounds.Bottom && Math.Abs(own.Bounds.X - first.Bounds.X) < 0.01 && Math.Abs(own.Bounds.Right - third.Bounds.Right) < 0.5 && chooser.PictureForProbe(Profiles.Custom) == null,
+                "« Moi-même » : une tuile-ligne dessous, de toute la largeur (" + own.Bounds.Width.ToString("0") + " px), sans image");
+            var scroller = chooser.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+            var shown = chooser.CropForProbe(columns[0]).Bounds.Height / chooser.CropForProbe(columns[0]).Bounds.Width;
+            Check(scroller != null && (scroller.Extent.Height <= scroller.Viewport.Height + 0.5 || shown <= 0.61),
+                "…les quatre profils tiennent dans la page sans défiler (image montrée à " + Math.Round(shown * 100) + " %, fenêtre de " + welcome.Bounds.Height.ToString("0") + " px" + (scroller == null ? "" : ", contenu " + scroller.Extent.Height.ToString("0.#") + " pour " + scroller.Viewport.Height.ToString("0.#")) + ")");
+
+            // — le survol : la tuile s'agrandit, passe devant ; pas de filet hors des skins premium.
+            var animationsBefore = AppSettings.Animations;
+            string skinBefore = AppSettings.Skin, accentBefore = AppSettings.AccentColor;
+            var darkBefore = AppSettings.DarkTheme;
+            try
+            {
+                AppSettings.Animations = true;
+                chooser.HoverForProbe(Profiles.Publisher, true);
+                for (var i = 0; i < 3; i++) await Settle();
+                chooser.OrbitForProbe(Profiles.Publisher).AdvanceForProbe();
+                Check(Math.Abs(chooser.ScaleForProbe(Profiles.Publisher) - 1.03) < 0.001 && second.ZIndex == 1 && Math.Abs(chooser.ScaleForProbe(Profiles.Writer) - 1) < 0.001 && !chooser.OrbitForProbe(Profiles.Publisher).DrawnForProbe,
+                    "survolée, une tuile s'agrandit (×" + chooser.ScaleForProbe(Profiles.Publisher).ToString("0.###") + ") et passe devant ses voisines ; pas de filet hors des skins premium");
+                Shot(welcome, "profils-accueil.png");
+                chooser.HoverForProbe(Profiles.Publisher, false);
+                for (var i = 0; i < 3; i++) await Settle();
+                Check(Math.Abs(chooser.ScaleForProbe(Profiles.Publisher) - 1) < 0.001 && second.ZIndex == 0, "…quittée, elle reprend sa taille");
+
+                // — le clic : l'anneau d'accent ; « Moi-même » hérite du profil quitté.
+                chooser.Select(Profiles.Publisher, true);
+                Check(AppSettings.Profile == Profiles.Publisher && chooser.RingShownForProbe(Profiles.Publisher) && !chooser.RingShownForProbe(Profiles.Writer), "cliquée, une tuile porte l'anneau d'accent");
+                var widthBefore = chooser.PictureForProbe(Profiles.Publisher).Bounds.Width;
+                chooser.Select(Profiles.Custom, true);
+                await Settle();
+                var featuresButton = own.GetVisualDescendants().OfType<Button>().FirstOrDefault(delegate(Button b) { return "features-button".Equals(b.Tag); });
+                var penName = welcome.GetVisualDescendants().OfType<TextBox>().FirstOrDefault(delegate(TextBox b) { return "pen-name".Equals(b.Tag); });
+                Check(featuresButton != null && featuresButton.IsVisible && penName != null && !penName.GetVisualAncestors().OfType<ScrollViewer>().Any(),
+                    "« Choisir les fonctionnalités… » est au bout de la tuile « Moi-même » ; le nom de plume est au pied de la page, hors du défilement");
+                Check(AppSettings.Profile == Profiles.Custom && AppSettings.HiddenFeatures.SetEquals(Profiles.HiddenBy(Profiles.Publisher)) && chooser.FeaturesButtonShownForProbe,
+                    "cliquer « Moi-même » depuis Éditeur·ice : ses cases héritent de ce profil (" + string.Join(", ", AppSettings.HiddenFeatures.OrderBy(delegate(string k) { return k; })) + ")");
+                Check(Math.Abs(chooser.PictureForProbe(Profiles.Publisher).Bounds.Width - widthBefore) < 0.01, "…et choisir une tuile ne déplace rien dans les autres");
+                Shot(welcome, "profils-accueil-moi-meme.png");
+
+                // — dans les Préférences : le même sélecteur, resserré.
+                var compact = new ProfileChooser(true) { Margin = new Thickness(16) };
+                var host = new Window { Width = 760, Height = 760, Content = new ScrollViewer { Content = compact }, Background = Chrome.RaisedBg, ShowInTaskbar = false };
+                host.Show();
+                for (var i = 0; i < 3; i++) await Settle();
+                Check(compact.FrameForProbe(Profiles.Writer).Bounds.Width > 150 && compact.FrameForProbe(Profiles.Custom).Bounds.Y >= compact.FrameForProbe(Profiles.Writer).Bounds.Bottom, "dans les Préférences, les mêmes colonnes, resserrées");
+                Shot(host, "profils-preferences.png");
+                host.Close();
+                await Settle();
+
+                // — un skin premium : la tranche en S à la banderole, le filet en orbite au survol seulement.
+                foreach (var id in new[] { Skins.MuseumFire, Skins.MuseumAscent })
+                {
+                    AppSettings.Skin = id;
+                    AppSettings.AccentColor = null;
+                    AppSettings.DarkTheme = Skins.DarkByDefault(id);
+                    shell.ApplyAppearanceForProbe();
+                    for (var i = 0; i < 4; i++) await Settle();
+                    var premium = new WelcomeWindow(shell, true);
+                    premium.Show();
+                    for (var i = 0; i < 3; i++) await Settle();
+                    var tiles = premium.GetVisualDescendants().OfType<ProfileChooser>().First();
+                    var orbit = tiles.OrbitForProbe(Profiles.Everything);
+                    orbit.AdvanceForProbe();
+                    var atRest = orbit.DrawnForProbe;
+                    tiles.HoverForProbe(Profiles.Everything, true);
+                    for (var i = 0; i < 3; i++) await Settle();
+                    orbit.AdvanceForProbe();
+                    var hovered = orbit.DrawnForProbe;
+                    Check(tiles.BannerForProbe(Profiles.Everything).Background is Avalonia.Media.DrawingBrush && !atRest && hovered && Math.Abs(tiles.ScaleForProbe(Profiles.Everything) - 1.03) < 0.001,
+                        "skin premium « " + id + " » : la banderole porte la tranche en S, le filet en orbite ne tourne qu'au survol");
+                    var ownOrbit = tiles.OrbitForProbe(Profiles.Custom);
+                    tiles.HoverForProbe(Profiles.Custom, true);
+                    await Settle();
+                    ownOrbit.AdvanceForProbe();
+                    Check(ownOrbit.DrawnForProbe && tiles.ScaleForProbe(Profiles.Custom) > 1, "…« Moi-même » aussi s'agrandit et porte son filet");
+                    tiles.HoverForProbe(Profiles.Custom, false);
+                    Shot(premium, "profils-accueil-" + id + ".png");
+                    tiles.HoverForProbe(Profiles.Everything, false);
+                    await Settle();
+                    orbit.AdvanceForProbe();
+                    Check(!orbit.DrawnForProbe, "…quittée, la tuile éteint son filet");
+                    premium.Release();
+                    await Settle();
+                }
+            }
+            finally
+            {
+                AppSettings.Animations = animationsBefore;
+                AppSettings.Skin = skinBefore;
+                AppSettings.AccentColor = accentBefore;
+                AppSettings.DarkTheme = darkBefore;
+                shell.ApplyAppearanceForProbe();
+                for (var i = 0; i < 3; i++) await Settle();
             }
         }
 

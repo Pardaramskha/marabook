@@ -30,19 +30,55 @@ namespace Marabook.Settings
             public string Help;
         }
 
+        /// <summary>Un profil. Depuis la 2.0.0 (25/11/2026, Rémi), les trois profils
+        /// prédéfinis se présentent comme un CHOIX DE DIFFICULTÉ de jeu vidéo : une
+        /// difficulté et sa couleur (la banderole de la tuile), une image
+        /// (assets/profils/<Image>.png), une liste de fonctionnalités. « Moi-même »
+        /// n'en a pas : c'est une tuile-ligne, sous les trois autres.</summary>
         public sealed class Profile
         {
             public string Key;
             public string Name;
             public string Help;
             public string Icon;
+            public string Difficulty;
+            public string Color;   // #RRGGBB, la couleur de la banderole
+            public string Image;   // le nom du fichier embarqué, sans extension
+            public string[] Perks = new string[0];
         }
 
         public static readonly Profile[] All =
         {
-            new Profile { Key = Writer, Name = "Écrivain·e", Icon = "ecrivain", Help = "Pour celleux qui veulent juste écrire et prévoir leurs histoires." },
-            new Profile { Key = Publisher, Name = "Éditeur·ice", Icon = "editeur", Help = "Pour celleux qui veulent corriger, mettre en forme et publier des textes : fonctionnalités d'édition avancées, PAO et nombreuses options d'export." },
-            new Profile { Key = Everything, Name = "Cinglé·e", Icon = "cingle", Help = "Pour celleux qui veulent tout faire comme des grands : toutes les fonctionnalités activées." },
+            new Profile
+            {
+                Key = Writer, Name = "Écrivain·e", Icon = "ecrivain", Difficulty = "Abordable", Color = "#3FA66B", Image = "ecrivain",
+                Help = "Une expérience légère, pleine de création et de douceur, pour celleux qui souhaitent avant tout écrire.",
+                Perks = new[]
+                {
+                    "Éditeur de texte", "Rangement des textes par livre", "Tableau de recherche", "Fiches personnalisables", "Plans et notes",
+                    "Gestionnaire de bêta-lecture et relecture", "Un module de worldbuilding (optionnel)"
+                }
+            },
+            new Profile
+            {
+                Key = Publisher, Name = "Éditeur·ice", Icon = "editeur", Difficulty = "Laborieux", Color = "#E08A2B", Image = "editeur",
+                Help = "Gestion des textes avancée, outils PAO, traitement numérique des fichiers et export de BAT pour les amoureux de la souffrance.",
+                Perks = new[]
+                {
+                    "Versionnage avancé des textes", "Formateur typographique", "Gabarits et maquettes de livres", "Option prépresse et export pro",
+                    "Outillage PAO et gestion des PDF", "Gestionnaire de comités de relecture", "Statistiques avancées des textes"
+                }
+            },
+            new Profile
+            {
+                Key = Everything, Name = "Cinglé·e", Icon = "cingle", Difficulty = "Extrême", Color = "#D2453F", Image = "cingle",
+                Help = "Pour les psychopathes qui font tout à la fois et n'ont pas peur d'une surcharge sensorielle inévitable. Je vous aurai prévenus.",
+                Perks = new[]
+                {
+                    "Tout le reste de l'application", "Rétroliens des fiches et détection textuelle par regex", "Planétarium, chronologie et cartographies",
+                    "Graphiques d'intensité des plans", "Neurones relationnels globaux des fiches", "Heat-map des présences des personnages", "Galerie d'outils multimédia"
+                }
+            },
             new Profile { Key = Custom, Name = "Moi-même", Icon = "personnalise", Help = "Marabook au détail : personnalisez votre expérience." }
         };
 
@@ -127,11 +163,19 @@ namespace Marabook.Settings
             if (handler != null) handler();
         }
 
-        /// <summary>Choisir un profil : « Moi-même » part de tout actif la
-        /// première fois (les cases gardent ensuite ce que l'on y décoche).</summary>
+        /// <summary>Choisir un profil. « Moi-même » HÉRITE du profil que l'on quitte
+        /// (2.0.0, 25/11/2026, Rémi) : ses cases reprennent ce que ce profil montrait
+        /// et cachait — on part de là pour régler au détail. Venu de nulle part (aucun
+        /// profil), ou resté sur « Moi-même », il garde ses cases.</summary>
         public static void Choose(string key)
         {
             if (Find(key) == null) return;
+            var before = AppSettings.Profile;
+            if (key == Custom && before != null && before != Custom)
+            {
+                AppSettings.HiddenFeatures.Clear();
+                foreach (var hidden in HiddenBy(before)) AppSettings.HiddenFeatures.Add(hidden);
+            }
             AppSettings.Profile = key;
             Notify();
         }

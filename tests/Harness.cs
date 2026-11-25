@@ -165,6 +165,7 @@ namespace Marabook.Tests
                 ScenesTests.Run,          // C88 — 2.0.0 : lot 27 — scènes et fiches de scène, Tableau (outliner), modèles de projet (21/11)
                 SkinsTests.Run,           // C89 — 2.0.0 : lot 28 — skins : identifiants, seconde couleur, Encyclopédie en HTML et en PDF (21/11)
                 AtelierTests.Run,         // C90 — 2.0.0 : lot 29 — Atelier : paquet PDFium, PDF modernes, contrôle d'impression, recomposition (21/11)
+                ProfilesTests.Run,        // C93 — 2.0.0 : profils en choix de difficulté, « Moi-même » hérite du profil quitté (25/11)
                 ColorCodesTests.Run,      // C92 — 2.0.0 : lot 31 — codes de couleur du sélecteur (RVB, HSL, CMJN, TSV, lecture HEX et RVB) (25/11)
                 Lot30Tests.Run,           // C91 — 2.0.0 : lot 30 — palette nommée, listes de pages, compacteur de PDF, verrou par mot de passe (22/11)
                 DebtTests.Run,            // C87 — 2.0.0 : dette — recomposition partielle, typographie en fenêtre, index par identifiant, annulation par différence (21/11)

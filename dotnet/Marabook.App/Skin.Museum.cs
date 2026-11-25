@@ -657,6 +657,15 @@ namespace Marabook.App
 
         internal static bool Active { get { return Skin.Museum && AppSettings.Animations; } }
 
+        /// <summary>Le filet ne tourne que tant que cette condition tient (25/11 : une tuile de profil
+        /// ne l'allume qu'au survol). Null : toujours. Qui la fait basculer appelle Nudge().</summary>
+        internal Func<bool> Gate;
+
+        private bool Live { get { return Active && (Gate == null || Gate()); } }
+
+        /// <summary>La condition vient de changer : le filet part tout de suite, sans attendre son coup d'œil.</summary>
+        internal void Nudge() { Wake(); }
+
         private double Radius
         {
             get
@@ -708,7 +717,7 @@ namespace Marabook.App
         private void Wake()
         {
             if (_running || !_attached) return;
-            if (!Active || !IsEffectivelyVisible) { Clear(); return; }
+            if (!Live || !IsEffectivelyVisible) { Clear(); return; }
             var top = TopLevel.GetTopLevel(this);
             if (top == null) return;
             _running = true;
@@ -719,7 +728,7 @@ namespace Marabook.App
         {
             _running = false;
             if (!_attached) return;
-            if (!Active || !IsEffectivelyVisible) { Clear(); return; }
+            if (!Live || !IsEffectivelyVisible) { Clear(); return; }
             Advance();
             var top = TopLevel.GetTopLevel(this);
             if (top == null) return;
@@ -791,7 +800,7 @@ namespace Marabook.App
 
         internal bool DrawnForProbe { get { return _points.Length > 0; } }
         internal int BandsShownForProbe { get { var count = 0; foreach (var band in _bands) if (band.Shown) count++; return count; } }
-        internal void AdvanceForProbe() { if (Active) Advance(); else Clear(); }
+        internal void AdvanceForProbe() { if (Live) Advance(); else Clear(); }
 
         /// <summary>Une bande du filet : elle peint la part du segment qui passe chez elle.</summary>
         private sealed class Band : Control

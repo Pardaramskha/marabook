@@ -196,7 +196,7 @@ namespace Marabook.App
             catch { }
         }
 
-        /// <summary>80 % de la fenêtre principale, centrée dessus.</summary>
+        /// <summary>80 % de la fenêtre principale (94 % de sa hauteur pour le choix du profil), centrée dessus.</summary>
         private void Fit()
         {
             var shellWidth = _shell.ClientSize.Width;
@@ -204,7 +204,8 @@ namespace Marabook.App
             if (shellWidth <= 0 || shellHeight <= 0) return;
             if (_shell.WindowState == WindowState.Minimized) return;
             Width = Math.Max(640, shellWidth * 0.8);
-            Height = Math.Max(420, shellHeight * 0.8);
+            // « Qui êtes-vous ? » (25/11) : trois colonnes hautes — la page prend presque toute la hauteur.
+            Height = Math.Max(420, shellHeight * (ShowsProfileChoice ? 0.94 : 0.8));
             // Le coin haut-gauche de l'accueil, calculé dans la zone client de
             // la coquille (unités logiques) et converti par PointToScreen dans
             // l'unité des positions d'écran DU SYSTÈME : pixels physiques sur
@@ -237,17 +238,22 @@ namespace Marabook.App
             var root = new DockPanel { Margin = new Thickness(40, 32, 40, 28) };
             root.Children.Add(Head());
 
-            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            // Le pied : le nom de plume à gauche, « Commencer » à droite.
+            var buttons = new DockPanel { Margin = new Thickness(0, 12, 0, 0) };
             DockPanel.SetDock(buttons, Dock.Bottom);
             var start = Buttons.Text("Commencer", "Garder ce profil et passer aux projets", Buttons.Bar, Buttons.Look.Primary);
             start.MinWidth = 120;
             start.IsEnabled = false;
             start.IsDefault = true;
             start.Tag = "profile-start"; // sonde
+            DockPanel.SetDock(start, Dock.Right);
             buttons.Children.Add(start);
             root.Children.Add(buttons);
 
-            _profileChooser = new ProfileChooser(false) { Margin = new Thickness(0, 18, 0, 0) };
+            // Une marge autour du sélecteur, reprise en négatif par le défilant : une tuile
+            // survolée s'agrandit sans être rognée par son bord (25/11).
+            _profileChooser = new ProfileChooser(false) { Margin = new Thickness(12, 18, 12, 8) };
+            if (_profileChooser.PenNameRow != null) buttons.Children.Add(_profileChooser.PenNameRow);
             _profileChooser.SelectionChanged += delegate { start.IsEnabled = _profileChooser.Selected != null; };
             start.Click += async delegate
             {
@@ -257,14 +263,23 @@ namespace Marabook.App
                 _profileChooser = null;
                 if (custom) await FeaturesWindow.Ask(this);
                 _paper.Child = Build();
+                Fit(); // la page des projets reprend ses 80 %
                 RefreshUpdateStatus();
             };
-            root.Children.Add(new ScrollViewer
+            var scroll = new ScrollViewer
             {
+                Margin = new Thickness(-12, 0, -12, 0),
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
                 HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
                 Content = _profileChooser
-            });
+            };
+            // Les quatre profils d'un coup d'œil (25/11) : tant que la fenêtre le permet, les images
+            // sont rognées par le bas plutôt que de faire défiler « Moi-même » hors de vue.
+            var chooser = _profileChooser;
+            EventHandler<SizeChangedEventArgs> fit = delegate { chooser.FitTo(scroll.Bounds.Height); };
+            scroll.SizeChanged += fit;
+            chooser.SizeChanged += fit;
+            root.Children.Add(scroll);
             return root;
         }
 
