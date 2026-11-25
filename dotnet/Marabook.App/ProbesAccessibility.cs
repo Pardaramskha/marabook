@@ -91,7 +91,9 @@ namespace Marabook.App
                 for (var i = 0; i < 4; i++) await Settle();
                 var popup = menu.GetVisualRoot() as PopupRoot;
                 var popupScale = popup == null ? null : popup.Transform as ScaleTransform;
-                Check(popup != null && popupScale != null && Math.Abs(popupScale.ScaleX - 1.5) < 0.001, "un menu contextuel aussi (" + (popup == null ? "pas de menu" : popupScale == null ? "sans échelle" : "×" + popupScale.ScaleX) + ")");
+                // Sans écran (25/11), un menu n'a pas de fenêtre à lui : il est posé dans celle de l'application.
+                if (Program.Silent) Console.WriteLine("  (sonde sans écran : l'échelle de la fenêtre d'un menu n'est pas jouée — « --visible » la joue)");
+                else Check(popup != null && popupScale != null && Math.Abs(popupScale.ScaleX - 1.5) < 0.001, "un menu contextuel aussi (" + (popup == null ? "pas de menu" : popupScale == null ? "sans échelle" : "×" + popupScale.ScaleX) + ")");
                 menu.Close();
                 await Settle();
                 prefs.SetZoomForProbe(1.0);

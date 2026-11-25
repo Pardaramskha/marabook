@@ -203,7 +203,9 @@ jobs:
           # est une application FENÊTRÉE que PowerShell n'attend pas ($LASTEXITCODE
           # reste vide et la sonde continue en arrière-plan — 01/10) ; l'hôte
           # console attend et rend le code de retour sur les deux systèmes.
-          dotnet dotnet/Marabook.App/bin/Release/net8.0/Marabook.dll --probe --settings (Join-Path ([IO.Path]::GetTempPath()) 'marabook-sonde.json')
+          # --visible (25/11) : la sonde est sans écran d'office (elle ne prend plus le focus de qui
+          # travaille) ; ici personne ne travaille, on garde le vrai fenêtrage du système.
+          dotnet dotnet/Marabook.App/bin/Release/net8.0/Marabook.dll --probe --visible --settings (Join-Path ([IO.Path]::GetTempPath()) 'marabook-sonde.json')
           if ($LASTEXITCODE -ne 0) { throw "La sonde signale $LASTEXITCODE échec(s)." }
 
       - name: Sonde de l'application (Ubuntu, sous Xvfb)
@@ -211,7 +213,7 @@ jobs:
         shell: bash
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libx11-6 libice6 libsm6 libfontconfig1 fonts-liberation > /dev/null
-          xvfb-run -a dotnet/Marabook.App/bin/Release/net8.0/Marabook --probe --settings /tmp/marabook-sonde.json
+          xvfb-run -a dotnet/Marabook.App/bin/Release/net8.0/Marabook --probe --visible --settings /tmp/marabook-sonde.json
 
       - name: Sonde de la mise à jour (Windows, macOS)
         # --maj-test (1.0.3-patch-b) : la dernière release publiée est

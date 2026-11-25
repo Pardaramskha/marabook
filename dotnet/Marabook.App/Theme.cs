@@ -811,9 +811,13 @@ namespace Marabook.App
         /// en pixels d'écran puis revient en unités logiques.</summary>
         private static void AimArrow(TemplatedControl tip, Path arrow, Path side, Border pill)
         {
-            var root = tip.GetVisualRoot() as PopupRoot;
+            // Le Popup qui porte la bulle : parent logique de sa fenêtre (PopupRoot) — ou de son hôte
+            // posé dans la fenêtre elle-même, là où le système n'ouvre pas de fenêtre de bulle (la
+            // sonde sans écran, 25/11) : on remonte les parents logiques, quel que soit l'hôte.
+            Popup popup = null;
+            for (var parent = ((ILogical)tip).LogicalParent; parent != null && popup == null; parent = parent.LogicalParent) popup = parent as Popup;
+            var root = TopLevel.GetTopLevel(tip);
             if (root == null) return;
-            var popup = ((ILogical)root).LogicalParent as Popup;
             var target = popup != null ? popup.PlacementTarget : null;
             if (target == null || !target.IsAttachedToVisualTree() || pill.Bounds.Width <= 0) return;
             // Posée à gauche (ToolTip.Placement = Left sur la cible) : la flèche de côté, centrée

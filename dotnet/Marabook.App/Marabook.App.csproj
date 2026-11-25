@@ -30,6 +30,9 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.22" />
     <PackageReference Include="Avalonia.Themes.Simple" Version="11.3.22" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.22" />
+    <!-- La sonde SANS ÉCRAN (25/11, Rémi) : la plateforme « headless » d'Avalonia, avec le vrai
+         moteur de dessin (Skia) — aucune fenêtre du système, donc ni focus pris ni écran couvert. -->
+    <PackageReference Include="Avalonia.Headless" Version="11.3.22" />
   </ItemGroup>
 
   <ItemGroup>

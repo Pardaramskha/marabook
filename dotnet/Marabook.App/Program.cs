@@ -66,8 +66,38 @@ namespace Marabook.App
             // Les .plot s'ouvrent d'un double-clic si rien ne les ouvrait (22/09) —
             // jamais depuis une sonde ou une capture.
             if (!Launch.Parse(Args).Isolated) FileAssociation.EnsureRegistered();
-            var code = BuildAvaloniaApp().StartWithClassicDesktopLifetime(Args);
+            var code = (Silent ? BuildSilentApp() : BuildAvaloniaApp()).StartWithClassicDesktopLifetime(Args);
             return Probes.Failures > 0 ? Probes.Failures : code;
+        }
+
+        /// <summary>LA SONDE SILENCIEUSE (25/11/2026, Rémi : « faire tourner la sonde vole mon focus et
+        /// bourre mon écran de fenêtres ») : la sonde et ses cousines (--probe, --save-probe, --capture,
+        /// --maj-test, --police, --pages…) tournent SANS ÉCRAN, sur les trois systèmes — la plateforme
+        /// « headless » d'Avalonia à la place de celle du système : aucune fenêtre n'est créée chez lui,
+        /// donc rien ne s'affiche, rien ne prend le clavier ni la souris, rien n'entre au Dock ou dans la
+        /// barre des tâches. Le dessin reste le vrai (Skia) : les mesures de texte, les images de
+        /// MARABOOK_PROBE_SHOTS et les captures sont celles de l'application.
+        /// « --visible » (ou MARABOOK_PROBE_VISIBLE=1) rend les fenêtres, pour regarder une sonde tourner
+        /// — ou pour jouer le vrai fenêtrage du système (la CI le fait : personne n'y travaille).
+        /// « --demo » seul reste visible : c'est l'application que l'on regarde, elle ne quitte pas d'elle-même.
+        /// Ce que le sans-écran ne joue pas : les fenêtres à part des menus et des infobulles (ils sont
+        /// posés dans la fenêtre de l'application) — la sonde le dit quand elle saute un contrôle.</summary>
+        public static bool Silent
+        {
+            get
+            {
+                if (!Launch.Parse(Args ?? new string[0]).Unattended) return false;
+                if (Array.IndexOf(Args, "--visible") >= 0) return false;
+                return Environment.GetEnvironmentVariable("MARABOOK_PROBE_VISIBLE") != "1";
+            }
+        }
+
+        private static AppBuilder BuildSilentApp()
+        {
+            var builder = AppBuilder.Configure<App>().UseSkia();
+            return Avalonia.Headless.AvaloniaHeadlessPlatformExtensions.UseHeadless(builder, new Avalonia.Headless.AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+                .WithInterFont()
+                .LogToTrace();
         }
 
         /// <summary>La configuration Avalonia (aussi lue par le concepteur et
@@ -115,6 +145,9 @@ namespace Marabook.App
         public string SpellingProbe; // --ortho <fichier.plot> : les mots inconnus de chaque écrit (MARABOOK_ORTHO_FIND filtre les titres), puis quitte (10/10)
         public bool UpdateProbe;    // --maj-test : interroge GitHub, télécharge et déballe la dernière release comme au lancement, dit le résultat, quitte (01/10)
 
+        /// <summary>Vrai pour un lancement qui fait son travail SEUL puis quitte (sonde, capture, diagnostic) :
+        /// personne n'a besoin de le voir — il tourne sans écran (Program.Silent, 25/11).</summary>
+        public bool Unattended { get { return Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe || PagesProbe != null || GraphProbe != null || EncyclopediaProbe != null || WordProbe != null || SpellingProbe != null || NamesProbe != null; } }
         public bool Isolated { get { return Demo || Probe || CapturePath != null || SaveProbe || FontProbe != null || UpdateProbe || PagesProbe != null || GraphProbe != null || EncyclopediaProbe != null || WordProbe != null || SpellingProbe != null || NamesProbe != null; } }
 
         public static Launch Parse(string[] args)
