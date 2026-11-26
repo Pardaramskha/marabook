@@ -27,6 +27,77 @@ namespace Marabook.Tests
             BlankPage(t);
             UsageStreak(t);
             Fixture(t);
+            SkinSecrets(t);
+        }
+
+        /// <summary>Les trois succès secrets qui débloquent un skin (25/11/2026) : leurs conditions, le
+        /// verrou des skins, et le sésame.</summary>
+        private static void SkinSecrets(Harness t)
+        {
+            foreach (var id in new[] { Achievements.FireKeeper, Achievements.WhiteWood, Achievements.Sworn })
+            {
+                var secret = Achievements.Find(id);
+                t.Check(secret != null && secret.Secret && secret.Reward == "Vous avez débloqué un skin Marabook !" && Skins.UnlockedBy(secret.UnlocksSkin) == id && Array.IndexOf(Achievements.All, secret) < 0,
+                    "« " + (secret == null ? id : secret.Name) + " » est un succès secret, hors du compte, qui débloque son skin");
+            }
+            // Gardien du Feu : une temporalité originale, sur PLUS de dix mille ans.
+            var project = Project.CreateNew();
+            var root = project.Category(Project.KeyTimelines);
+            var ours = TimeSystem.Gregorian();
+            var eras = TimeSystem.Gregorian();
+            eras.Name = "Les Âges";
+            eras.Months[0].Name = "Givrier";
+            project.TimeSystems.Add(ours);
+            project.TimeSystems.Add(eras);
+            var frieze = new BinderItem { Kind = ItemKind.Timeline, Title = "Histoire", Timeline = new TimelineInfo { SystemId = ours.Id } };
+            frieze.Timeline.Events.Add(new TimelineEvent { Title = "Aube", Start = new TimePoint(-9000) });
+            frieze.Timeline.Events.Add(new TimelineEvent { Title = "Soir", Start = new TimePoint(2000) });
+            root.Children.Add(frieze);
+            var none = new List<string>();
+            t.Check(!Achievements.IsOriginalSystem(ours) && Achievements.IsOriginalSystem(eras), "le calendrier de notre monde n'est pas une temporalité originale ; un mois renommé en fait une");
+            t.Check(Achievements.TimelineYears(project, frieze) == 11000 && !Achievements.SecretsEarned(Achievements.Gather(project, null, null, null, DateTime.Now), none).Contains(Achievements.FireKeeper),
+                "onze mille ans dans notre calendrier : pas de Gardien du Feu");
+            frieze.Timeline.SystemId = eras.Id;
+            t.Check(Achievements.SecretsEarned(Achievements.Gather(project, null, null, null, DateTime.Now), none).Contains(Achievements.FireKeeper), "…dans une temporalité originale : Gardien du Feu");
+            frieze.Timeline.Events[0].Start = new TimePoint(-8000);
+            t.Check(Achievements.TimelineYears(project, frieze) == 10000 && !Achievements.Gather(project, null, null, null, DateTime.Now).LongOriginalTimeline, "dix mille ans tout rond ne suffisent pas (« plus de »)");
+            frieze.Timeline.From = new TimePoint(0);
+            frieze.Timeline.To = new TimePoint(10001);
+            t.Check(Achievements.Gather(project, null, null, null, DateTime.Now).LongOriginalTimeline, "…un fragment de 10 001 ans, si");
+
+            // Faiseur de Bois Blanc : un plan relié à un livre, autant de colonnes que de chapitres prévus.
+            var book = new BinderItem { Kind = ItemKind.Book, Title = "Le livre", Book = new BookInfo { ChapterGoal = 3 } };
+            project.Category(Project.KeyWritings).Children.Add(book);
+            var plan = new BinderItem { Kind = ItemKind.Plan, Title = "Le plan", Plan = new PlanInfo { LinkedItemId = book.Id } };
+            plan.Plan.Columns.Add(new PlanColumn());
+            plan.Plan.Columns.Add(new PlanColumn());
+            project.Category(Project.KeyPlans).Children.Add(plan);
+            t.Check(!Achievements.Gather(project, null, null, null, DateTime.Now).PlanMatchesBook, "deux colonnes pour trois chapitres prévus : pas encore");
+            plan.Plan.Columns.Add(new PlanColumn());
+            t.Check(Achievements.Gather(project, null, null, null, DateTime.Now).PlanMatchesBook, "trois colonnes pour trois chapitres prévus : Faiseur de Bois Blanc");
+            book.Book.ChapterGoal = 0;
+            t.Check(!Achievements.Gather(project, null, null, null, DateTime.Now).PlanMatchesBook, "sans chapitres prévus, rien à égaler");
+            book.Book.ChapterGoal = 3;
+            plan.Plan.LinkedItemId = null;
+            t.Check(!Achievements.Gather(project, null, null, null, DateTime.Now).PlanMatchesBook, "un plan relié à rien ne compte pas");
+
+            // Assermenté : un livre fini, dix personnages fichés qui n'y apparaissent pas.
+            var full = AchievementFixture.Build();
+            var novel = AchievementFixture.Find(full, "Roman fini (trois parties)");
+            var absent = Achievements.CharactersAbsentFrom(full, novel);
+            t.Check(absent >= 10 && Achievements.Gather(full, null, null, null, DateTime.Now).FinishedBookWithoutTen, "le roman fini du projet « tout succès » ignore " + absent + " personnages fichés : Assermenté");
+            t.Check(!Achievements.Gather(full, null, null, null, DateTime.Now, new List<string> { Achievements.Sworn }).FinishedBookWithoutTen, "…déjà obtenu, le livre n'est plus relu");
+            t.Check(!Achievements.Gather(AchievementFixture.BuildWithoutCharacters(), null, null, null, DateTime.Now).FinishedBookWithoutTen, "sans personnages fichés, pas d'Assermenté");
+
+            // Le verrou des skins, et le sésame.
+            var earned = new List<string>();
+            t.Check(Skins.Locked(Skins.MuseumFire, earned, false) && Skins.Locked(Skins.MuseumWood, earned, false) && Skins.Locked(Skins.MuseumOath, earned, false), "sans succès, les trois skins sont verrouillés");
+            t.Check(!Skins.Locked(Skins.MuseumAscent, earned, false) && !Skins.Locked(Skins.Modern, earned, false) && !Skins.Locked(Skins.Eden, earned, false), "…Ascension et les autres restent libres");
+            earned.Add(Achievements.WhiteWood);
+            t.Check(!Skins.Locked(Skins.MuseumWood, earned, false) && Skins.Locked(Skins.MuseumFire, earned, false), "un succès ouvre son skin, et lui seul");
+            t.Check(!Skins.Locked(Skins.MuseumFire, new List<string>(), true) && !Skins.Locked(Skins.MuseumOath, null, true), "le sésame les ouvre tous");
+            t.Check(Skins.IsSesame("Je veux un monde meilleur") && Skins.IsSesame("  je veux un monde meilleur. ") && Skins.IsSesame("JE VEUX  UN MONDE MEILLEUR !"), "le sésame se dit sans casse ni ponctuation finale");
+            t.Check(!Skins.IsSesame("Je veux un monde") && !Skins.IsSesame("Je veux un monde meilleur demain") && !Skins.IsSesame(""), "…mais tout entier, et seul");
         }
 
         /// <summary>Le projet « tout succès » (22/09) : d'un coup, tous les

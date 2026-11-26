@@ -1478,6 +1478,7 @@ namespace Marabook.App
                 var handler = Navigate;
                 if (handler != null) handler(gabaritRef);
             };
+            TileFrame.Dress(card); // « Ascension », lot 2 : la double bordure des tuiles
             CardLift.Attach(card); // soulèvement au survol (b35)
             return card;
         }
@@ -2095,6 +2096,7 @@ namespace Marabook.App
                 // « Appliquer le gabarit du livre » vit dans le menu commun de
                 // la carte (14/09) ; l'alerte est l'icône du titre (22/09).
             }
+            TileFrame.Dress(card); // « Ascension », lot 2 : la double bordure des tuiles
             CardLift.Attach(card); // soulèvement au survol (b35)
         }
 

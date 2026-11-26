@@ -348,6 +348,7 @@ namespace Marabook.App
             layers.Children.Add(tile.Ring);
             layers.Children.Add(tile.Orbit);
             frame.Child = layers;
+            TileFrame.Dress(frame); // « Ascension », lot 2 : la double bordure des tuiles
 
             // L'agrandissement au survol, autour du centre : le pointeur reste dedans.
             tile.Scale = new ScaleTransform(1, 1);
@@ -431,6 +432,9 @@ namespace Marabook.App
                 tile.Frame.Background = chosen ? Chrome.AccentTint : (IBrush)Chrome.CardBg;
                 tile.Frame.BorderBrush = chosen ? Chrome.Accent : tile.Hovered ? Chrome.SoftText : (IBrush)Chrome.Border;
                 tile.Ring.IsVisible = chosen;
+                // « Ascension », lot 2 : la tuile choisie s'allume par sa bordure galbée (TileFrame lit le
+                // filet du cadre), l'anneau d'accent s'efface — un cadre de trop dans la double bordure.
+                if (AscensionArt.On) { tile.Ring.Opacity = 0; tile.Frame.BorderBrush = chosen ? (IBrush)Chrome.Accent : Chrome.Border; }
             }
             _featuresButton.IsVisible = key == Profiles.Custom;
             if (commit)

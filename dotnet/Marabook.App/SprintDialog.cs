@@ -97,6 +97,7 @@ namespace Marabook.App
                 Margin = new Thickness(0, 16, 0, 0)
             };
             var ok = new Button { Content = "Lancer", IsDefault = true, MinWidth = 80 };
+            ok.Classes.Add(AscensionArt.MagicClass); // ce qui LANCE : la magie bleue d'« Ascension » (25/11)
             ok.Click += delegate { _accepted = true; Close(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 80, Margin = new Thickness(8, 0, 0, 0) };
             cancel.Click += delegate { Close(); }; // IsCancel ne ferme pas la fenêtre sur Avalonia (28/09)

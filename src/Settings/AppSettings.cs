@@ -563,6 +563,11 @@ namespace Marabook.Settings
         // d'obtention « yyyy-MM-dd HH:mm » ; plus les compteurs que le projet
         // ne porte pas (suppressions, jours d'usage consécutifs).
         public static Dictionary<string, string> Achievements = new Dictionary<string, string>();
+        /// <summary>LE SÉSAME dit (25/11/2026) : tous les skins — et, à terme, tout ce qui se débloque hors
+        /// succès — sont ouverts. Ce n'est pas un succès : « Réinitialiser les succès » n'y touche pas.</summary>
+        public static bool EverythingUnlocked;
+        /// <summary>Vrai tant que ce skin est verrouillé pour l'auteur.</summary>
+        public static bool SkinLocked(string id) { return Model.Skins.Locked(id, Achievements.Keys, EverythingUnlocked); }
         public static int PermanentlyDeleted; // corbeille vidée, descendants compris
         public static string UsageLastDay; // "yyyy-MM-dd"
         public static int UsageStreak;
@@ -930,6 +935,7 @@ namespace Marabook.Settings
                         Achievements[id] = (string)pair.Value;
                     }
                 }
+                EverythingUnlocked = Json.AsBool(Json.Field(root, "everythingUnlocked"), false);
                 PermanentlyDeleted = (int)Json.AsDouble(Json.Field(root, "permanentlyDeleted"), 0);
                 UsageLastDay = Json.AsString(Json.Field(root, "usageLastDay"));
                 UsageStreak = (int)Json.AsDouble(Json.Field(root, "usageStreak"), 0);
@@ -1086,6 +1092,7 @@ namespace Marabook.Settings
                 }
                 if (Achievements.Count > 0)
                     root["achievements"] = new Dictionary<string, object>(ToObjectDict(Achievements));
+                if (EverythingUnlocked) root["everythingUnlocked"] = true;
                 if (PermanentlyDeleted > 0) root["permanentlyDeleted"] = PermanentlyDeleted;
                 if (UsageLastDay != null) root["usageLastDay"] = UsageLastDay;
                 if (UsageStreak > 0) root["usageStreak"] = UsageStreak;

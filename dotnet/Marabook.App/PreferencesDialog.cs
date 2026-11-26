@@ -769,6 +769,8 @@ namespace Marabook.App
 
         /// <summary>Les cartes de skin (celle en cours cerclée d'accent ; les PREMIUM étiquetées), les
         /// options d'un skin « Museum » et, pour les skins à deux couleurs, le choix de la seconde.</summary>
+        internal void RebuildSkinsForProbe() { RebuildSkins(); }
+
         private void RebuildSkins()
         {
             _skinCards.Children.Clear();
@@ -777,8 +779,23 @@ namespace Marabook.App
             {
                 var skinId = id;
                 var selected = id == current;
+                // UN SKIN À DÉBLOQUER (25/11/2026, Rémi) : « Gardien du Feu », « Bois Blanc » et « Assermenté »
+                // s'ouvrent par un succès secret (ou par le sésame). Verrouillé : aperçu éteint sous un
+                // cadenas, description tue, et le clic ne le choisit pas. Le skin EN COURS n'est jamais
+                // verrouillé (on ne retire pas son skin à qui l'utilise déjà).
+                var locked = !selected && AppSettings.SkinLocked(id);
                 var column = new StackPanel();
-                column.Children.Add(SkinPreview(id));
+                var preview = SkinPreview(id);
+                if (locked)
+                {
+                    preview.Opacity = 0.28;
+                    var shut = new Panel();
+                    shut.Children.Add(preview);
+                    var padlock = Icons.Make("lock", 26, Chrome.Ink) as Control;
+                    if (padlock != null) { padlock.HorizontalAlignment = HorizontalAlignment.Center; padlock.VerticalAlignment = VerticalAlignment.Center; shut.Children.Add(padlock); }
+                    column.Children.Add(shut);
+                }
+                else column.Children.Add(preview);
                 var name = new TextBlock { Text = Skins.Label(id), FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center };
                 if (Skins.Premium(id))
                 {
@@ -796,7 +813,7 @@ namespace Marabook.App
                     column.Children.Add(title);
                 }
                 else { name.Margin = new Thickness(0, 7, 0, 1); column.Children.Add(name); }
-                column.Children.Add(new TextBlock { Text = Skins.Description(id), Foreground = Chrome.SoftText, FontSize = 11.5, TextWrapping = TextWrapping.Wrap });
+                column.Children.Add(new TextBlock { Text = locked ? "Verrouillé — un succès secret l'ouvre." : Skins.Description(id), Foreground = Chrome.SoftText, FontSize = 11.5, FontStyle = locked ? FontStyle.Italic : FontStyle.Normal, TextWrapping = TextWrapping.Wrap });
                 var card = new Border
                 {
                     Width = 178,
@@ -806,11 +823,12 @@ namespace Marabook.App
                     Background = Chrome.CardBg,
                     BorderBrush = selected ? (IBrush)Chrome.Accent : Chrome.Border,
                     BorderThickness = new Thickness(selected ? 2 : 1),
-                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Cursor = new Cursor(locked ? StandardCursorType.Arrow : StandardCursorType.Hand),
                     Child = column,
-                    Tag = "skin:" + id
+                    Tag = (locked ? "skin-locked:" : "skin:") + id
                 };
-                card.PointerReleased += delegate { SetSkin(skinId); };
+                if (locked) ToolTip.SetTip(card, "Ce skin se débloque en obtenant le succès secret « " + Achievements.Find(Skins.UnlockedBy(skinId)).Name + " ».");
+                else card.PointerReleased += delegate { SetSkin(skinId); };
                 _skinCards.Children.Add(card);
             }
 
@@ -952,6 +970,11 @@ namespace Marabook.App
         {
             id = Skins.Normalize(id);
             if (id == Skin.Current) return;
+            // « Ascension » (25/11, Rémi) : ses angles droits ne sont plus forcés — le choisir pose l'arrondi à 0 %, et le
+            // curseur rend des rondeurs à qui en veut. En le quittant à 0 %, l'arrondi d'origine revient.
+            var leaving = Skin.Current;
+            if (id == Skins.MuseumAscent) PoseCornerScale(0);
+            else if (leaving == Skins.MuseumAscent && AppSettings.CornerScale < 0.001) PoseCornerScale(1);
             AppSettings.Skin = id == Skins.Modern ? null : id;
             // « Sombre par défaut » : choisir le skin passe au sombre ; on en ressort par la case, comme toujours.
             if (Skins.DarkByDefault(id) && !AppSettings.DarkTheme)
@@ -978,7 +1001,8 @@ namespace Marabook.App
         private void RebuildSwatches()
         {
             _swatches.Children.Clear();
-            var current = AppSettings.AccentColor ?? Chrome.DefaultAccent;
+            // Sans accent choisi, un skin « Museum » porte le SIEN (pas l'indigo) : aucune des pastilles communes n'est cerclée.
+            var current = AppSettings.AccentColor ?? (Skin.Museum ? null : Chrome.DefaultAccent);
             foreach (var entry in Accents)
             {
                 var hex = entry[0];
@@ -998,11 +1022,53 @@ namespace Marabook.App
                 var hexRef = hex;
                 swatch.PointerReleased += delegate
                 {
-                    SetAccent(string.Equals(hexRef, Chrome.DefaultAccent, StringComparison.OrdinalIgnoreCase) ? null : hexRef);
+                    SetAccent(!Skin.Museum && string.Equals(hexRef, Chrome.DefaultAccent, StringComparison.OrdinalIgnoreCase) ? null : hexRef);
                 };
                 _swatches.Children.Add(swatch);
             }
+            AddMetalSwatches();
         }
+
+        /// <summary>LES TROIS MÉTAUX d'« Ascension » (25/11) : or, vermeil, argent — après les pastilles
+        /// communes, derrière un filet, sous ce skin seulement. Leur bordure est la dorure qui luit (ces
+        /// couleurs-là appartiennent au skin) ; le métal en cours porte un losange or pâle au-dessus.
+        /// L'or est le défaut : le choisir rend l'accent au skin (AccentColor nul).</summary>
+        private void AddMetalSwatches()
+        {
+            if (!AscensionArt.On) return;
+            _swatches.Children.Add(new Border { Width = 1, Height = 18, Margin = new Thickness(6, 0, 6, 0), Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center, Tag = "skin-metal-rule" });
+            var chosen = AscensionArt.MetalFor(AppSettings.AccentColor);
+            foreach (var metal in AscensionArt.Metals)
+            {
+                var swatch = new Border
+                {
+                    Width = 28,
+                    Height = 28,
+                    CornerRadius = new CornerRadius(0),
+                    Background = new SolidColorBrush(Color.Parse(metal.Hex)),
+                    BorderBrush = AscensionArt.GiltLine(),
+                    BorderThickness = new Thickness(2.5),
+                    BoxShadow = BoxShadows.Parse("inset 0 1 0 0 #59FFFFFF"),
+                    Cursor = new Cursor(StandardCursorType.Hand),
+                    Tag = "skin-metal:" + metal.Key
+                };
+                ToolTip.SetTip(swatch, metal.Label + " — métal d'Ascension");
+                var picked = metal;
+                swatch.PointerReleased += delegate { SetAccent(picked.Key == "or" ? null : picked.Hex); };
+                var host = new Panel { Margin = new Thickness(2), Tag = ReferenceEquals(metal, chosen) ? "skin-metal-chosen" : "skin-metal" };
+                host.Children.Add(swatch);
+                if (ReferenceEquals(metal, chosen))
+                    host.Children.Add(new Border
+                    {
+                        Width = 6, Height = 6, Background = Chrome.Glow, IsHitTestVisible = false,
+                        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -8, 0, 0),
+                        RenderTransform = new RotateTransform(45)
+                    });
+                _swatches.Children.Add(host);
+            }
+        }
+
+        internal void SetAccentForProbe(string hex) { SetAccent(hex); }
 
         private void SetAccent(string hex)
         {

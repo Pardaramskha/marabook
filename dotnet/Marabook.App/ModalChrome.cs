@@ -42,7 +42,7 @@ namespace Marabook.App
         /// 2 = LA LUNE et son planétarium (Gardien du Feu, Bois Blanc, Assermenté — 24/11 au soir).</summary>
         private static int _shape;
         private static readonly ConditionalWeakTable<Window, GrandParts> Grands = new ConditionalWeakTable<Window, GrandParts>();
-        private sealed class GrandParts { public Panel Root; public Border Frame, Veil; public Planetarium Sky; public double Added; }
+        private sealed class GrandParts { public Panel Root; public Border Frame, Veil; public Planetarium Sky; public PlanetariumSky Heaven; public double Added; }
         private static bool _galbe;
         private static readonly System.Collections.Generic.List<Window> Open = new System.Collections.Generic.List<Window>();
         private static readonly ConditionalWeakTable<Window, TextBlock> Titles = new ConditionalWeakTable<Window, TextBlock>();
@@ -204,7 +204,14 @@ namespace Marabook.App
             var grand = Grand(window);
             if (grand)
             {
-                var shape = new GalbeFrame { Tag = "modal-galbe" };
+                // « Ascension », lot 2 : le CIEL DE PLANÉTARIUM est le fond de la silhouette galbée (elle ne peint
+                // alors que ses filets) ; FitGrand le rogne à la silhouette. Il ne peint rien sous un autre skin.
+                var heaven = new PlanetariumSky();
+                heaven.Bind(Visual.IsVisibleProperty, new DynamicResourceExtension(GalbeKey));
+                heaven.Bind(Visual.OpacityProperty, new DynamicResourceExtension(GlassKey));
+                root.Children.Add(heaven);
+                Parts(window).Heaven = heaven;
+                var shape = new GalbeFrame { Tag = "modal-galbe", SkyBehind = true };
                 shape[!GalbeFrame.FillProperty] = window[!TemplatedControl.BackgroundProperty];
                 shape.Bind(GalbeFrame.GlassProperty, new DynamicResourceExtension(GlassKey));
                 shape.Bind(Visual.IsVisibleProperty, new DynamicResourceExtension(GalbeKey));
@@ -231,6 +238,18 @@ namespace Marabook.App
             glass.Bind(Visual.OpacityProperty, new DynamicResourceExtension(GlassKey));
             glass.Bind(Border.CornerRadiusProperty, new DynamicResourceExtension(CornerKey));
             root.Children.Add(glass);
+            // La texture de vitrail d'« Ascension » (25/11), par-dessus le fond d'un dialogue ordinaire (un grand la peint dans sa silhouette).
+            var vitrail = new Border { IsHitTestVisible = false, Tag = "modal-vitrail", Opacity = AscensionArt.DialogTexture, [!Border.BackgroundProperty] = Skin.VitrailBinding };
+            if (grand) vitrail.Bind(Visual.IsVisibleProperty, new DynamicResourceExtension(PlainKey));
+            if (window is JournalDialog && AscensionArt.On)
+            {
+                // Le Journal perso (lot 2) : le même ciel, à la place du vitrail, rogné aux coins de la fenêtre.
+                var heavens = new Border { IsHitTestVisible = false, ClipToBounds = true, Child = new PlanetariumSky(), Tag = "modal-heavens" };
+                heavens.Bind(Visual.OpacityProperty, new DynamicResourceExtension(GlassKey));
+                heavens.Bind(Border.CornerRadiusProperty, new DynamicResourceExtension(CornerKey));
+                root.Children.Add(heavens);
+            }
+            else root.Children.Add(vitrail);
 
             var frame = new Border { BorderBrush = Chrome.BorderStrong, BorderThickness = new Thickness(1), ClipToBounds = true, Tag = "modal-frame" };
             frame.Bind(Border.CornerRadiusProperty, new DynamicResourceExtension(CornerKey));
@@ -353,7 +372,7 @@ namespace Marabook.App
             Geometry clip = null;
             if (_shape == 1)
             {
-                padding = GalbeFrame.Inset;
+                padding = GalbeFrame.InsetNow;
                 if (size.Height > 0) clip = GalbeFrame.Outline(size, 0);
             }
             else if (_shape == 2 && size.Height > 0)
@@ -376,6 +395,7 @@ namespace Marabook.App
             var line = new Thickness(_shape == 0 ? 1 : 0);
             if (parts.Frame.BorderThickness != line) parts.Frame.BorderThickness = line;
             if (parts.Frame.Padding != padding) parts.Frame.Padding = padding;
+            if (parts.Heaven != null) parts.Heaven.Clip = _shape == 1 ? clip : null;
             if (parts.Veil != null) parts.Veil.Clip = _shape != 0 && parts.Veil.IsVisible ? clip : null;
         }
 
@@ -398,7 +418,7 @@ namespace Marabook.App
             }
             var big = _galbe && Grand(window);
             title.FontFamily = font;
-            title.FontWeight = FontWeight.Medium;
+            title.FontWeight = Skin.TitleWeight;
             title.FontSize = Skin.Caps ? (big ? 16 : 13.5) : (big ? 20 : 16);
             title.LetterSpacing = Skin.Caps ? title.FontSize * 0.05 : 0;
         }

@@ -164,7 +164,8 @@ namespace Marabook.App
                     var side = Skin.ResourceForProbe(Skin.SideKey) as ImageBrush;
                     var sidePanel = Skin.ResourceForProbe(Skin.SidePanelKey) as ImageBrush;
                     if (id == Skins.MuseumAscent)
-                        Check(!Skin.FrostedSides && ReferenceEquals(Skin.ResourceForProbe(Skin.SideKey), Skin.ResourceForProbe(Skin.BarKey)) && ReferenceEquals(Skin.ResourceForProbe(Skin.SidePanelKey), Chrome.BarBgLight), "…pas de verre dépoli sous « Ascension » : la Pile et le rail gardent leurs aplats");
+                        Check(!Skin.FrostedSides && side != null && sidePanel != null && side.TileMode == TileMode.Tile && Math.Abs(side.DestinationRect.Rect.Width - AscensionArt.TextureTile) < 0.01,
+                            "…sous « Ascension », la Pile et le rail dépolissent la texture de vitrail (une tuile floutée sous leur couleur)");
                     else
                     {
                         Check(Skin.GlassTextureFoundForProbe && Skin.FrostedSides && side != null && sidePanel != null && side.TileMode == TileMode.FlipXY, "…la Pile et le rail portent le verre dépoli (la texture, en carreaux retournés)");
@@ -222,7 +223,46 @@ namespace Marabook.App
                     shell.ApplyAppearanceForProbe();
                     prefs.Show(shell);
                     await Settle();
+                    // « Ascension · Art nouveau » (25/11) : ce skin seul.
+                    if (id == Skins.MuseumAscent) await ProbeAscension(shell, prefs, project, text);
+                    else
+                    {
+                        ProbeNotAscension(prefs, name);
+                        // Les textures tracées du 25/11 au soir : le marbre de « Bois Blanc », le kintsugi d'« Assermenté ».
+                        if (id == Skins.MuseumWood) Check(Skin.MarbleSidesForProbe && Skin.SideReliefForProbe > 0.03, "…la Pile et le rail de « Bois Blanc » portent un marbre tracé, sous leur verre");
+                        else Check(!Skin.MarbleSidesForProbe || !Skin.FrostedSides, "…pas de marbre sous " + name);
+                        // Le kintsugi (26/11) : les cinq fêlures peintes par Rémi, aux angles du fond et au pied des colonnes.
+                        var kinLayers = shell.GetVisualDescendants().OfType<KintsugiLayer>().ToList();
+                        if (id == Skins.MuseumOath)
+                        {
+                            var kinCorners = kinLayers.FirstOrDefault(delegate(KintsugiLayer layer) { return "kintsugi:corners".Equals(layer.Tag); });
+                            Check(Kintsugi.ImagesFoundForProbe == 5 && kinLayers.Count == 3 && kinLayers.All(delegate(KintsugiLayer layer) { return !layer.IsHitTestVisible; }) && kinCorners != null && kinCorners.Center.Width > 300,
+                                "…« Assermenté » porte ses fêlures d'or (kintsugi, 5 images) : aux angles de la zone centrale, au pied de la Pile et du rail — sans prendre la souris");
+                            var gear = shell.Binder.GetVisualDescendants().OfType<Border>().FirstOrDefault(delegate(Border border) { return "binder-preferences".Equals(border.Tag); });
+                            var journalRow = shell.Binder.GetVisualDescendants().OfType<Border>().FirstOrDefault(delegate(Border border) { return "binder-journal".Equals(border.Tag); });
+                            Check(gear != null && journalRow != null && gear.Bounds.Width > 20 && Math.Abs(gear.TranslatePoint(new Point(gear.Bounds.Width, 0), journalRow).Value.X - journalRow.Bounds.Width) < 1.5,
+                                "un engrenage est calé sur le bord droit du bouton « Journal perso » (il ouvre les Préférences)");
+                            // Du texte peut passer sur les fêlures des colonnes : il doit rester lisible, aux deux visages.
+                            var kinSoft = Kintsugi.Legible(Chrome.SoftText.Color, Chrome.BarBg.Color);
+                            var kinInk = Kintsugi.Legible(Chrome.Ink.Color, Chrome.BarBg.Color);
+                            var kinPanel = Kintsugi.Legible(Chrome.Ink.Color, Chrome.BarBgLight.Color);
+                            Check(kinInk >= 7 && kinPanel >= 7 && kinSoft >= 3, "…sous leur voile d'or, le texte de la Pile et du rail reste lisible (encre " + kinInk.ToString("0.0") + ":1, panneau " + kinPanel.ToString("0.0") + ":1, texte doux " + kinSoft.ToString("0.0") + ":1)");
+                            AppSettings.DarkTheme = !night;
+                            shell.ApplyAppearanceForProbe();
+                            for (var i = 0; i < 2; i++) await Settle();
+                            var kinInkother = Kintsugi.Legible(Chrome.Ink.Color, Chrome.BarBg.Color);
+                            var kinSoftother = Kintsugi.Legible(Chrome.SoftText.Color, Chrome.BarBg.Color);
+                            Check(kinInkother >= 7 && kinSoftother >= 3, "…à l'autre visage aussi (encre " + kinInkother.ToString("0.0") + ":1, texte doux " + kinSoftother.ToString("0.0") + ":1)");
+                            AppSettings.DarkTheme = night;
+                            shell.ApplyAppearanceForProbe();
+                            for (var i = 0; i < 2; i++) await Settle();
+                        }
+                        else Check(!Kintsugi.On, "…pas de fêlures d'or sous " + name);
+                        if (id == Skins.MuseumFire) Check(Math.Abs(AppSettings.CornerScale - 1) < 0.001, "…quitter « Ascension » à 0 % d'arrondi rend l'arrondi d'origine");
+                    }
                 }
+
+                await ProbeSkinUnlocks(shell, prefs);
 
                 // ------------------------------------------------ les trois options (sous Assermenté, sombre)
                 prefs.SetMuseumGround("#14101F");

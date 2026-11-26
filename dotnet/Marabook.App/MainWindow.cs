@@ -228,6 +228,12 @@ namespace Marabook.App
             };
             var shell = new Grid();
             _shellGrid = shell; // la palette « Ouvrir par le nom » y pose son voile (29/10)
+            // La texture de vitrail d'« Ascension » (25/11) : ancrée à la fenêtre, au-dessus du fond peint, sous tout le reste.
+            _vitrail = new Border { IsHitTestVisible = false, Tag = "vitrail", [!Border.BackgroundProperty] = Skin.VitrailBinding };
+            shell.Children.Add(_vitrail);
+            // Le kintsugi d'« Assermenté » (26/11) : ses fêlures d'or aux angles de la zone centrale, sur le fond, sous les vues.
+            _kintsugi = new KintsugiLayer(KintsugiLayer.Zone.Corners);
+            shell.Children.Add(_kintsugi);
             shell.Children.Add(root);
             shell.Children.Add(_toastHost);
             // Le voile de l'accueil (13/09) : à l'ouverture SANS projet, la
@@ -740,6 +746,7 @@ namespace Marabook.App
                 return true;
             };
             _binder.JournalRequested += ShowJournal;
+            _binder.PreferencesRequested += OpenPreferences; // l'engrenage du pied de Pile (26/11)
             _binder.GraphRequested += ShowGraph; // le graphe relationnel (1.1.0)
             _binder.ExportSheetRequested += delegate(BinderItem item) { ExportEncyclopedia(Exchange.EncyclopediaSelection.Sheet(item.Id)); }; // l'Encyclopédie (31/10)
             _binder.ExportEncyclopediaRequested += ExportEncyclopediaAll;
@@ -1321,6 +1328,25 @@ namespace Marabook.App
             _rail = BuildRail();
             Grid.SetColumn(_rail, 5);
             grid.Children.Add(_rail);
+            // « Ascension » (25/11, Rémi) : une lueur de magie au pied de la Pile et du rail (transparente ailleurs),
+            // par-dessus leurs fonds, sans prendre la souris.
+            var glowLeft = new Border { IsHitTestVisible = false, Tag = "side-glow", [!Border.BackgroundProperty] = Skin.SideGlowBinding };
+            Grid.SetColumn(glowLeft, 0);
+            grid.Children.Add(glowLeft);
+            var glowRight = new Border { IsHitTestVisible = false, Tag = "side-glow", [!Border.BackgroundProperty] = Skin.SideGlowBinding };
+            Grid.SetColumn(glowRight, 4);
+            Grid.SetColumnSpan(glowRight, 2);
+            grid.Children.Add(glowRight);
+            // « Assermenté » (26/11) : une fêlure d'or au pied de la Pile et du rail, en voile.
+            var crackLeft = new KintsugiLayer(KintsugiLayer.Zone.Pile);
+            Grid.SetColumn(crackLeft, 0);
+            grid.Children.Add(crackLeft);
+            var crackRight = new KintsugiLayer(KintsugiLayer.Zone.Rail);
+            Grid.SetColumn(crackRight, 4);
+            Grid.SetColumnSpan(crackRight, 2);
+            grid.Children.Add(crackRight);
+            _sideGrid = grid;
+            grid.LayoutUpdated += delegate { ClipVitrail(); };
             _editor.FindingsChanged += UpdateRail;
             _editor.FindingsChanged += TrackDeepClean; // « Nettoyage en profondeur » (12/09)
 
@@ -3897,7 +3923,20 @@ namespace Marabook.App
         {
             if (_project == null) return;
             if (_quickOpen == null) _quickOpen = new QuickOpenPalette(_shellGrid);
+            _quickOpen.Sesame = SaySesame;
             _quickOpen.Show(_project, delegate(string id) { _binder.SelectItem(id); });
+        }
+
+        /// <summary>LE SÉSAME (25/11/2026, Rémi) : « Je veux un monde meilleur », tapé seul dans la palette
+        /// Ctrl+, puis validé — tous les skins sont débloqués (et, à terme, tout ce qui se débloque dans
+        /// l'application, hors succès). Les succès eux-mêmes restent à gagner.</summary>
+        private void SaySesame()
+        {
+            var already = AppSettings.EverythingUnlocked;
+            AppSettings.EverythingUnlocked = true;
+            AppSettings.Save();
+            Sounds.Success();
+            ShowToast(null, "Un monde meilleur", already ? "Tout est déjà débloqué." : "Tous les skins sont débloqués.", "Préférences › Personnalisation — les succès, eux, restent à gagner.", 7, false);
         }
 
         internal QuickOpenPalette QuickOpenForProbe { get { ShowQuickOpen(); return _quickOpen; } }
@@ -5496,7 +5535,7 @@ namespace Marabook.App
         {
             if (TutorialActive) return; // le tutoriel ne débloque rien (29/10) — hors « Tour du proprio », au retour à l'accueil
             var now = DateTime.Now;
-            var facts = Achievements.Gather(_project, CachedPageCount, CachedBookPages, AppSettings.BlankSince, now);
+            var facts = Achievements.Gather(_project, CachedPageCount, CachedBookPages, AppSettings.BlankSince, now, AppSettings.Achievements.Keys);
             facts.PermanentlyDeleted = AppSettings.PermanentlyDeleted;
             facts.UsageStreak = AppSettings.UsageStreak;
             facts.PlotBytes = _lastSavedBytes;
@@ -5519,6 +5558,8 @@ namespace Marabook.App
             facts.ModuleHolds = Modules.Holding(_project); // succès des modules (DLC)
             var earned = Achievements.Earned(facts, AppSettings.Achievements.Keys);
             foreach (var id in earned) UnlockAchievement(id);
+            // Les succès secrets à condition : ceux qui débloquent un skin (25/11).
+            foreach (var id in Achievements.SecretsEarned(facts, AppSettings.Achievements.Keys)) UnlockAchievement(id);
         }
 
         /// <summary>Le compte de pages déjà mesuré d'un écrit (cache du batch
@@ -5619,7 +5660,7 @@ namespace Marabook.App
         private void ShowAchievementToast(Achievement achievement)
         {
             var badge = AchievementBadge.Build(achievement, true, 48);
-            ShowToast(badge, "Succès débloqué", achievement.Name, achievement.Description, 6, false); // le son du succès suffit
+            ShowToast(badge, "Succès débloqué", achievement.Name, achievement.Description, achievement.Reward == null ? 6 : 9, false, achievement.Reward); // le son du succès suffit
         }
 
         /// <summary>Le toast « enregistré » (0.50.0) : la carte des succès, sans
@@ -5641,7 +5682,7 @@ namespace Marabook.App
 
         /// <summary>sound : la notification sonne (31/10, Rémi) — sauf
         /// l'enregistrement et le succès, qui ont leur propre son.</summary>
-        private void ShowToast(Control badge, string kicker, string title, string description, double seconds, bool sound)
+        private void ShowToast(Control badge, string kicker, string title, string description, double seconds, bool sound, string strong = null)
         {
             if (sound) Sounds.Notification();
             var row = new DockPanel();
@@ -5675,6 +5716,9 @@ namespace Marabook.App
                     FontSize = 11,
                     TextWrapping = TextWrapping.Wrap
                 });
+            // Ce qu'un succès débloque (25/11) : à la ligne, en gras.
+            if (!string.IsNullOrEmpty(strong))
+                text.Children.Add(new TextBlock { Text = strong, Foreground = Chrome.Ink, FontSize = 11, FontWeight = FontWeight.Bold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0), Tag = "toast-reward" });
             row.Children.Add(text);
             // L'ombre vit sur un cadre VIDE dessous (correctif 0.50.0) : un
             // DropShadowEffect posé sur le cadre qui porte le texte le rend
@@ -6037,6 +6081,40 @@ namespace Marabook.App
         /// 32 px — l'inspecteur (il décrit l'élément courant), un filet, puis
         /// les trois outils. Il ne se masque pas ; il suit seulement le mode
         /// calme et le journal, comme le reste de la colonne.</summary>
+        private Border _vitrail;
+        private KintsugiLayer _kintsugi;
+        private Grid _sideGrid;
+        private string _vitrailClip;
+
+        /// <summary>« Ascension » (25/11, Rémi : « la texture derrière la Pile est trop uniforme ») : la texture de
+        /// vitrail n'est plus peinte NETTE sous la Pile ni sous le rail — elle y est rognée, et ces colonnes portent
+        /// la leur, dépolie par leur verre (Skin.Glass.cs). Refait quand une colonne change de largeur.</summary>
+        private void ClipVitrail()
+        {
+            if (_vitrail == null || _sideGrid == null) return;
+            if (!Skin.GroundTextured) // le vitrail d'« Ascension », les fissures d'or d'« Assermenté »
+            {
+                if (_vitrailClip != null) { _vitrail.Clip = null; _vitrailClip = null; }
+                return;
+            }
+            var origin = _sideGrid.TranslatePoint(new Point(0, 0), _vitrail);
+            if (!origin.HasValue) return;
+            double left = _binderCol.ActualWidth, right = _inspectorCol.ActualWidth + _railCol.ActualWidth;
+            var full = new Rect(_vitrail.Bounds.Size);
+            var box = new Rect(origin.Value, _sideGrid.Bounds.Size);
+            if (_kintsugi != null) _kintsugi.PlaceCenter(new Rect(box.X + left, box.Y, Math.Max(0, box.Width - left - right), box.Height));
+            var key = full.Width + "|" + full.Height + "|" + box.X + "|" + box.Y + "|" + box.Width + "|" + box.Height + "|" + left + "|" + right;
+            if (key == _vitrailClip) return;
+            _vitrailClip = key;
+            var clip = new GeometryGroup { FillRule = FillRule.EvenOdd };
+            clip.Children.Add(new RectangleGeometry(full));
+            if (left > 0) clip.Children.Add(new RectangleGeometry(new Rect(box.X, box.Y, left, box.Height)));
+            if (right > 0) clip.Children.Add(new RectangleGeometry(new Rect(box.Right - right, box.Y, right, box.Height)));
+            _vitrail.Clip = clip;
+        }
+
+        internal bool VitrailClippedForProbe { get { return _vitrail != null && _vitrail.Clip is GeometryGroup && ((GeometryGroup)_vitrail.Clip).Children.Count >= 2; } }
+
         private Border BuildRail()
         {
             _railStack = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
@@ -6324,6 +6402,9 @@ namespace Marabook.App
             var themeHandler = ThemeChanged; // les modules à code suivent le thème (22/09)
             if (themeHandler != null) themeHandler();
             if (_sheetView != null) _sheetView.OnThemeChanged(); // l'arbre généalogique fige ses teintes au dessin (1.1.1)
+            // « Ascension » (25/11) habille les rubriques de la Pile et l'anneau de l'Accueil à leur fabrication : on les refait.
+            if (_binder != null && _project != null) _binder.Rebuild();
+            if (_homeView != null && _homeView.IsVisible) _homeView.Refresh();
             CodeModuleHost.Instance.SetDarkTheme(AppSettings.DarkTheme); // Mental-O en DLC (26/10)
             // Accessibilité (22/11) : le curseur épais ou fixe et les liens soulignés se lisent au dessin — les textes ouverts se redessinent.
             foreach (var visual in Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(this))

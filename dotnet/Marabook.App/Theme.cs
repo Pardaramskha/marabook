@@ -584,7 +584,12 @@ namespace Marabook.App
             var presenter = new ContentPresenter { Name = "Header", VerticalAlignment = VerticalAlignment.Center };
             presenter.Bind(ContentPresenter.ContentProperty, new TemplateBinding(HeaderedContentControl.HeaderProperty), BindingPriority.Template);
             presenter.Bind(ContentPresenter.ContentTemplateProperty, new TemplateBinding(HeaderedContentControl.HeaderTemplateProperty), BindingPriority.Template);
-            var border = new Border { Name = "Bg", Child = presenter };
+            // À côté de l'en-tête, le cimier de l'onglet choisi (« Ascension », 25/11 — il ne peint rien ailleurs).
+            var layers = new Panel();
+            layers.Children.Add(presenter);
+            var border = new Border { Name = "Bg", Child = layers };
+            var tab = parent as TabItem;
+            if (tab != null) layers.Children.Add(new TabCrest(tab, border));
             border.Bind(Border.BackgroundProperty, new TemplateBinding(TemplatedControl.BackgroundProperty), BindingPriority.Template);
             border.Bind(Border.BorderBrushProperty, new TemplateBinding(TemplatedControl.BorderBrushProperty), BindingPriority.Template);
             border.Bind(Border.BorderThicknessProperty, new TemplateBinding(TemplatedControl.BorderThicknessProperty), BindingPriority.Template);
@@ -782,7 +787,52 @@ namespace Marabook.App
             column.Children.Add(arrow);
             column.Children.Add(pill);
             column.Children.Add(side);
-            if (Skin.Museum)
+            if (AscensionArt.On)
+            {
+                // « ASCENSION », LOT 2 (25/11 au soir) : une PLAQUE bleu nuit à double filet — bordure d'or,
+                // second filet en dedans, arête haute dorée, quatre losanges à cheval sur les angles — et
+                // une pointe en losange vers ce qu'elle désigne. Le texte est mis en forme par TipText :
+                // titre facultatif, raccourci en cartouche.
+                var night = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative) };
+                night.GradientStops.Add(new GradientStop(Color.Parse("#F50E2034"), 0));
+                night.GradientStops.Add(new GradientStop(Color.Parse("#F5040E18"), 1));
+                var rim = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.55));
+                var tipInk = new SolidColorBrush(Color.Parse("#0D1E31"));
+                var tipRim = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.65));
+                pill.ClearValue(Border.BackgroundProperty);
+                pill.ClearValue(Border.CornerRadiusProperty);
+                pill.Background = night;
+                pill.CornerRadius = new CornerRadius(0);
+                Skin.KeepCorners(pill);
+                pill.BorderBrush = rim;
+                pill.BorderThickness = new Thickness(1);
+                pill.Padding = new Thickness(4, 3, 4, 3);
+                pill.BoxShadow = BoxShadows.Parse("inset 0 0 0 3 #010A13, inset 0 0 0 4 #29C89B3C, 0 3 8 0 #99000000");
+                pill.Tag = "tip-plate";
+                presenter.ClearValue(ContentPresenter.ContentProperty);
+                presenter.Bind(ContentPresenter.ContentProperty, new TemplateBinding(ContentControl.ContentProperty) { Converter = new Avalonia.Data.Converters.FuncValueConverter<object, object>(TipText.Build) }, BindingPriority.Template);
+                arrow.ClearValue(Shape.FillProperty);
+                arrow.Data = Geometry.Parse("M0,6.5 L6,0.5 L12,6.5");
+                arrow.Height = 7;
+                arrow.Fill = tipInk;
+                arrow.Stroke = tipRim;
+                arrow.StrokeThickness = 1;
+                arrow.Margin = new Thickness(14, 0, 0, -1);
+                arrow.ZIndex = 1;
+                side.ClearValue(Shape.FillProperty);
+                side.Data = Geometry.Parse("M0.5,0 L6.5,6 L0.5,12");
+                side.Width = 7;
+                side.Fill = tipInk;
+                side.Stroke = tipRim;
+                side.StrokeThickness = 1;
+                side.Margin = new Thickness(-1, 0, 0, 0);
+                side.ZIndex = 1;
+                var ornaments = new TipOrnaments();
+                Grid.SetRow(ornaments, 1);
+                column.Children.Add(ornaments);
+                column.Margin = new Thickness(TipShadowRoom, 0, TipShadowRoom, TipShadowRoom + 4);
+            }
+            else if (Skin.Museum)
             {
                 // Skins « Museum » (25/11, Rémi) : une légère ombre portée sous la bulle, pour qu'elle
                 // se lise sur n'importe quel fond. La marge lui laisse la place dans la fenêtre de la bulle.
@@ -849,7 +899,7 @@ namespace Marabook.App
             if (x > max) x = max;
             if (x < 6) x = 6;
             if (Math.Abs(arrow.Margin.Left - x) < 0.5) return;
-            arrow.Margin = new Thickness(x, 0, 0, 0);
+            arrow.Margin = new Thickness(x, 0, 0, arrow.Margin.Bottom);
         }
 
         /// <summary>Le bouton radio : le même visage que la case — un rond

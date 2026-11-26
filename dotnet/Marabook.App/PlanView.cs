@@ -545,7 +545,13 @@ namespace Marabook.App
             if (entry.IsElement)
             {
                 var meter = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0) };
-                for (var i = 1; i <= PlanIntensity.Max; i++)
+                // « Ascension », lot 2 (25/11 au soir) : l'intensité se lit sur une rangée de LOSANGES.
+                if (AscensionArt.On)
+                {
+                    var level = entry.Intensity;
+                    meter.Children.Add(new DiamondRow(PlanIntensity.Max, delegate(int i) { return i < level; }, 8) { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 2, 0) });
+                }
+                else for (var i = 1; i <= PlanIntensity.Max; i++)
                     meter.Children.Add(new Ellipse
                     {
                         Width = 7,

@@ -117,7 +117,7 @@ namespace Marabook.App
                 Check(selection != null && selection.CornerRadius.TopLeft >= 12 && selection.BorderBrush is RadialGradientBrush && selection.BoxShadow.Count == 2,
                     "…la ligne choisie de la Pile est une pilule de verre, à reflet et à lueur (coins de " + (selection == null ? 0 : selection.CornerRadius.TopLeft).ToString("0") + " px)");
             var pearl = selection == null ? null : selection.GetVisualDescendants().OfType<PillPearl>().FirstOrDefault();
-            if (ascent) Check(pearl == null || pearl.Strength <= 0, "…pas de perle sous « Ascension »");
+            if (ascent) Check(pearl != null && pearl.Strength >= 1 && selection.Background is LinearGradientBrush, "…et, sous « Ascension », un dégradé d'or et un losange à cheval sur la barre");
             else
             {
                 Check(pearl != null && pearl.Strength > 0.99 && PillPearl.SizeForProbe >= 8 && Math.Abs(pearl.CenterInBandForProbe.X) < 1 && Math.Abs(selection.Margin.Left - PillPearl.Room) < 0.01,

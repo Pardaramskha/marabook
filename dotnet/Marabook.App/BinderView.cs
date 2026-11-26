@@ -60,6 +60,7 @@ namespace Marabook.App
         public event Action<BinderItem, string[]> FilesDropped;
         public event Action CollapseRequested; // le caret de repli sur la ligne Accueil (29/09)
         public event Action JournalRequested; // clic sur « Journal perso » (pied de Pile)
+        public event Action PreferencesRequested; // clic sur l'engrenage, à droite de « Journal perso » (26/11)
         public event Action GraphRequested;   // clic sur « Graphe relationnel » (section Encyclopédie, 1.1.0)
         public event Action<BinderItem> ExportSheetRequested; // « Exporter la fiche… » (Encyclopédie, 31/10)
         public event Action ExportEncyclopediaRequested;      // « Exporter l'Encyclopédie… » sur la racine Fiches (31/10)
@@ -425,18 +426,53 @@ namespace Marabook.App
                 Foreground = Chrome.Ink,
                 VerticalAlignment = VerticalAlignment.Center
             });
+            // L'ENGRENAGE (26/11, Rémi) : calé sur le bord droit du bouton, un bouton à lui — survolé, c'est
+            // lui qui s'allume (le bouton « Journal perso » s'éteint), et son clic ouvre les Préférences.
+            var gearIcon = Icons.Make("gear-six-bold", 15, Chrome.SoftText) as Control;
+            var gear = new Border
+            {
+                Width = 34,
+                Background = Brushes.Transparent,
+                Cursor = new Cursor(StandardCursorType.Hand),
+                Child = gearIcon,
+                Tag = "binder-preferences",
+                [ToolTip.TipProperty] = "Préférences"
+            };
+            if (gearIcon != null) { gearIcon.HorizontalAlignment = HorizontalAlignment.Center; gearIcon.VerticalAlignment = VerticalAlignment.Center; }
+            row.Margin = new Thickness(12, 8, 12, 8);
+            var layout = new DockPanel();
+            DockPanel.SetDock(gear, Dock.Right);
+            layout.Children.Add(gear);
+            layout.Children.Add(row);
             var bar = new Border
             {
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(12, 8, 12, 8),
                 Background = Brushes.Transparent,
                 Cursor = new Cursor(StandardCursorType.Hand),
-                Child = row
+                Child = layout,
+                Tag = "binder-journal"
             };
-            bar.PointerEntered += delegate { bar.Background = Chrome.BarBg; };
-            bar.PointerExited += delegate { bar.Background = Brushes.Transparent; };
+            var overGear = false;
+            var overBar = false;
+            Action paint = delegate
+            {
+                bar.Background = overBar && !overGear ? (IBrush)Chrome.BarBg : Brushes.Transparent;
+                gear.Background = overGear ? (IBrush)Chrome.BarBg : Brushes.Transparent;
+            };
+            bar.PointerEntered += delegate { overBar = true; paint(); };
+            bar.PointerExited += delegate { overBar = false; paint(); };
+            gear.PointerEntered += delegate { overGear = true; paint(); };
+            gear.PointerExited += delegate { overGear = false; paint(); };
+            gear.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)
+            {
+                e.Handled = true; // le clic ne descend pas au bouton « Journal perso »
+                if (e.InitialPressMouseButton != MouseButton.Left) return;
+                var handler = PreferencesRequested;
+                if (handler != null) handler();
+            };
             bar.PointerReleased += delegate(object sender, PointerReleasedEventArgs e) {
+                if (e.Handled) return;
                 var handler = JournalRequested;
                 if (handler != null) handler();
             };
@@ -557,7 +593,11 @@ namespace Marabook.App
             foreach (var child in panel.Children)
             {
                 var block = child as TextBlock;
-                if (block != null) return block.Text;
+                if (block == null) continue;
+                // Le nom tel que la section le porte (son étiquette est en capitales sous « Ascension »).
+                var tag = block.Tag as string;
+                if (tag != null && tag.StartsWith("section:") && block.Text != null && block.Text.Length >= tag.Length - 8) return tag.Substring(8) + block.Text.Substring(tag.Length - 8);
+                return block.Text;
             }
             return null;
         }
@@ -691,10 +731,14 @@ namespace Marabook.App
                 DockPanel.SetDock(caret, Dock.Left);
                 row.Children.Add(caret);
             }
+            // « Ascension » (25/11) : la rubrique en capitales espacées, de métal ; son filet finit par un losange (RubricLine).
+            var ascent = AscensionArt.On;
+            var shown = name + (collapsed && roots > 0 ? "  (" + roots + ")" : "");
             var label = new TextBlock
             {
-                Text = name + (collapsed && roots > 0 ? "  (" + roots + ")" : ""),
-                Foreground = Chrome.SoftText,
+                Text = ascent ? shown.ToUpper(System.Globalization.CultureInfo.CurrentCulture) : shown,
+                Foreground = ascent ? (IBrush)Chrome.Accent : Chrome.SoftText,
+                LetterSpacing = ascent ? 1.6 : 0,
                 FontSize = 11,
                 FontWeight = FontWeight.Bold,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -703,7 +747,7 @@ namespace Marabook.App
             };
             DockPanel.SetDock(label, Dock.Left);
             row.Children.Add(label);
-            row.Children.Add(new Border { Height = 1, Background = Chrome.Border, VerticalAlignment = VerticalAlignment.Center });
+            row.Children.Add(new RubricLine());
             ToolTip.SetTip(row, collapsed ? "Déplier « " + name + " »" : "Replier « " + name + " »");
             row.AddHandler(InputElement.PointerPressedEvent, delegate(object sender, PointerPressedEventArgs e) { e.Handled = true; }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
             row.PointerReleased += delegate(object sender, PointerReleasedEventArgs e)

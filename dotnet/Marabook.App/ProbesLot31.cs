@@ -410,8 +410,18 @@ namespace Marabook.App
                 var bubble = tip == null ? null : tip.GetVisualDescendants().OfType<Border>().FirstOrDefault(delegate(Border border) { return border.Name == "Pill"; });
                 var ground = bubble == null ? null : bubble.Background as ISolidColorBrush;
                 var text = tip == null ? null : tip.Foreground as ISolidColorBrush;
+                if (AscensionArt.On)
+                {
+                    // « Ascension », lot 2 (25/11 au soir) : plus d'aplat d'accent — une plaque bleu nuit à double filet.
+                    Check(bubble != null && bubble.Background is LinearGradientBrush && "tip-plate".Equals(bubble.Tag) && text != null && Chrome.Hex(text.Color) == "#F0E6D2"
+                        && tip.GetVisualDescendants().OfType<TipOrnaments>().Any(), "…la bulle ouverte est une plaque bleu nuit (plus un aplat d'accent), arête dorée et losanges aux angles, encre " + (text == null ? "-" : Chrome.Hex(text.Color)));
+                    Check(bubble != null && bubble.BoxShadow.Count == 3 && bubble.BoxShadow[0].IsInset && !bubble.BoxShadow[2].IsInset && bubble.BoxShadow[2].Blur > 3, "…un second filet en dedans, et une ombre portée dessous");
+                }
+                else
+                {
                 Check(ground != null && ground.Color == accent && text != null && text.Color == ink, "…la bulle ouverte est bien à l'accent, encre " + (text == null ? "-" : Chrome.Hex(text.Color)));
                 Check(bubble != null && bubble.BoxShadow.Count == 1 && bubble.BoxShadow[0].Blur > 3 && bubble.BoxShadow[0].OffsetY > 0, "…avec une légère ombre portée dessous");
+                }
                 if (tip != null) Shot(tip, "lot31-" + id + "-infobulle.png");
                 ToolTip.SetIsOpen(railLock, false);
                 await Settle();
@@ -419,7 +429,7 @@ namespace Marabook.App
 
             // — Les barres : un dégradé FIXE, tendu sur la piste.
             var narrow = Skin.MeterBrush(accent, 300) as LinearGradientBrush;
-            Check(narrow != null && narrow.StartPoint.Unit == RelativeUnit.Absolute && Math.Abs(narrow.EndPoint.Point.X - 300) < 0.01 && narrow.GradientStops.Count == 3,
+            Check(narrow != null && narrow.StartPoint.Unit == RelativeUnit.Absolute && Math.Abs(narrow.EndPoint.Point.X - 300) < 0.01 && narrow.GradientStops.Count == (AscensionArt.On ? 2 : 3),
                 "…les barres de progression : un dégradé en unités absolues, tendu sur la piste (300 px) — il ne se serre ni ne s'étire avec la part remplie");
             double h0, s0, l0, h1, s1, l1;
             Skins.ToHsl(Chrome.Hex(Skin.MeterFrom(accent)), out h0, out s0, out l0);

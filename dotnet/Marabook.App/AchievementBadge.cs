@@ -21,6 +21,9 @@ namespace Marabook.App
     /// = en gris et atténué ; débloqué = en couleurs.</summary>
     public static class AchievementBadge
     {
+        /// <summary>Ce qu'on rogne de chaque bord de l'image d'un succès à skin : un zoom de 1,4.</summary>
+        internal const double RewardCrop = 0.143;
+
         public static string ImagePath(string id)
         {
             return System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -61,7 +64,10 @@ namespace Marabook.App
             if (source != null)
             {
                 // Pas de conversion en gris chez Avalonia : l'opacité du cadre suffit.
-                frame.Background = new ImageBrush(source) { Stretch = Stretch.UniformToFill };
+                var picture = new ImageBrush(source) { Stretch = Stretch.UniformToFill };
+                // Les trois succès qui débloquent un skin (26/11, Rémi) : leur image est serrée — on n'en garde que le cœur.
+                if (achievement.UnlocksSkin != null) picture.SourceRect = new RelativeRect(RewardCrop, RewardCrop, 1 - 2 * RewardCrop, 1 - 2 * RewardCrop, RelativeUnit.Relative);
+                frame.Background = picture;
                 return frame;
             }
             // L'écusson provisoire : dégradé accent (ou gris) et le trophée

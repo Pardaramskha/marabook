@@ -61,6 +61,78 @@ namespace Marabook.App
         {
             Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             LastChildFill = true;
+            Build();
+        }
+
+        /// <summary>« Ascension », lot 2 (25/11 au soir) : la vue est bâtie pour le skin en cours — ses
+        /// boîtes changent d'allure sous « Ascension » (cadres enluminés, cartels, nimbe, losanges). La
+        /// coquille la garde d'une ouverture à l'autre : si le skin a changé entre-temps, on la rebâtit.</summary>
+        private bool _ascent;
+        private string _look = "";
+        internal bool BuiltForAscension { get { return _ascent; } }
+
+        private void EnsureSkin()
+        {
+            // Sous « Ascension », ses boîtes figent des teintes à leur fabrication (fond translucide, ors) :
+            // le thème ou le métal qui change la fait rebâtir aussi.
+            var look = AscensionArt.On ? (Chrome.Dark ? "sombre" : "clair") + Chrome.Hex(Chrome.Accent.Color) : "";
+            if (_ascent == AscensionArt.On && _look == look) return;
+            _look = look;
+            var tab = _tabs == null ? 0 : _tabs.SelectedIndex;
+            Children.Clear();
+            _rangeChips.Clear();
+            _nimbe = null;
+            _streakHost = null;
+            _sub7 = _sub30 = _subTotal = _legendGoal = _legendMean = _medalCount = null;
+            _medalBar = null;
+            Build();
+            if (tab > 0) _tabs.SelectedIndex = tab;
+        }
+
+        private GoalRing _nimbe;          // « Ascension » : le chiffre du jour dans son nimbe
+        private Border _streakHost;       // …la série en losanges
+        private TextBlock _sub7, _sub30, _subTotal, _legendGoal, _legendMean, _medalCount;
+        private Grid _medalBar;
+
+        /// <summary>Un libellé de boîte sous « Ascension » : petites capitales d'or, espacées.</summary>
+        private static TextBlock Caps(string text)
+        {
+            return new TextBlock
+            {
+                Text = (text ?? "").ToUpper(CultureInfo.CurrentCulture),
+                Foreground = new SolidColorBrush(AscensionArt.Gold),
+                FontSize = 10.5,
+                FontWeight = FontWeight.SemiBold,
+                LetterSpacing = 1.6,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        /// <summary>Le titre d'une boîte : en capitales d'or sous « Ascension », le titre de toujours ailleurs.</summary>
+        private TextBlock BoxTitle(string text)
+        {
+            if (_ascent) return Caps(text);
+            return new TextBlock { Text = text, Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        }
+
+        /// <summary>Pose le contenu d'une boîte ; sous « Ascension », avec son cadre enluminé (coins, filet
+        /// qui luit ; « riche » et à cimier pour la boîte du jour).</summary>
+        private void Fill(Border card, Control content, bool framed, bool rich = false, bool crest = false)
+        {
+            if (!_ascent || !framed) { card.Child = content; return; }
+            var layers = new Panel();
+            layers.Children.Add(content);
+            layers.Children.Add(IlluminatedFrame.Inside(card, rich, crest));
+            card.BorderBrush = Brushes.Transparent;
+            Skin.Illuminated(card);
+            card.Child = layers;
+            card.Tag = "journal-framed";
+        }
+
+        private void Build()
+        {
+            var ascent = _ascent = AscensionArt.On;
+            _look = ascent ? (Chrome.Dark ? "sombre" : "clair") + Chrome.Hex(Chrome.Accent.Color) : "";
 
             // ---- entête (hors onglets, ne défile pas) ----
             // L'en-tête et la barre d'onglets laissent à droite la place de
@@ -84,14 +156,24 @@ namespace Marabook.App
                 icon.Margin = new Thickness(0, 0, 10, 0);
                 header.Children.Add(icon);
             }
-            header.Children.Add(new TextBlock
+            var headTitle = new TextBlock
             {
                 Text = "Journal perso",
                 Foreground = Chrome.Ink,
                 FontSize = 22,
                 FontWeight = FontWeight.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center
-            });
+            };
+            if (ascent)
+            {
+                // Le titre dans la police des titres, en capitales.
+                headTitle.Text = "JOURNAL PERSO";
+                headTitle.FontFamily = Skin.TitleFont ?? FontFamily.Default;
+                headTitle.FontWeight = FontWeight.Normal;
+                headTitle.FontSize = 25;
+                headTitle.LetterSpacing = 1.5;
+            }
+            header.Children.Add(headTitle);
             page.Children.Add(header);
 
             _dateLabel = new TextBlock
@@ -101,6 +183,7 @@ namespace Marabook.App
                 Margin = new Thickness(0, 4, 0, 10)
             };
             page.Children.Add(_dateLabel);
+            if (ascent) page.Children.Add(new SeparatorLine { Margin = new Thickness(0, -4, 0, 6) }); // le séparateur à volutes
 
             // ---- les onglets « Général » / « Succès » (14/09) ----
             // Le TabControl prend le reste ; sa barre d'onglets (le style
@@ -186,15 +269,55 @@ namespace Marabook.App
                 Margin = new Thickness(0, 6, 0, 0)
             };
             today.Children.Add(_todayCaption);
-            todayCard.Child = today;
+            if (ascent)
+            {
+                // « Ascension » : le chiffre du jour dans son NIMBE, la boîte dans un cadre riche à cimier.
+                // (Le chiffre, la barre et leur rangée restent tenus à jour, hors de l'arbre.)
+                heroRow.Children.Remove(_goalChip);
+                today.Children.Remove(_todayCaption);
+                _nimbe = new GoalRing { Width = 170, Height = 170, HorizontalAlignment = HorizontalAlignment.Center, Tag = "journal-nimbe" };
+                var hero = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
+                var label = Caps("Aujourd'hui");
+                label.HorizontalAlignment = HorizontalAlignment.Center;
+                label.Margin = new Thickness(0, 4, 0, 6);
+                hero.Children.Add(label);
+                hero.Children.Add(_nimbe);
+                _todayCaption.FontSize = 13;
+                _todayCaption.HorizontalAlignment = HorizontalAlignment.Center;
+                _todayCaption.TextAlignment = TextAlignment.Center;
+                _todayCaption.Margin = new Thickness(0, 8, 0, 0);
+                hero.Children.Add(_todayCaption);
+                _goalChip.Background = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.10));
+                _goalChip.BorderBrush = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.6));
+                _goalChip.BorderThickness = new Thickness(1);
+                _goalChip.HorizontalAlignment = HorizontalAlignment.Center;
+                _goalChip.Margin = new Thickness(0, 8, 0, 0);
+                ((TextBlock)_goalChip.Child).Foreground = new SolidColorBrush(AscensionArt.GoldPale);
+                hero.Children.Add(_goalChip);
+                todayCard.Padding = new Thickness(18, 20, 18, 20);
+                Fill(todayCard, hero, true, true, true);
+            }
+            else todayCard.Child = today;
             page.Children.Add(todayCard);
 
             // ---- tuiles ----
             var tiles = new UniformGrid { Rows = 1, Columns = 4, Margin = new Thickness(-4, 10, -4, 0) };
+            if (ascent)
+            {
+                // Quatre CARTELS de musée : libellé en capitales d'or, chiffre dans la police des titres, une précision dessous.
+                _streakHost = new Border { Margin = new Thickness(0, 5, 0, 1), HorizontalAlignment = HorizontalAlignment.Left };
+                tiles.Children.Add(Cartel("7 derniers jours", out _tile7, _sub7 = SubLine()));
+                tiles.Children.Add(Cartel("30 derniers jours", out _tile30, _sub30 = SubLine()));
+                tiles.Children.Add(Cartel("Série", out _tileStreak, _streakHost));
+                tiles.Children.Add(Cartel("Total consigné", out _tileTotal, _subTotal = SubLine()));
+            }
+            else
+            {
             tiles.Children.Add(Tile("7 derniers jours", out _tile7));
             tiles.Children.Add(Tile("30 derniers jours", out _tile30));
             tiles.Children.Add(Tile("Série", out _tileStreak));
             tiles.Children.Add(Tile("Total consigné", out _tileTotal));
+            }
             page.Children.Add(tiles);
 
             // ---- graphique 14 jours ----
@@ -231,6 +354,20 @@ namespace Marabook.App
             }
             DockPanel.SetDock(chips, Dock.Right);
             chartHead.Children.Add(chips);
+            if (ascent)
+            {
+                // La légende vit dans l'en-tête, jamais sur les barres.
+                var legend = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                legend.Children.Add(Caps("Derniers jours"));
+                legend.Children.Add(new TextBlock { Text = "mots nets par jour", Foreground = Chrome.SoftText, FontSize = 11.5, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+                _legendGoal = new TextBlock { Foreground = new SolidColorBrush(AscensionArt.Gold), FontSize = 11.5, Margin = new Thickness(16, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                _legendMean = new TextBlock { Foreground = Chrome.SoftText, FontSize = 11.5, Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+                legend.Children.Add(_legendGoal);
+                legend.Children.Add(_legendMean);
+                chartHead.Children.Add(legend);
+                chartHead.Margin = new Thickness(0, 2, 0, 14);
+            }
+            else
             chartHead.Children.Add(new TextBlock
             {
                 Text = "Derniers jours — mots nets par jour, la moyenne en pointillé",
@@ -239,22 +376,17 @@ namespace Marabook.App
                 VerticalAlignment = VerticalAlignment.Center
             });
             chartPanel.Children.Add(chartHead);
-            _chart = new Canvas { Height = 130, ClipToBounds = false };
+            _chart = new Canvas { Height = ascent ? 170 : 130, ClipToBounds = false };
             Ui.OnSizeChanged(_chart, delegate { DrawChart(); });
             chartPanel.Children.Add(_chart);
-            chartCard.Child = chartPanel;
+            Fill(chartCard, chartPanel, true);
             page.Children.Add(chartCard);
 
             // ---- objectif ----
             var goalCard = Card();
             goalCard.Margin = new Thickness(0, 10, 0, 0);
             var goal = new StackPanel();
-            goal.Children.Add(new TextBlock
-            {
-                Text = "Mots journaliers à écrire",
-                Foreground = Chrome.Ink,
-                FontWeight = FontWeight.SemiBold
-            });
+            goal.Children.Add(BoxTitle("Mots journaliers à écrire"));
             var goalRow = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -301,16 +433,11 @@ namespace Marabook.App
             var sprintsHead = new DockPanel();
             var startSprint = Buttons.IconText("play-fill", "Démarrer un sprint",
                 "Une durée, un objectif de mots", Buttons.Compact, Buttons.Look.Primary);
+            startSprint.Classes.Add(AscensionArt.MagicClass); // ce qui LANCE : la magie bleue d'« Ascension »
             startSprint.Click += delegate { var h = SprintRequested; if (h != null) h(); };
             DockPanel.SetDock(startSprint, Dock.Right);
             sprintsHead.Children.Add(startSprint);
-            sprintsHead.Children.Add(new TextBlock
-            {
-                Text = "Sprints",
-                Foreground = Chrome.Ink,
-                FontWeight = FontWeight.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center
-            });
+            sprintsHead.Children.Add(BoxTitle("Sprints"));
             sprints.Children.Add(sprintsHead);
             sprints.Children.Add(new TextBlock
             {
@@ -339,6 +466,23 @@ namespace Marabook.App
             };
             DockPanel.SetDock(_achievementsCount, Dock.Right);
             achievementsHeader.Children.Add(_achievementsCount);
+            if (ascent)
+            {
+                // Le MÉDAILLIER : le compte dans la police des titres, et une barre de magie.
+                _achievementsCount.IsVisible = false;
+                var cabinet = new DockPanel();
+                var name = Caps("Médaillier");
+                name.Margin = new Thickness(0, 0, 14, 0);
+                DockPanel.SetDock(name, Dock.Left);
+                cabinet.Children.Add(name);
+                _medalCount = new TextBlock { Foreground = Chrome.Ink, FontFamily = Skin.TitleFont ?? FontFamily.Default, FontSize = 22, Margin = new Thickness(0, 0, 16, 0), VerticalAlignment = VerticalAlignment.Center };
+                DockPanel.SetDock(_medalCount, Dock.Left);
+                cabinet.Children.Add(_medalCount);
+                _medalBar = new Grid { Height = 6, VerticalAlignment = VerticalAlignment.Center, Tag = "journal-medal-bar" };
+                cabinet.Children.Add(_medalBar);
+                achievementsHeader.Children.Add(cabinet);
+            }
+            else
             achievementsHeader.Children.Add(new TextBlock
             {
                 Text = "Succès",
@@ -358,8 +502,47 @@ namespace Marabook.App
             });
             _achievementsPanel = new StackPanel();
             achievements.Children.Add(_achievementsPanel);
-            achievementsCard.Child = achievements;
+            Fill(achievementsCard, achievements, true);
             page.Children.Add(achievementsCard);
+        }
+
+        /// <summary>La précision d'un cartel (« 1 813 par jour », « depuis le 3 mars 2026 »).</summary>
+        private static TextBlock SubLine()
+        {
+            return new TextBlock { Foreground = Chrome.SoftText, FontSize = 10.5, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis };
+        }
+
+        /// <summary>Un CARTEL (« Ascension ») : un filet d'or pâle, une barre d'or qui s'efface à gauche, le
+        /// libellé en capitales, le chiffre dans la police des titres, et une précision dessous.</summary>
+        private static Control Cartel(string caption, out TextBlock value, Control below)
+        {
+            var card = Card();
+            card.Margin = new Thickness(4, 0, 4, 0);
+            card.Padding = new Thickness(14, 10, 10, 10);
+            card.Tag = "journal-cartel";
+            var panel = new StackPanel();
+            var label = Caps(caption);
+            label.FontSize = 9.5;
+            label.TextTrimming = TextTrimming.CharacterEllipsis;
+            panel.Children.Add(label);
+            value = new TextBlock
+            {
+                Foreground = Chrome.Ink,
+                FontFamily = Skin.TitleFont ?? FontFamily.Default,
+                FontSize = 22,
+                Margin = new Thickness(0, 3, 0, 0)
+            };
+            panel.Children.Add(value);
+            if (below != null) panel.Children.Add(below);
+            var bar = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative) };
+            bar.GradientStops.Add(new GradientStop(AscensionArt.WithAlpha(AscensionArt.Gold, 0), 0));
+            bar.GradientStops.Add(new GradientStop(AscensionArt.Gold, 0.5));
+            bar.GradientStops.Add(new GradientStop(AscensionArt.WithAlpha(AscensionArt.Gold, 0), 1));
+            var layers = new Panel();
+            layers.Children.Add(new Border { Width = 2, Background = bar, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-14, 4, 0, 4), IsHitTestVisible = false });
+            layers.Children.Add(panel);
+            card.Child = layers;
+            return card;
         }
 
         // ---------------------------------------------------- mise en page
@@ -429,6 +612,37 @@ namespace Marabook.App
         /// (Skin.Plaque). Sous un autre skin, la ligne est rendue telle quelle.</summary>
         private static Control Earned(DockPanel row, bool earned)
         {
+            if (AscensionArt.On)
+            {
+                // « Ascension », lot 2 : chaque succès dans sa boîte — filet d'or franc s'il est obtenu, pâle
+                // sinon ; son nom en capitales dans la police des titres.
+                var ground = Chrome.CardBg.Color;
+                var outer = row.Margin;
+                row.Margin = new Thickness(0);
+                foreach (var child in row.Children)
+                {
+                    var texts = child as StackPanel;
+                    var name = texts == null || texts.Children.Count == 0 ? null : texts.Children[0] as TextBlock;
+                    if (name == null) continue;
+                    name.Text = (name.Text ?? "").ToUpper(CultureInfo.CurrentCulture);
+                    name.FontFamily = Skin.TitleFont ?? FontFamily.Default;
+                    name.FontWeight = FontWeight.Normal;
+                    name.FontSize = 14;
+                    name.LetterSpacing = 0.6;
+                    if (earned) name.Foreground = new SolidColorBrush(AscensionArt.GoldPale);
+                }
+                return new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(earned ? (byte)0xE6 : (byte)0x99, ground.R, ground.G, ground.B)),
+                    BorderBrush = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, earned ? 0.55 : 0.22)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 8, 12, 8),
+                    Margin = outer,
+                    Child = row,
+                    Tag = earned ? "plaque" : "journal-locked"
+                };
+            }
             var plaque = earned ? Skin.Plaque() : null;
             if (plaque == null) return row;
             var margin = row.Margin;
@@ -454,6 +668,21 @@ namespace Marabook.App
             _achievementsPanel.Children.Clear();
             var unlocked = Settings.AppSettings.Achievements;
             _achievementsCount.Text = Achievements.CountKnown(unlocked.Keys) + " / " + Achievements.All.Length;
+            if (_medalCount != null)
+            {
+                var known = Achievements.CountKnown(unlocked.Keys);
+                var all = Math.Max(1, Achievements.All.Length);
+                _medalCount.Text = known + " / " + Achievements.All.Length;
+                _medalBar.Children.Clear();
+                _medalBar.ColumnDefinitions.Clear();
+                var ratio = Math.Max(0, Math.Min(1, known / (double)all));
+                _medalBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.0001, ratio), GridUnitType.Star) });
+                _medalBar.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(Math.Max(0.0001, 1 - ratio), GridUnitType.Star) });
+                var track = new Border { Background = new SolidColorBrush(AscensionArt.WithAlpha(Chrome.Ink.Color, 0.12)), BorderBrush = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.35)), BorderThickness = new Thickness(1) };
+                Grid.SetColumnSpan(track, 2);
+                _medalBar.Children.Add(track);
+                if (ratio > 0) _medalBar.Children.Add(new Border { Margin = new Thickness(1), Background = AscensionArt.MagicFill(new RelativePoint(0, 0, RelativeUnit.Relative), new RelativePoint(1, 0, RelativeUnit.Relative)) });
+            }
             foreach (var achievement in Achievements.All)
             {
                 string date;
@@ -523,6 +752,9 @@ namespace Marabook.App
                         FontSize = 11,
                         TextWrapping = TextWrapping.Wrap
                     });
+                    // Ce que le succès a débloqué (25/11) : à la ligne, en gras — une fois obtenu seulement.
+                    if (earned && !string.IsNullOrEmpty(secret.Reward))
+                        text.Children.Add(new TextBlock { Text = secret.Reward, Foreground = Chrome.Ink, FontWeight = FontWeight.Bold, FontSize = 11, TextWrapping = TextWrapping.Wrap, Tag = "achievement-reward" });
                     if (earned)
                         text.Children.Add(new TextBlock { Text = "Obtenu le " + Dates.Display(date), Foreground = Chrome.Accent, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
                     row.Children.Add(text);
@@ -540,6 +772,19 @@ namespace Marabook.App
 
         private static Border Card()
         {
+            // « Ascension » : la boîte laisse deviner le ciel du planétarium, et son filet est d'or pâle.
+            if (AscensionArt.On)
+            {
+                var ground = Chrome.CardBg.Color;
+                return new Border
+                {
+                    Background = new SolidColorBrush(Color.FromArgb(0xE0, ground.R, ground.G, ground.B)),
+                    BorderBrush = new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.35)),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8),
+                    Padding = new Thickness(18, 14, 18, 14)
+                };
+            }
             return new Border
             {
                 Background = Chrome.CardBg,
@@ -579,6 +824,7 @@ namespace Marabook.App
         public void Load(Project project)
         {
             _project = project;
+            EnsureSkin();
             Refresh();
         }
 
@@ -627,6 +873,33 @@ namespace Marabook.App
                 _progressTrack.IsVisible = false;
                 _goalChip.IsVisible = false;
                 _todayCaption.Text = "Aucun objectif journalier — fixez-en un ci-dessous.";
+            }
+
+            if (_ascent)
+            {
+                // Le nimbe, les précisions des cartels, la série en losanges.
+                var left = journal.DailyGoal - today;
+                if (journal.DailyGoal > 0)
+                    _todayCaption.Text = "Objectif " + journal.DailyGoal.ToString("N0", culture)
+                        + (left > 0 ? " · encore " + left.ToString("N0", culture) + (left > 1 ? " mots" : " mot") : " · atteint — bravo le veau !");
+                if (_nimbe != null) _nimbe.Show(journal.DailyGoal > 0 ? _progressRatio : 0, today.ToString("N0", culture), Math.Abs(today) > 1 ? "MOTS" : "MOT");
+                if (_sub7 != null) _sub7.Text = Math.Round(journal.WordsOverDays(7) / 7.0).ToString("N0", culture) + " par jour";
+                if (_sub30 != null) _sub30.Text = Math.Round(journal.WordsOverDays(30) / 30.0).ToString("N0", culture) + " par jour";
+                if (_subTotal != null)
+                {
+                    string first = null;
+                    foreach (var day in journal.Days)
+                        if (day.Words != 0 && !string.IsNullOrEmpty(day.Date) && (first == null || string.CompareOrdinal(day.Date, first) < 0)) first = day.Date;
+                    _subTotal.Text = first == null ? "rien de consigné" : "depuis le " + Dates.Display(first);
+                }
+                if (_streakHost != null)
+                {
+                    // Sept losanges : les six derniers jours tenus en or pâle, aujourd'hui en magie.
+                    var held = new bool[7];
+                    for (var i = 0; i < 7; i++)
+                        held[i] = journal.WordsOn(DateTime.Now.Date.AddDays(i - 6).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) > 0;
+                    _streakHost.Child = new DiamondRow(7, delegate(int i) { return held[i]; }, 9, 6);
+                }
             }
 
             _goalField.Value = journal.DailyGoal;
@@ -696,6 +969,7 @@ namespace Marabook.App
         private void DrawChart()
         {
             if (_project == null) return;
+            if (_ascent) { DrawChartAscent(); return; }
             _chart.Children.Clear();
             var width = _chart.Bounds.Width;
             if (width < 60) return;
@@ -797,6 +1071,151 @@ namespace Marabook.App
                 Canvas.SetTop(label, plotHeight + 3);
                 _chart.Children.Add(label);
             }
+        }
+
+        /// <summary>LE GRAPHIQUE SOUS « ASCENSION » (lot 2) : des COLONNES DORÉES à chapiteau — pleines
+        /// au-dessus de l'objectif (un petit losange les coiffe), atténuées en dessous ; aujourd'hui en
+        /// magie ; un losange creux au pied d'un jour à zéro ; la ligne d'objectif en filet d'or, un
+        /// losange à chaque bout ; la moyenne en pointillé. À 90 jours : ni chapiteaux ni losanges.</summary>
+        private void DrawChartAscent()
+        {
+            _chart.Children.Clear();
+            var width = _chart.Bounds.Width;
+            if (width < 60) return;
+            var journal = _project.Journal;
+            var culture = CultureInfo.CurrentCulture;
+            var count = _chartDays;
+            const double labelBand = 18, headRoom = 10;
+            var plotHeight = _chart.Height - labelBand;
+            var days = new int[count];
+            var dates = new DateTime[count];
+            var max = 0;
+            for (var i = 0; i < count; i++)
+            {
+                dates[i] = DateTime.Now.Date.AddDays(i - (count - 1));
+                days[i] = journal.WordsOn(dates[i].ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+                if (days[i] > max) max = days[i];
+            }
+            var goal = journal.DailyGoal;
+            var scale = Math.Max(max, goal > 0 ? goal : 0);
+            if (scale == 0) scale = 100;
+            var reach = plotHeight - headRoom; // la place du losange au-dessus de la plus haute colonne
+            var fine = count <= 30;
+            var gap = count > 30 ? 2.0 : count > 14 ? 6.0 : 14.0;
+            var barWidth = Math.Max(2, Math.Min(34, (width - 16 - gap * (count - 1)) / count));
+            var every = count <= 14 ? 1 : count <= 30 ? 5 : 15;
+            var span = barWidth * count + gap * (count - 1);
+            var left = (width - span) / 2;
+            Color gold = AscensionArt.Gold, pale = Chrome.Blend(AscensionArt.GoldPale, Colors.White, 0.4), soft = Chrome.Blend(AscensionArt.GoldPale, gold, 0.5), deep = Chrome.Blend(AscensionArt.GoldLo, Colors.Black, 0.45);
+            var goldBrush = new SolidColorBrush(gold);
+            var paleBrush = new SolidColorBrush(pale);
+            Func<double, double, double, IBrush, IBrush, Control> diamond = delegate(double cx, double cy, double half, IBrush fill, IBrush stroke)
+            {
+                var shape = new Avalonia.Controls.Shapes.Path
+                {
+                    Data = new PolylineGeometry(new[] { new Point(0, half), new Point(half, 0), new Point(2 * half, half), new Point(half, 2 * half) }, true),
+                    Fill = fill,
+                    Stroke = stroke,
+                    StrokeThickness = stroke == null ? 0 : 1,
+                    IsHitTestVisible = false
+                };
+                Canvas.SetLeft(shape, cx - half);
+                Canvas.SetTop(shape, cy - half);
+                return shape;
+            };
+
+            // Deux lignes de repère, très pâles.
+            foreach (var part in new[] { 0.5, 1.0 })
+                _chart.Children.Add(new Line { StartPoint = new Point(left - 8, plotHeight - reach * part), EndPoint = new Point(left + span + 8, plotHeight - reach * part), Stroke = new SolidColorBrush(AscensionArt.WithAlpha(Chrome.Ink.Color, 0.06)), StrokeThickness = 1 });
+
+            var gilt = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative) };
+            gilt.GradientStops.Add(new GradientStop(pale, 0));
+            gilt.GradientStops.Add(new GradientStop(soft, 0.22));
+            gilt.GradientStops.Add(new GradientStop(gold, 0.55));
+            gilt.GradientStops.Add(new GradientStop(deep, 1));
+            var magic = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative) };
+            magic.GradientStops.Add(new GradientStop(AscensionArt.MagicHi, 0));
+            magic.GradientStops.Add(new GradientStop(AscensionArt.Magic, 0.18));
+            magic.GradientStops.Add(new GradientStop(Chrome.Blend(AscensionArt.MagicDeep, Colors.Black, 0.35), 1));
+
+            for (var i = 0; i < count; i++)
+            {
+                var x = left + i * (barWidth + gap);
+                var isToday = i == count - 1;
+                var tip = Cap(dates[i].ToString("ddd d MMM", culture)) + " — " + days[i].ToString("N0", culture) + (days[i] > 1 ? " mots" : " mot");
+                if (days[i] > 0)
+                {
+                    var height = Math.Max(4, reach * days[i] / scale);
+                    var met = goal > 0 && days[i] >= goal;
+                    var bar = new Border
+                    {
+                        Width = barWidth,
+                        Height = height,
+                        Background = isToday ? magic : gilt,
+                        BorderBrush = isToday ? new SolidColorBrush(AscensionArt.MagicHi) : paleBrush,
+                        BorderThickness = new Thickness(0, fine ? 1.5 : 0, 0, 0),
+                        Opacity = isToday || met || goal <= 0 ? 1.0 : 0.62,
+                        Tag = isToday ? "journal-bar-today" : "journal-bar",
+                        [ToolTip.TipProperty] = tip
+                    };
+                    Skin.KeepCorners(bar);
+                    Canvas.SetLeft(bar, x);
+                    Canvas.SetTop(bar, plotHeight - height);
+                    _chart.Children.Add(bar);
+                    if (met && fine) _chart.Children.Add(diamond(x + barWidth / 2, plotHeight - height - 7, 3.5, isToday ? new SolidColorBrush(AscensionArt.MagicHi) : paleBrush, null));
+                }
+                else if (fine) _chart.Children.Add(diamond(x + barWidth / 2, plotHeight - 5, 3.5, null, new SolidColorBrush(AscensionArt.WithAlpha(gold, 0.6))));
+
+                if ((count - 1 - i) % every != 0) continue;
+                var label = new TextBlock
+                {
+                    Text = count > 14 ? dates[i].ToString("d/M", culture) : Short(dates[i].ToString("ddd", culture)),
+                    Foreground = isToday ? Chrome.Ink : Chrome.SoftText,
+                    FontSize = 10,
+                    Width = Math.Max(barWidth, 30),
+                    TextAlignment = TextAlignment.Center
+                };
+                Canvas.SetLeft(label, x + barWidth / 2 - Math.Max(barWidth, 30) / 2);
+                Canvas.SetTop(label, plotHeight + 4);
+                _chart.Children.Add(label);
+            }
+
+            // La moyenne, puis l'objectif par-dessus.
+            var mean = journal.AverageOverDays(count);
+            if (mean > 0)
+            {
+                var y = plotHeight - reach * mean / scale;
+                _chart.Children.Add(new Line
+                {
+                    StartPoint = new Point(left - 8, y), EndPoint = new Point(left + span + 8, y),
+                    Stroke = new SolidColorBrush(AscensionArt.WithAlpha(Chrome.Ink.Color, 0.55)), StrokeThickness = 1,
+                    StrokeDashArray = new Avalonia.Collections.AvaloniaList<double>(new double[] { 2, 4 }), IsHitTestVisible = false
+                });
+            }
+            if (goal > 0)
+            {
+                var y = plotHeight - reach * goal / scale;
+                _chart.Children.Add(new Line { StartPoint = new Point(left - 8, y), EndPoint = new Point(left + span + 8, y), Stroke = goldBrush, StrokeThickness = 1.2, IsHitTestVisible = false, Tag = "journal-goal-line" });
+                _chart.Children.Add(diamond(left - 8, y, 4.5, goldBrush, null));
+                _chart.Children.Add(diamond(left + span + 8, y, 4.5, goldBrush, null));
+            }
+            if (_legendGoal != null)
+            {
+                _legendGoal.Text = goal > 0 ? "◆ objectif " + goal.ToString("N0", culture) : "";
+                _legendGoal.IsVisible = goal > 0;
+            }
+            if (_legendMean != null)
+            {
+                _legendMean.Text = mean > 0 ? "· · ·  moyenne " + Math.Round(mean).ToString("N0", culture) : "";
+                _legendMean.IsVisible = mean > 0;
+            }
+        }
+
+        /// <summary>« lun. » → « lu » : les deux premières lettres du jour.</summary>
+        private static string Short(string day)
+        {
+            day = (day ?? "").Trim().TrimEnd('.');
+            return day.Length > 2 ? day.Substring(0, 2) : day;
         }
 
         private static string Cap(string text)

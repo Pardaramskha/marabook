@@ -129,14 +129,23 @@ namespace Marabook.App
                 hover = dark ? 0xFEE2BD : 0xBF6E03; ok = 0x9EAE8F;
             }
             var ground = MuseumGround(dark);
+            // Les TROIS MÉTAUX d'« Ascension » (25/11) : or, vermeil, argent — une recette (teinte, saturation ×,
+            // clarté +) appliquée aux lignes 6 à 10 ; l'or redonne la palette d'origine. Une couleur
+            // personnalisée (recette nulle) garde le calcul de toujours : sa teinte seule.
+            var recipe = id == Skins.MuseumAscent ? AscensionArt.MetalFor(AppSettings.AccentColor) : null;
+            Func<int, Color> metal = delegate(int index)
+            {
+                if (recipe == null) return Metal(hue, row, index);
+                return Hsl(recipe.Hue + row[index * 3], row[index * 3 + 1] * recipe.SatScale, row[index * 3 + 2] + (dark ? recipe.DarkLift : recipe.LightLift));
+            };
             Surfaces(ground, Shift(ground, row, 0), Shift(ground, row, 1), Shift(ground, row, 2), Shift(ground, row, 3), Shift(ground, row, 4), Shift(ground, row, 5),
-                Metal(hue, row, 6), Rgb(ink), Rgb(soft), Rgb(faint));
-            Chrome.Accent.Color = Metal(hue, row, 7); // l'accent choisi, à la clarté du skin
-            Chrome.AccentStrong.Color = Metal(hue, row, 8);
+                metal(6), Rgb(ink), Rgb(soft), Rgb(faint));
+            Chrome.Accent.Color = metal(7); // l'accent choisi, à la clarté du skin
+            Chrome.AccentStrong.Color = metal(8);
             Chrome.AccentTint.Color = Chrome.Blend(Chrome.BarBg.Color, Chrome.Accent.Color, 0.18);
             Chrome.AccentSoft.Color = Chrome.Blend(Chrome.BarBg.Color, Chrome.Accent.Color, 0.40);
-            Chrome.Glow.Color = Metal(hue, row, 9);
-            Chrome.Spine.Color = Metal(hue, row, 10);
+            Chrome.Glow.Color = metal(9);
+            Chrome.Spine.Color = metal(10);
             _museumHighlight = Metal(hue, row, 11);
             // Le survol : une couleur FIXE du skin (elle ne suit pas l'accent). Le « validé » (✓ Terminé,
             // états « terminé ») : la sauge, le vert, le bleu-vert du skin — sa clarté ramenée dans celle
@@ -225,7 +234,8 @@ namespace Marabook.App
         {
             if (id == Skins.MuseumWood) return radius >= 8 ? 10 : Math.Min(radius, 3);
             if (id == Skins.MuseumOath) return radius >= 8 ? 6 : Math.Min(radius, 2);
-            if (id == Skins.MuseumAscent) return 0; // angles droits
+            // « Ascension » (25/11) : plus d'angles droits FORCÉS — choisir ce skin pose l'arrondi à 0 %, et le réglage
+            // rend des rondeurs à qui en veut (seuls les cadres enluminés restent droits : Skin.Illuminated).
             return radius >= 8 ? 12 : Math.Min(radius, 4);
         }
 
@@ -248,10 +258,16 @@ namespace Marabook.App
                 if (id == Skins.MuseumFire) return new FontFamily("Cormorant Garamond, Garamond, Palatino Linotype, Georgia, DejaVu Serif");
                 if (id == Skins.MuseumWood) return new FontFamily("EB Garamond, Garamond, Palatino Linotype, Georgia, DejaVu Serif");
                 if (id == Skins.MuseumOath) return new FontFamily("Libre Caslon Text, Book Antiqua, Palatino Linotype, Georgia, DejaVu Serif");
-                if (id == Skins.MuseumAscent) return new FontFamily("Cinzel, Trajan Pro, Palatino Linotype, Book Antiqua, Georgia, DejaVu Serif");
+                // « Ascension SC » (25/11) : EMBARQUÉE — Marcellus SC, son « 1 » à drapeau, ses espaces fines.
+                if (id == Skins.MuseumAscent) return AscentTitleFont;
                 return null;
             }
         }
+
+        internal static readonly FontFamily AscentTitleFont = new FontFamily("avares://Marabook/Assets/Fonts#Ascension SC");
+
+        /// <summary>La graisse d'un titre : « Ascension SC » n'en a qu'une — au-delà, Avalonia simulerait un gras baveux.</summary>
+        public static FontWeight TitleWeight { get { return Current == Skins.MuseumAscent ? FontWeight.Normal : FontWeight.Medium; } }
 
         /// <summary>Vrai sous un skin dont les titres sont en CAPITALES espacées (« Ascension »).</summary>
         public static bool Caps { get { return Skins.MuseumCaps(Current); } }
@@ -270,7 +286,7 @@ namespace Marabook.App
             var font = TitleFont;
             if (font == null || block == null) return;
             block.FontFamily = font;
-            block.FontWeight = FontWeight.Medium;
+            block.FontWeight = TitleWeight;
             if (Caps)
             {
                 block.Text = TitleText(block.Text);
@@ -326,44 +342,42 @@ namespace Marabook.App
             var metal = MetalBrush(Chrome.Accent.Color);
             var metalHot = MetalBrush(Chrome.Blend(Chrome.Accent.Color, glow, 0.35));
             var metalEdge = new SolidColorBrush(Chrome.Blend(Chrome.Accent.Color, Colors.Black, 0.30));
+            // (25/11, Rémi : « Ascension » prend lui aussi ce bouton en dégradé — plus d'or plein.)
+            // 1. LE BOUTON PRINCIPAL : « métal sombre à liseré ». Le corps est un métal noirci teinté de
+            //    l'accent ; le métal clair ne vit plus que dans le liseré et dans le texte, qui luit.
+            //    Le corps reste sombre au clair aussi (choix du dessin) : le texte y est donc toujours pâle.
+            double ah, asat, al;
+            Skins.ToHsl(Chrome.Hex(Chrome.Accent.Color), out ah, out asat, out al);
+            var sat = Math.Min(asat, 0.6) * 0.78;
+            var shineInk = dark ? glow : Hsl(ah, sat * 0.6, 0.86); // ce qui luit : le filet chaud ; au clair, sa version pâle
+            var darkBody = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative) };
+            darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.30, 0.27), 0));
+            darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.25, 0.20), 0.48));
+            darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.25, 0.16), 0.50)); // l'horizon, discret
+            darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.30, 0.20), 1));
+            var rim = Rim(shineInk, Chrome.Accent.Color, Chrome.Blend(Chrome.Accent.Color, Colors.Black, 0.45));
+            var rimHover = Rim(Colors.White, dark ? hover : shineInk, Chrome.Accent.Color);
+            var accentHex = Chrome.Hex(Chrome.Accent.Color).Substring(1);
+            var shineHex = Chrome.Hex(shineInk).Substring(1);
+            var hoverHex = Chrome.Hex(dark ? hover : shineInk).Substring(1);
+            var shadow = BoxShadows.Parse("inset 0 1 0 0 #1FFFFFFF, inset 0 0 12 0 #38" + accentHex + ", 0 1 2 0 #99000000");
+            var shadowHover = BoxShadows.Parse("inset 0 1 0 0 #29FFFFFF, inset 0 0 14 0 #42" + shineHex + ", 0 0 12 0 #4D" + hoverHex);
+            var shadowPressed = BoxShadows.Parse("inset 0 2 6 0 #8C000000, inset 0 0 10 0 #38" + accentHex);
+            var shineBrush = new SolidColorBrush(shineInk);
+            styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary),
+                new Setter(TemplatedControl.BackgroundProperty, darkBody), new Setter(TemplatedControl.BorderBrushProperty, rim), new Setter(TemplatedControl.ForegroundProperty, shineBrush)));
+            styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, shadow)));
+            styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pointerover"),
+                new Setter(TemplatedControl.BackgroundProperty, darkBody), new Setter(TemplatedControl.BorderBrushProperty, rimHover), new Setter(TemplatedControl.ForegroundProperty, Brushes.White)));
+            styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pointerover").Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, shadowHover)));
+            styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pressed").Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, shadowPressed)));
             if (!Skins.MuseumPill(Current))
             {
-                // « Ascension » garde le métal plein.
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary), new Setter(TemplatedControl.BackgroundProperty, metal), new Setter(TemplatedControl.BorderBrushProperty, metalEdge)));
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pointerover"), new Setter(TemplatedControl.BackgroundProperty, metalHot), new Setter(TemplatedControl.BorderBrushProperty, Chrome.Hover)));
-                styles.Add(Rule(x => x.OfType<TabItem>().Class(":selected"), new Setter(TemplatedControl.BackgroundProperty, metal), new Setter(TemplatedControl.BorderBrushProperty, metalEdge)));
+                AddAscensionStyles(styles, dark);
             }
             else
             {
                 // LES RETOUCHES DU 24/11 AU SOIR (RETOUCHES.md, pièces 1 et 2 — Feu, Bois, Serment).
-                // 1. LE BOUTON PRINCIPAL : « métal sombre à liseré ». Le corps est un métal noirci teinté de
-                //    l'accent ; le métal clair ne vit plus que dans le liseré et dans le texte, qui luit.
-                //    Le corps reste sombre au clair aussi (choix du dessin) : le texte y est donc toujours pâle.
-                double ah, asat, al;
-                Skins.ToHsl(Chrome.Hex(Chrome.Accent.Color), out ah, out asat, out al);
-                var sat = Math.Min(asat, 0.6) * 0.78;
-                var shineInk = dark ? glow : Hsl(ah, sat * 0.6, 0.86); // ce qui luit : le filet chaud ; au clair, sa version pâle
-                var darkBody = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative) };
-                darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.30, 0.27), 0));
-                darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.25, 0.20), 0.48));
-                darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.25, 0.16), 0.50)); // l'horizon, discret
-                darkBody.GradientStops.Add(new GradientStop(Hsl(ah, sat * 0.30, 0.20), 1));
-                var rim = Rim(shineInk, Chrome.Accent.Color, Chrome.Blend(Chrome.Accent.Color, Colors.Black, 0.45));
-                var rimHover = Rim(Colors.White, dark ? hover : shineInk, Chrome.Accent.Color);
-                var accentHex = Chrome.Hex(Chrome.Accent.Color).Substring(1);
-                var shineHex = Chrome.Hex(shineInk).Substring(1);
-                var hoverHex = Chrome.Hex(dark ? hover : shineInk).Substring(1);
-                var shadow = BoxShadows.Parse("inset 0 1 0 0 #1FFFFFFF, inset 0 0 12 0 #38" + accentHex + ", 0 1 2 0 #99000000");
-                var shadowHover = BoxShadows.Parse("inset 0 1 0 0 #29FFFFFF, inset 0 0 14 0 #42" + shineHex + ", 0 0 12 0 #4D" + hoverHex);
-                var shadowPressed = BoxShadows.Parse("inset 0 2 6 0 #8C000000, inset 0 0 10 0 #38" + accentHex);
-                var shineBrush = new SolidColorBrush(shineInk);
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary),
-                    new Setter(TemplatedControl.BackgroundProperty, darkBody), new Setter(TemplatedControl.BorderBrushProperty, rim), new Setter(TemplatedControl.ForegroundProperty, shineBrush)));
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, shadow)));
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pointerover"),
-                    new Setter(TemplatedControl.BackgroundProperty, darkBody), new Setter(TemplatedControl.BorderBrushProperty, rimHover), new Setter(TemplatedControl.ForegroundProperty, Brushes.White)));
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pointerover").Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, shadowHover)));
-                styles.Add(Rule(x => x.OfType<Button>().Class(Theme.Primary).Class(":pressed").Template().OfType<Border>().Name("Bg"), new Setter(Border.BoxShadowProperty, shadowPressed)));
                 // 2. L'ONGLET CHOISI : il garde le verre sombre et ne prend du métal que le BORD — un éclat
                 //    au centre du haut, une lumière qui tombe dedans, le texte qui luit.
                 var tabInk = dark ? (IBrush)Chrome.Glow : Chrome.AccentStrong;
@@ -405,15 +419,22 @@ namespace Marabook.App
             // L'INFOBULLE (25/11, Rémi) : elle se pare de la couleur dominante du skin — l'accent,
             // forcé — et son texte prend l'encre qui s'y lit le mieux, claire ou sombre (TipInk) ;
             // l'ombre portée est posée par le gabarit (Theme.TipFace).
+            // « Ascension », lot 2 (25/11 au soir) : plus d'aplat d'or — une plaque bleu nuit à double filet
+            // (le gabarit la peint, Theme.TipFace) ; ici, seulement son encre et sa place.
+            if (Current == Skins.MuseumAscent)
+                styles.Add(Rule(x => x.OfType<ToolTip>(),
+                    new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Color.Parse("#0E2034"))),
+                    new Setter(TemplatedControl.ForegroundProperty, new SolidColorBrush(Color.Parse("#F0E6D2"))),
+                    new Setter(TemplatedControl.PaddingProperty, new Thickness(8, 5, 8, 6)),
+                    new Setter(TemplatedControl.FontSizeProperty, 11.5)));
+            else
             styles.Add(Rule(x => x.OfType<ToolTip>(),
                 new Setter(TemplatedControl.BackgroundProperty, new SolidColorBrush(Chrome.Accent.Color)),
                 new Setter(TemplatedControl.ForegroundProperty, new SolidColorBrush(TipInk(Chrome.Accent.Color)))));
             styles.Add(Rule(x => x.OfType<Separator>(), new Setter(TemplatedControl.BackgroundProperty, Chrome.BorderStrong), new Setter(Visual.OpacityProperty, 0.55)));
             if (!Skins.MuseumPill(Current))
             {
-                // « Ascension » : la ligne choisie d'un arbre garde une barre de métal à gauche.
-                styles.Add(Rule(x => x.OfType<TreeViewItem>().Class(":selected").Template().OfType<Border>().Name("SelectionBorder"),
-                    new Setter(Border.BorderBrushProperty, Chrome.Accent), new Setter(Border.BorderThicknessProperty, new Thickness(2, 0, 0, 0))));
+                AddAscensionTreeStyles(styles);
                 return;
             }
             // LA PILULE (24/11 au soir, d'après l'écran titre du jeu) : la ligne choisie ou survolée de
@@ -506,6 +527,73 @@ namespace Marabook.App
             styles.Add(Rule(x => x.OfType<TreeViewItem>().Template().OfType<Border>().Name("SelectionBorder"), new Setter(Layoutable.MarginProperty, pearlRoom), new Setter(Border.BoxShadowProperty, none)));
             styles.Add(Rule(x => x.OfType<MenuItem>().Template().OfType<Border>().Name("root"), new Setter(Layoutable.MarginProperty, pearlRoom), new Setter(Border.BoxShadowProperty, none)));
             styles.Add(Rule(x => x.OfType<ListBoxItem>().Template().OfType<ContentPresenter>().Name("PART_ContentPresenter"), new Setter(ContentPresenter.BoxShadowProperty, none)));
+        }
+
+        /// <summary>« ASCENSION · ART NOUVEAU » (25/11) — boutons et onglets :
+        ///  · le bouton PRINCIPAL est celui de toute la série : le métal sombre à liseré, en dégradé ;
+        ///  · le bouton « MAGIE » (classe AscensionArt.MagicClass : ce qui LANCE — un sprint, un export) est
+        ///    d'un bleu sourd, texte clair, halo en dedans ;
+        ///  · un bouton secondaire survolé prend le texte et le filet du survol ;
+        ///  · l'ONGLET CHOISI : l'or à 16 % qui se fond vers le bas ; son filet doré et son losange sont
+        ///    peints par TabCrest.</summary>
+        private static void AddAscensionStyles(Styles styles, bool dark)
+        {
+            var gold = AscensionArt.Gold;
+            styles.Add(Rule(x => x.OfType<Button>().Not(y => y.Class(Theme.Calm)).Class(":pointerover"), new Setter(TemplatedControl.ForegroundProperty, Chrome.Hover)));
+            // La magie : sombre et sourde au sombre ; au clair, le même bleu, plus dense (le texte y reste clair).
+            Color deep = AscensionArt.MagicDeep, bar = Chrome.BarBg.Color;
+            var magic = dark ? Linear(Chrome.Blend(bar, deep, 0.35), Chrome.Blend(bar, deep, 0.14), false) : Linear(Chrome.Blend(deep, Colors.Black, 0.22), Chrome.Blend(deep, Colors.Black, 0.42), false);
+            var magicRim = Linear(AscensionArt.MagicHi, deep, false);
+            var magicInk = new SolidColorBrush(AscensionArt.MagicHi);
+            foreach (var over in new[] { false, true })
+            {
+                var withOver = over;
+                Func<Selector, Selector> pick = delegate(Selector x) { x = x.OfType<Button>().Class(AscensionArt.MagicClass); return withOver ? x.Class(":pointerover") : x; };
+                styles.Add(Rule(pick, new Setter(TemplatedControl.BackgroundProperty, magic), new Setter(TemplatedControl.BorderBrushProperty, magicRim), new Setter(TemplatedControl.ForegroundProperty, withOver ? Brushes.White : magicInk)));
+                styles.Add(Rule(x => pick(x).Template().OfType<Border>().Name("Bg"),
+                    new Setter(Border.BoxShadowProperty, BoxShadows.Parse("inset 0 0 12 0 #4D0AC8B9" + (withOver ? ", 0 0 14 0 #730AC8B9" : "")))));
+            }
+            var tabFill = Linear(AscensionArt.WithAlpha(gold, 0.16), AscensionArt.WithAlpha(gold, 0), false);
+            // Son filet doré est sa BORDURE (elle suit l'arrondi réglé, comme celle des autres onglets) ; TabCrest y pose le losange.
+            styles.Add(Rule(x => x.OfType<TabItem>().Class(":selected"), new Setter(TemplatedControl.BackgroundProperty, tabFill), new Setter(TemplatedControl.BorderBrushProperty, AscensionArt.GiltLine())));
+            styles.Add(Rule(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("Bg"),
+                new Setter(Avalonia.Controls.Documents.TextElement.ForegroundProperty, dark ? (IBrush)Chrome.Glow : Chrome.Ink)));
+        }
+
+        /// <summary>« ASCENSION · ART NOUVEAU » (25/11) — la Pile et les arbres : la ligne CHOISIE garde sa
+        /// barre de métal à gauche, et prend un dégradé d'or (22 % → rien) vers la droite et un losange or
+        /// pâle à cheval sur la barre (PillPearl) ; la ligne SURVOLÉE prend la magie : fond à 7 %, filet
+        /// à 30 %, texte du survol. La barre a sa place sur toutes les lignes : choisir ne décale rien.</summary>
+        private static void AddAscensionTreeStyles(Styles styles)
+        {
+            var gold = AscensionArt.Gold;
+            var bar = new Thickness(2, 0, 0, 0);
+            var room = new Thickness(PillPearl.Room, 0, 0, 0);
+            var chosen = new LinearGradientBrush { StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative), EndPoint = new RelativePoint(1, 0, RelativeUnit.Relative) };
+            chosen.GradientStops.Add(new GradientStop(AscensionArt.WithAlpha(gold, 0.22), 0));
+            chosen.GradientStops.Add(new GradientStop(AscensionArt.WithAlpha(gold, 0), 1));
+            styles.Add(Rule(x => x.OfType<TreeViewItem>(), new Setter(TemplatedControl.BorderThicknessProperty, bar), new Setter(TemplatedControl.BorderBrushProperty, Brushes.Transparent)));
+            styles.Add(Rule(x => x.OfType<TreeViewItem>().Template().OfType<Border>().Name("SelectionBorder"),
+                new Setter(Layoutable.MarginProperty, room), new Setter(Border.BorderThicknessProperty, bar), new Setter(Border.BorderBrushProperty, Brushes.Transparent)));
+            styles.Add(Rule(x => x.OfType<TreeViewItem>().Template().OfType<Border>().Name("SelectionBorder").Class(":pointerover"),
+                new Setter(Border.BackgroundProperty, new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Magic, 0.07))),
+                new Setter(Border.BorderBrushProperty, new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Magic, 0.30))),
+                new Setter(Border.BorderThicknessProperty, bar),
+                new Setter(Avalonia.Controls.Documents.TextElement.ForegroundProperty, Chrome.Hover)));
+            foreach (var focus in new[] { false, true })
+                foreach (var over in new[] { false, true })
+                {
+                    var withFocus = focus;
+                    var withOver = over;
+                    styles.Add(Rule(delegate(Selector x)
+                    {
+                        x = x.OfType<TreeViewItem>().Class(":selected");
+                        if (withFocus) x = x.Class(":focus");
+                        x = x.Template().OfType<Border>().Name("SelectionBorder");
+                        return withOver ? x.Class(":pointerover") : x;
+                    }, new Setter(Border.BackgroundProperty, chosen), new Setter(Border.BorderBrushProperty, Chrome.Accent), new Setter(Border.BorderThicknessProperty, bar),
+                        new Setter(Avalonia.Controls.Documents.TextElement.ForegroundProperty, Chrome.Ink)));
+                }
         }
 
         /// <summary>Le gabarit d'une ligne de LISTE sous un skin à pilule (25/11) : celui du thème —

@@ -162,6 +162,7 @@ namespace Marabook.App
             };
             buttons.Children.Add(_previewButton);
             _ok = new Button { Content = "Exporter…", IsDefault = true, MinWidth = 110, Tag = "export-ok" };
+            _ok.Classes.Add(AscensionArt.MagicClass); // ce qui LANCE : la magie bleue d'« Ascension » (25/11)
             _ok.Click += delegate { Accept(); };
             var cancel = new Button { Content = "Annuler", IsCancel = true, MinWidth = 90, Margin = new Thickness(8, 0, 0, 0) };
             cancel.Click += delegate { Close(); };

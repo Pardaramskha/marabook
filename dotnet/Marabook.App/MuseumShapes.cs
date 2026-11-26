@@ -156,13 +156,21 @@ namespace Marabook.App
         public const double Dent = 36, Left = 5;
         /// <summary>Le retrait du contenu : à gauche les losanges, à droite le renfoncement et de l'air.</summary>
         public static readonly Thickness Inset = new Thickness(Left + 7, 4, Dent + 12, 6);
+        /// <summary>Sous « Ascension » (25/11), la silhouette descend de cette hauteur : la place du CIMIER, à cheval sur son bord haut.</summary>
+        public const double CrestRoom = 9;
+        internal static double TopRoom { get { return AscensionArt.On ? CrestRoom : 0; } }
+        /// <summary>Le retrait du contenu sous le skin en cours.</summary>
+        public static Thickness InsetNow { get { return new Thickness(Inset.Left, Inset.Top + TopRoom, Inset.Right, Inset.Bottom); } }
 
         public static readonly StyledProperty<IBrush> FillProperty = AvaloniaProperty.Register<GalbeFrame, IBrush>("Fill");
         public static readonly StyledProperty<double> GlassProperty = AvaloniaProperty.Register<GalbeFrame, double>("Glass", 1.0);
 
         static GalbeFrame() { AffectsRender<GalbeFrame>(FillProperty, GlassProperty); }
 
-        public GalbeFrame() { IsHitTestVisible = false; }
+        public GalbeFrame() { IsHitTestVisible = false; AscensionArt.Animate(this); }
+
+        /// <summary>Vrai quand un ciel de planétarium est posé sous la silhouette (ModalChrome).</summary>
+        public bool SkyBehind { get; set; }
 
         public IBrush Fill { get { return GetValue(FillProperty); } set { SetValue(FillProperty, value); } }
         public double Glass { get { return GetValue(GlassProperty); } set { SetValue(GlassProperty, value); } }
@@ -171,8 +179,9 @@ namespace Marabook.App
         internal static Geometry Outline(Size size, double inner)
         {
             double w = size.Width, h = size.Height;
-            double d = Dent, r1 = Math.Min(h * 0.2, 70), yb = h * 0.7, b = Math.Min(h * 0.16, 64), r = 10;
-            double x = Left + inner, y = inner + 0.6, right = w - inner - 0.6, bottom = h - inner - 0.6;
+            // « Ascension » : angles droits à gauche (ses coins enluminés s'y posent), et la place du cimier en haut.
+            double d = Dent, r1 = Math.Min(h * 0.2, 70), yb = h * 0.7, b = Math.Min(h * 0.16, 64), r = AscensionArt.On ? 0.5 : 10;
+            double x = Left + inner, y = inner + 0.6 + TopRoom, right = w - inner - 0.6, bottom = h - inner - 0.6;
             // Une boîte trop basse pour la bosse : l'arc et le renfoncement se resserrent.
             if (y + r1 + d * 1.5 > yb - b) b = Math.Max(4, yb - (y + r1 + d * 1.5));
             var geometry = new StreamGeometry();
@@ -201,10 +210,14 @@ namespace Marabook.App
             if (size.Width < 160 || size.Height < 120) return;
             var metal = Chrome.Accent.Color;
             var outline = Outline(size, 0);
-            if (Fill != null)
+            var ascent = AscensionArt.On;
+            // « Ascension », lot 2 (25/11 au soir) : le fond est le CIEL DE PLANÉTARIUM, posé dessous par
+            // ModalChrome — la silhouette ne peint plus ni fond ni vitrail, seulement ses filets.
+            if (Fill != null && !(ascent && SkyBehind))
                 using (context.PushOpacity(Math.Max(0, Math.Min(1, Glass))))
                     context.DrawGeometry(Fill, null, outline);
-            context.DrawGeometry(null, new Pen(Chrome.Accent, 1.2), outline);
+            // « Ascension » : le filet galbé prend la dorure qui luit.
+            context.DrawGeometry(null, new Pen(ascent ? AscensionArt.GiltLine() : Chrome.Accent, 1.2), outline);
             context.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromArgb(0x4D, metal.R, metal.G, metal.B)), 1), Outline(size, 5));
             // Les deux losanges du bord gauche.
             foreach (var y in new[] { Math.Min(64, size.Height * 0.3), size.Height - 40 })
@@ -213,6 +226,14 @@ namespace Marabook.App
                 var diamond = new[] { new Point(Left - R, y), new Point(Left, y - R), new Point(Left + R, y), new Point(Left, y + R) };
                 context.DrawGeometry(Chrome.RaisedBg, new Pen(Chrome.Accent, 1), new PolylineGeometry(diamond, true));
             }
+            if (!ascent) return;
+            // Les enluminures (25/11) : le bord droit est courbe — seuls les deux coins de GAUCHE, le cimier
+            // au centre du haut, et un séparateur sous la barre de titre.
+            var top = TopRoom + 0.6;
+            AscensionArt.Corner(context, Matrix.CreateTranslation(Left - 1, top - 1), false);
+            AscensionArt.Corner(context, Matrix.CreateScale(1, -1) * Matrix.CreateTranslation(Left - 1, size.Height + 0.4), false);
+            AscensionArt.Crest(context, new Point(Math.Round((Left + size.Width - Dent) / 2), top), Chrome.RaisedBg);
+            AscensionArt.Separator(context, Left + 16, size.Width - Dent - 56, top + ModalChrome.TitleHeight + 1);
         }
     }
 
@@ -224,7 +245,10 @@ namespace Marabook.App
         private double _ratio;
         private string _text = "", _caption = "";
 
-        public GoalRing() { Width = 110; Height = 110; }
+        /// <summary>Sous « Ascension », l'anneau est un NIMBE (AscensionArt.Nimbe), plus grand : 150 px.</summary>
+        internal const double Side = 110, NimbeSide = 150;
+
+        public GoalRing() { Width = Height = AscensionArt.On ? NimbeSide : Side; AscensionArt.Animate(this); }
 
         public double Ratio { get { return _ratio; } }
         public string Text { get { return _text; } }
@@ -239,6 +263,7 @@ namespace Marabook.App
 
         public override void Render(DrawingContext context)
         {
+            if (AscensionArt.On) { AscensionArt.Nimbe(context, Bounds.Size, _ratio, _text, _caption); return; }
             var center = new Point(Bounds.Width / 2, Bounds.Height / 2);
             var radius = Math.Min(Bounds.Width, Bounds.Height) / 2 - 9;
             if (radius < 12) return;
@@ -276,7 +301,7 @@ namespace Marabook.App
     {
         private double _ratio;
 
-        public MilestoneBar() { Height = 30; MinWidth = 180; }
+        public MilestoneBar() { Height = 30; MinWidth = 180; AscensionArt.Animate(this); }
 
         public double Ratio { get { return _ratio; } }
 
@@ -292,8 +317,17 @@ namespace Marabook.App
             if (width < 40) return;
             const double Top = 5, Thick = 5;
             var ink = Chrome.Ink.Color;
-            context.DrawRectangle(new SolidColorBrush(Color.FromArgb(0x26, ink.R, ink.G, ink.B)), null, new Rect(0, Top, width, Thick), 2.5, 2.5);
-            if (_ratio > 0)
+            var ascent = AscensionArt.On;
+            context.DrawRectangle(new SolidColorBrush(Color.FromArgb(0x26, ink.R, ink.G, ink.B)), null, new Rect(0, Top, width, Thick), ascent ? 0 : 2.5, ascent ? 0 : 2.5);
+            if (ascent)
+            {
+                // « Ascension » (25/11) : la magie bleue et son reflet qui passe ; la piste dans un filet d'or.
+                var filled = _ratio > 0 ? Math.Max(Thick, width * _ratio) : 0;
+                if (filled > 0) context.FillRectangle(Skin.MeterBrush(Chrome.Glow.Color, width), new Rect(0, Top, filled, Thick));
+                AscensionArt.Shine(context, new Rect(0, Top, width, Thick), filled);
+                context.DrawRectangle(null, new Pen(new SolidColorBrush(AscensionArt.WithAlpha(AscensionArt.Gold, 0.30)), 1), new Rect(0.5, Top - 0.5, width - 1, Thick + 1));
+            }
+            else if (_ratio > 0)
             {
                 // Sous « Museum », le dégradé FIXE des barres (25/11), tendu sur la piste entière.
                 IBrush fill;
@@ -313,8 +347,15 @@ namespace Marabook.App
             {
                 var share = Skins.BookMilestones[i];
                 var x = Math.Round(width * share) + 0.5;
-                context.DrawLine(new Pen(Chrome.SoftText, 1), new Point(x, Top - 3), new Point(x, Top + Thick + 3));
                 var passed = _ratio + 1e-9 >= share;
+                // Les jalons d'« Ascension » : des losanges — pleins, or pâle et halo une fois franchis ; creux sinon.
+                if (ascent)
+                {
+                    var at = new Point(x, Top + Thick / 2);
+                    if (passed) AscensionArt.PaleDiamond(context, at, 4.4);
+                    else AscensionArt.Diamond(context, at, 4.4, Chrome.CardBg, new Pen(new SolidColorBrush(AscensionArt.Gold), 1));
+                }
+                else context.DrawLine(new Pen(Chrome.SoftText, 1), new Point(x, Top - 3), new Point(x, Top + Thick + 3));
                 // À l'étroit, le libellé seul : les trois tiennent côte à côte.
                 var label = new FormattedText((width >= 430 ? (share * 100).ToString("0", culture) + " % · " : "") + Skins.BookMilestoneNames[i].ToUpper(culture), culture, FlowDirection.LeftToRight, face, 9,
                     passed ? (IBrush)Chrome.SoftText : Chrome.FaintText);
@@ -402,6 +443,8 @@ namespace Marabook.App
         {
             get
             {
+                // « Ascension » (25/11) : le losange de la ligne CHOISIE d'un arbre, à cheval sur sa barre de métal.
+                if (AscensionArt.On) return Selected && _owner is TreeViewItem ? 1 : 0;
                 if (!Skins.MuseumPill(Skin.Current)) return 0;
                 if (Selected) return 1;
                 if (_owner is ListBoxItem) return _owner.IsPointerOver ? 0.55 : 0;
@@ -423,6 +466,7 @@ namespace Marabook.App
             var origin = _band.TranslatePoint(new Point(0, 0), this);
             if (!origin.HasValue) return;
             var center = new Point(origin.Value.X + 0.5, origin.Value.Y + _band.Bounds.Height / 2);
+            if (AscensionArt.On) { AscensionArt.PaleDiamond(context, new Point(center.X + 0.5, center.Y), 3.6); return; }
             var glow = Chrome.Glow.Color;
             using (context.PushOpacity(strength))
             {

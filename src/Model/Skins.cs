@@ -39,6 +39,38 @@ namespace Marabook.Model
             return id == MuseumFire || id == MuseumWood || id == MuseumOath || id == MuseumAscent;
         }
 
+        /// <summary>LES SKINS À DÉBLOQUER (25/11/2026, Rémi) : « Gardien du Feu », « Bois Blanc » et
+        /// « Assermenté » s'ouvrent chacun par un succès secret ; l'identifiant de ce succès, null pour
+        /// un skin libre. (« Ascension » n'a pas de succès : il reste libre.)</summary>
+        public static string UnlockedBy(string id)
+        {
+            switch (Normalize(id))
+            {
+                case MuseumFire: return Achievements.FireKeeper;
+                case MuseumWood: return Achievements.WhiteWood;
+                case MuseumOath: return Achievements.Sworn;
+                default: return null;
+            }
+        }
+
+        /// <summary>Vrai tant qu'un skin n'est pas débloqué : son succès manque, et le sésame
+        /// (« Je veux un monde meilleur », <paramref name="everything"/>) n'a pas été dit.</summary>
+        public static bool Locked(string id, System.Collections.Generic.ICollection<string> achievements, bool everything)
+        {
+            var key = UnlockedBy(id);
+            return key != null && !everything && (achievements == null || !achievements.Contains(key));
+        }
+
+        /// <summary>LE SÉSAME (25/11/2026, Rémi) : tapée seule dans « Ouvrir par le nom » (Ctrl+,) puis
+        /// validée, cette phrase débloque tous les skins — et, à terme, tout ce qui se débloque dans
+        /// l'application, hors succès. Sans casse, ni accents, ni ponctuation finale.</summary>
+        public const string Sesame = "Je veux un monde meilleur";
+        public static bool IsSesame(string typed)
+        {
+            var folded = Correction.FrenchTokenizer.Fold((typed ?? "").Trim().TrimEnd('.', '!', ' ')).ToLowerInvariant();
+            return string.Join(" ", folded.Split(new[] { ' ', '\u00A0' }, StringSplitOptions.RemoveEmptyEntries)) == "je veux un monde meilleur";
+        }
+
         /// <summary>Vrai pour un skin PREMIUM (la série « Museum », pour l'heure).</summary>
         public static bool Premium(string id) { return IsMuseum(id); }
 
@@ -339,7 +371,7 @@ namespace Marabook.Model
             var radius = "12";
             if (id == MuseumWood) { inkLight = "#2B2620"; softLight = "#5A5247"; inkDark = "#DEDAD5"; softDark = "#B7B0A6"; serif = "'EB Garamond',Garamond,Georgia,serif"; radius = "10"; }
             else if (id == MuseumOath) { inkLight = "#1A130A"; softLight = "#46352A"; inkDark = "#F6EEE4"; softDark = "#D8C3B6"; serif = "'Libre Caslon Text','Book Antiqua',Georgia,serif"; radius = "6"; }
-            else if (id == MuseumAscent) { inkLight = "#2B2211"; softLight = "#726D61"; inkDark = "#F0E6D2"; softDark = "#A09B8C"; serif = "Cinzel,'Trajan Pro','Palatino Linotype',Georgia,serif"; radius = "0"; }
+            else if (id == MuseumAscent) { inkLight = "#2B2211"; softLight = "#726D61"; inkDark = "#F0E6D2"; softDark = "#A09B8C"; serif = "'Marcellus SC',Cinzel,'Trajan Pro','Palatino Linotype',Georgia,serif"; radius = "0"; }
             else { inkLight = "#020F1C"; softLight = "#1F2C34"; inkDark = "#FBFDFF"; softDark = "#C9D8E2"; serif = "'Cormorant Garamond',Garamond,Georgia,serif"; }
             double h, s, l;
             ToHsl(accent, out h, out s, out l);

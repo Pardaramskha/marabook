@@ -41,6 +41,9 @@
 
   <ItemGroup>
     <AvaloniaResource Include="..\..\tools\app.ico" Link="Assets\app.ico" />
+    <!-- La police des titres d'« Ascension » (25/11, Rémi) : « Ascension SC », dérivée de Marcellus SC (OFL 1.1,
+         assets/fonts/AscensionSC-OFL.txt). La première police embarquée : ce skin doit avoir la sienne partout. -->
+    <AvaloniaResource Include="..\..\assets\fonts\AscensionSC-Regular.ttf" Link="Assets\Fonts\AscensionSC-Regular.ttf" />
   </ItemGroup>
 
   <!-- Les patch notes de chaque version (patchnotes/<VERSION>.md, le texte
@@ -58,7 +61,7 @@
   <ItemGroup>
     <EmbeddedResource Include="..\..\assets\sounds\*.wav" LogicalName="sounds/%(Filename)%(Extension)" />
     <!-- Le grain des anneaux (lot 16, 17/11, Rémi : texture.jpg) : seule sa clarté sert (RingArt.cs). -->
-    <EmbeddedResource Include="..\..\assets\textures\*.jpg" LogicalName="textures/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\assets\textures\*.jpg;..\..\assets\textures\*.png" LogicalName="textures/%(Filename)%(Extension)" />
     <!-- Les images de tête des DLC (1/11, Rémi) : assets/dlc/<fichier>, montrées par la fenêtre d'un module. -->
     <EmbeddedResource Include="..\..\assets\dlc\*.jpg;..\..\assets\dlc\*.png" LogicalName="dlc/%(Filename)%(Extension)" />
     <!-- Les images des profils (2.0.0, 25/11, Rémi) : assets/profils/<profil>.png, en tête de chaque tuile du choix du profil. -->

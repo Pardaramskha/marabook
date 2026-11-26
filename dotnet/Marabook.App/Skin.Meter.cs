@@ -45,6 +45,8 @@ namespace Marabook.App
         public static IBrush MeterBrush(Color color, double trackWidth)
         {
             if (!Museum) return new SolidColorBrush(color);
+            // « Ascension » (25/11) : la MAGIE BLEUE des progressions — fixe, elle ne suit ni le métal ni l'état.
+            if (AscensionArt.On) return AscensionArt.MagicFill(new RelativePoint(0, 0, RelativeUnit.Absolute), new RelativePoint(Math.Max(1, trackWidth), 0, RelativeUnit.Absolute));
             var brush = new LinearGradientBrush
             {
                 StartPoint = new RelativePoint(0, 0, RelativeUnit.Absolute),
@@ -62,6 +64,7 @@ namespace Marabook.App
         public static IBrush MeterBrushUp(Color color, double height, double plotHeight)
         {
             if (!Museum) return new SolidColorBrush(color);
+            if (AscensionArt.On) return AscensionArt.MagicFill(new RelativePoint(0, height, RelativeUnit.Absolute), new RelativePoint(0, height - Math.Max(1, plotHeight), RelativeUnit.Absolute));
             var brush = new LinearGradientBrush
             {
                 StartPoint = new RelativePoint(0, height, RelativeUnit.Absolute),
@@ -79,6 +82,12 @@ namespace Marabook.App
         {
             if (!Museum) return new SolidColorBrush(color);
             var brush = new ConicGradientBrush { Center = new RelativePoint(0.5, 0.5, RelativeUnit.Relative), Angle = 0 };
+            if (AscensionArt.On)
+            {
+                brush.GradientStops.Add(new GradientStop(AscensionArt.MagicDeep, 0));
+                brush.GradientStops.Add(new GradientStop(AscensionArt.Magic, 1));
+                return brush;
+            }
             brush.GradientStops.Add(new GradientStop(MeterFrom(color), 0));
             brush.GradientStops.Add(new GradientStop(color, 0.62));
             brush.GradientStops.Add(new GradientStop(MeterTo(color), 1));

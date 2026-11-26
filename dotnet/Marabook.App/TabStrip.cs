@@ -411,6 +411,7 @@ namespace Marabook.App
             {
                 _tab = tab;
                 IsHitTestVisible = false;
+                AscensionArt.Animate(this); // le filet doré de l'onglet choisi luit (« Ascension », 25/11)
             }
 
             public override void Render(DrawingContext context)
@@ -436,7 +437,18 @@ namespace Marabook.App
                         ctx.QuadraticBezierTo(new Point(w - r, h), new Point(w, h));
                         ctx.EndFigure(false);
                     }
-                    if (IsActive)
+                    if (IsActive && AscensionArt.On)
+                    {
+                        // « Ascension » (25/11) : l'or à 16 % qui se fond vers le bas, un filet doré qui luit en
+                        // haut, un losange or pâle à cheval dessus ; le bas s'ouvre sur le contenu.
+                        var gold = AscensionArt.Gold;
+                        // Le filet doré est le CONTOUR de l'onglet, arrondi comme celui des autres (25/11, Rémi : « l'actif
+                        // a des bords nets et les autres des arrondis »).
+                        context.DrawGeometry(Skin.Linear(AscensionArt.WithAlpha(gold, 0.16), AscensionArt.WithAlpha(gold, 0), false), new Pen(AscensionArt.GiltLine(), 1.5), geometry);
+                        context.FillRectangle(Chrome.WindowBg, new Rect(r, h - 1, Math.Max(0, w - 2 * r), 1.5));
+                        TabCrest.Paint(context, new Rect(r, 0.5, Math.Max(0, w - 2 * r), h));
+                    }
+                    else if (IsActive)
                     {
                         // L'actif (28/10, Rémi) : fond à la teinte d'accent,
                         // contour d'accent doux ; le fond descend d'un pixel

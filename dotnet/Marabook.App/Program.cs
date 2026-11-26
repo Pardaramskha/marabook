@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using Avalonia;
+using System.Collections.Generic;
+using Avalonia.Media;
 
 namespace Marabook.App
 {
@@ -97,7 +99,24 @@ namespace Marabook.App
             var builder = AppBuilder.Configure<App>().UseSkia();
             return Avalonia.Headless.AvaloniaHeadlessPlatformExtensions.UseHeadless(builder, new Avalonia.Headless.AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
                 .WithInterFont()
+                .With(Fallbacks())
                 .LogToTrace();
+        }
+
+        /// <summary>LES POLICES DE SECOURS (25/11/2026) : où chercher un caractère que la police en cours n'a
+        /// pas (« → », « ○ », « ✦ »…), AVANT de s'en remettre au système. Sans elles, sur macOS, un seul
+        /// caractère introuvable faisait entrer la police « LastResort » (des cases à point d'interrogation,
+        /// pour TOUS les caractères) dans les polices connues d'Avalonia ; de là, selon l'ordre de ses tables,
+        /// elle pouvait servir de secours à des caractères que d'autres polices avaient pourtant — des flèches
+        /// et des puces en cases, au hasard des polices déjà chargées (vu sous « Ascension »). Inter d'abord
+        /// (embarquée : la même sur les trois systèmes), puis les polices de symboles de chaque système ;
+        /// une police absente est simplement passée.</summary>
+        private static FontManagerOptions Fallbacks()
+        {
+            var families = new[] { "fonts:Inter#Inter", "Apple Symbols", "Zapf Dingbats", "Arial Unicode MS", "Segoe UI Symbol", "Segoe UI", "DejaVu Sans", "Noto Sans Symbols", "Noto Sans Symbols 2" };
+            var fallbacks = new List<FontFallback>();
+            foreach (var family in families) fallbacks.Add(new FontFallback { FontFamily = new FontFamily(family) });
+            return new FontManagerOptions { FontFallbacks = fallbacks };
         }
 
         /// <summary>La configuration Avalonia (aussi lue par le concepteur et
@@ -108,6 +127,7 @@ namespace Marabook.App
             return AppBuilder.Configure<App>()
                 .UsePlatformDetect()
                 .WithInterFont()
+                .With(Fallbacks())
                 .LogToTrace();
         }
     }

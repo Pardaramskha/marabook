@@ -1670,6 +1670,7 @@ namespace Marabook.App
                 e.Handled = true;
                 MoveIntoFolder(sheets, folderRef);
             });
+            TileFrame.Dress(card); // « Ascension », lot 2 : la double bordure des tuiles
             CardLift.Attach(card);
             return card;
         }
@@ -1733,10 +1734,21 @@ namespace Marabook.App
                         + "de la catégorie"
                 });
             // — la puce d'une fiche de module (DLC, 22/09) : « Fiche FPDM »
+            // « Ascension », lot 2 (25/11 au soir) : elle devient une MÉDAILLE EN LOSANGE, au milieu du
+            // bord haut de la tuile, à cheval — remplie de magie au prorata, d'or à 100 %.
+            FpdmMedal medal = null;
             foreach (var module in Modules.ForSheet(_project, sheet))
                 if (Modules.HasSheet(module, sheet))
                 {
                     var complete = Modules.IsComplete(module, sheet);
+                    if (AscensionArt.On)
+                    {
+                        var filled = Modules.FilledCount(module, sheet);
+                        var total = module.ValueIds().Count;
+                        medal = new FpdmMedal(filled, total, complete);
+                        ToolTip.SetTip(medal, TipText.Titled("Module " + module.Name, "Fiche " + module.Name + (complete ? " — complète (100 %)" : " — " + filled + " / " + total + " champs")));
+                        break;
+                    }
                     grid.Children.Add(new Border
                     {
                         Width = 10,
@@ -1804,6 +1816,9 @@ namespace Marabook.App
                 Cursor = new Cursor(StandardCursorType.Hand),
                 Child = layout
             };
+            // « Ascension », lot 2 : la double bordure, et la médaille du module épinglée sur le bord haut.
+            var layers = TileFrame.Dress(card);
+            if (medal != null) TileFrame.PinTop(layers, medal, 4);
             Wire(card, sheet, true);
             return card;
         }
@@ -1875,16 +1890,16 @@ namespace Marabook.App
                 var made = Icons.Make(icon, size, Chrome.SoftText);
                 made.HorizontalAlignment = HorizontalAlignment.Center;
                 made.VerticalAlignment = VerticalAlignment.Center;
-                return made;
+                return Rosace.Behind(made, size); // « Ascension », lot 2 : la rosace derrière l'icône
             }
-            return new TextBlock
+            return Rosace.Behind(new TextBlock
             {
                 Text = "🖼",
                 FontSize = size * 0.7,
                 Foreground = Chrome.SoftText,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center
-            };
+            }, size);
         }
 
         /// <summary>« fiche-personnage », « fiche-pays »… d'après le premier mot

@@ -46,7 +46,7 @@ namespace Marabook.App
     /// Encyclopédique » le suivent (Model.Skins).</summary>
     internal static partial class Skin // la série « Museum » : Skin.Museum.cs (24/11)
     {
-        public const string GroundKey = "MbGround", BarKey = "MbBar", BackdropKey = "MbBackdrop", GlowKey = "MbGroundGlow";
+        public const string GroundKey = "MbGround", BarKey = "MbBar", BackdropKey = "MbBackdrop", GlowKey = "MbGroundGlow", VitrailKey = "MbVitrail", SideGlowKey = "MbSideGlow";
 
         public static string Current { get { return Skins.Normalize(AppSettings.Skin); } }
         public static bool Plain { get { return Current == Skins.Modern; } }
@@ -258,6 +258,12 @@ namespace Marabook.App
         /// <summary>Pour un initialiseur : new Border { [!Border.BackgroundProperty] = Skin.BarBinding }.</summary>
         public static IBinding BarBinding { get { return new DynamicResourceExtension(BarKey); } }
         public static IBinding GroundBinding { get { return new DynamicResourceExtension(GroundKey); } }
+        public static IBinding VitrailBinding { get { return new DynamicResourceExtension(VitrailKey); } }
+        public static IBinding SideGlowBinding { get { return new DynamicResourceExtension(SideGlowKey); } }
+        /// <summary>La texture de vitrail du fond (« Ascension »), ou null.</summary>
+        public static IBrush Vitrail() { return AscensionArt.On ? AscensionArt.VitrailBrush(Chrome.Dark) : null; }
+        /// <summary>Vrai quand le fond de la fenêtre porte une texture tracée : le vitrail d'« Ascension » ; ou des fêlures d'or à ses angles : le kintsugi d'« Assermenté » (26/11).</summary>
+        public static bool GroundTextured { get { return AscensionArt.On || Kintsugi.On; } }
 
         private static void BindBackground(Control control, string key)
         {
@@ -280,6 +286,9 @@ namespace Marabook.App
             app.Resources[GlowKey] = AscentGlow() ?? (backdrop == null ? (IBrush)Chrome.WindowBg : Brushes.Transparent);
             var bar = backdrop == null ? (IBrush)Chrome.BarBg : BarVeil();
             app.Resources[BarKey] = bar;
+            // La texture de vitrail d'« Ascension » (25/11) : une couche à part, au-dessus du fond peint et sous le verre des barres.
+            app.Resources[VitrailKey] = Vitrail() ?? Brushes.Transparent;
+            app.Resources[SideGlowKey] = AscensionArt.SideGlow() ?? Brushes.Transparent;
             PublishSides(app, bar); // la Pile et le rail : le verre dépoli de trois skins « Museum » (Skin.Glass.cs)
             // Les fenêtres de dialogue : leurs coins, et leur verre sous un skin « Museum » (24/11).
             ModalChrome.Publish(app, Round(12), Museum ? MuseumDialogGlass : 1.0, Museum ? Skins.MuseumBlurFor(Current, AppSettings.SkinBlur) : 0, !Museum ? 0 : Skins.MuseumPill(Current) ? 2 : 1);
@@ -519,6 +528,12 @@ namespace Marabook.App
         private static readonly AttachedProperty<bool> KeepCornersProperty =
             AvaloniaProperty.RegisterAttached<Border, Border, bool>("SkinKeepCorners");
 
+        private static readonly AttachedProperty<bool> IlluminatedProperty =
+            AvaloniaProperty.RegisterAttached<Border, Border, bool>("SkinIlluminated");
+
+        /// <summary>Ce cadre porte une bordure ENLUMINÉE sous « Ascension » : ses coins y restent droits, quel que soit l'arrondi réglé.</summary>
+        public static void Illuminated(Border border) { if (border != null) border.SetValue(IlluminatedProperty, true); }
+
         /// <summary>Ce cadre règle ses coins lui-même (il suit un autre cadre) : l'habillage n'y touche pas.</summary>
         public static void KeepCorners(Border border) { if (border != null) border.SetValue(KeepCornersProperty, true); }
         private static int _themeIndex = -1;
@@ -616,7 +631,8 @@ namespace Marabook.App
             if (original.TopLeft <= 0 && original.TopRight <= 0 && original.BottomLeft <= 0 && original.BottomRight <= 0) return;
             if (IsRound(border, original)) return;
             if (!(stored is CornerRadius)) border.SetValue(OriginalCornersProperty, original);
-            var dressed = new CornerRadius(Round(original.TopLeft), Round(original.TopRight), Round(original.BottomRight), Round(original.BottomLeft));
+            var dressed = AscensionArt.On && border.GetValue(IlluminatedProperty) ? new CornerRadius(0)
+                : new CornerRadius(Round(original.TopLeft), Round(original.TopRight), Round(original.BottomRight), Round(original.BottomLeft));
             if (border.CornerRadius != dressed) border.CornerRadius = dressed;
         }
 

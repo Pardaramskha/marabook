@@ -180,6 +180,14 @@ namespace Marabook.App
             panel.Children.Add(row);
         }
 
+        /// <summary>Pose l'arrondi sans prévenir (qui appelle change aussi le skin, et préviendra) ; le curseur suit.</summary>
+        private void PoseCornerScale(double scale)
+        {
+            AppSettings.CornerScale = scale;
+            if (_cornerTimer != null) _cornerTimer.Stop();
+            if (_cornerSlider != null) _cornerSlider.Value = Math.Round(scale * 100);
+        }
+
         internal void SetCornerScale(double scale)
         {
             scale = Math.Max(0, Math.Min(2, Math.Round(scale * 20) / 20));

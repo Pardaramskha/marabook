@@ -27,6 +27,10 @@ namespace Marabook.App
         private readonly TextBlock _hint;
         private Project _project;
         private Action<string> _open;
+        /// <summary>LE SÉSAME (25/11/2026) : ce que fait la palette quand la phrase secrète (Skins.Sesame)
+        /// y est tapée seule puis validée. Posé par la coquille.</summary>
+        public Action Sesame;
+        private const string SesameTag = "\u0001sesame";
 
         public QuickOpenPalette(Panel host)
         {
@@ -124,6 +128,20 @@ namespace Marabook.App
                 _hint.Text = IdleHint;
                 return;
             }
+            if (Sesame != null && Skins.IsSesame(query))
+            {
+                // L'option secrète : une seule ligne, qui ne dit que de valider.
+                _list.Items.Add(new ListBoxItem
+                {
+                    Content = new TextBlock { Text = "Appuyez sur Entrée pour confirmer la recherche.", Foreground = Chrome.Ink, FontStyle = FontStyle.Italic },
+                    Tag = SesameTag,
+                    Padding = new Thickness(8, 4, 8, 4)
+                });
+                _list.IsVisible = true;
+                _list.SelectedIndex = 0;
+                _hint.Text = "…";
+                return;
+            }
             var matches = BinderView.NameMatches(_project, query, SearchKind.All, Cap, true); // sections de la Pile et livres compris (1/11)
             foreach (var item in matches) _list.Items.Add(Row(item));
             _list.IsVisible = matches.Count > 0;
@@ -176,6 +194,13 @@ namespace Marabook.App
             var entry = (_list.SelectedItem ?? (_list.Items.Count > 0 ? _list.Items[0] : null)) as ListBoxItem;
             if (entry == null || entry.Tag == null) return;
             var id = (string)entry.Tag;
+            if (id == SesameTag)
+            {
+                Close();
+                var sesame = Sesame;
+                if (sesame != null) sesame();
+                return;
+            }
             Close();
             var open = _open;
             if (open != null) open(id);

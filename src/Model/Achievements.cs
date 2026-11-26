@@ -13,6 +13,9 @@ namespace Marabook.Model
         public string Id, Name, Description;
         public string ModuleId; // succès apporté par un module (DLC) : son image vit dans son dossier
         public bool Secret;     // un succès SECRET (31/10) : le nom se voit, la description seulement une fois obtenu
+        /// <summary>Ce que le succès DÉBLOQUE (25/11/2026, Rémi) : une ligne en gras sous sa description
+        /// (« Vous avez débloqué un skin Marabook ! »), et le skin qu'il ouvre (Skins.UnlockedBy).</summary>
+        public string Reward, UnlocksSkin;
 
         public Achievement(string id, string name, string description)
         {
@@ -49,6 +52,9 @@ namespace Marabook.Model
         public int MaxGenealogy;       // fiches liées dans un arbre
         public bool FullSheet;         // une fiche de plus de 50 champs, tous remplis
         public bool GodComplex;        // une fiche personnage au nom de l'auteur
+        public bool LongOriginalTimeline; // une frise d'une temporalité originale, sur plus de dix mille ans
+        public bool PlanMatchesBook;      // un plan relié à un livre : autant de colonnes que de chapitres prévus
+        public bool FinishedBookWithoutTen; // un livre fini où dix personnages fichés n'apparaissent pas
         public int PermanentlyDeleted; // compteur global (corbeille vidée)
         public int MaxFolderDepth;     // dossiers imbriqués, livres exclus
         public int ShortcutsChanged;   // raccourcis réattribués
@@ -92,8 +98,29 @@ namespace Marabook.Model
         public static readonly Achievement[] Secrets =
         {
             new Achievement(Curious, "Il suffit d'être curieux", "Cliquez sur ce succès. C'est pas si difficile, hein ?") { Secret = true },
-            new Achievement(GodComplex, "Complexe de Dieu", "Ah, vous vous croyez malins, hein ?") { Secret = true }
+            new Achievement(GodComplex, "Complexe de Dieu", "Ah, vous vous croyez malins, hein ?") { Secret = true },
+            // Les trois succès qui DÉBLOQUENT un skin de la série « Museum » (25/11/2026, Rémi).
+            new Achievement(FireKeeper, "Gardien du Feu", "Créez une frise avec une temporalité originale s'étendant sur plus de dix mille ans.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumFire },
+            new Achievement(WhiteWood, "Faiseur de Bois Blanc", "Vous avez créé un plan lié à un livre comprenant autant de colonnes que votre livre a de chapitres prévus.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumWood },
+            new Achievement(Sworn, "Assermenté", "Vous venez de terminer un livre, et au moins dix personnages déjà fichés n'y sont pas apparus. Ce n'est que le début.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumOath }
         };
+
+        public const string FireKeeper = "gardien-du-feu", WhiteWood = "faiseur-de-bois-blanc", Sworn = "assermente";
+        public const string SkinReward = "Vous avez débloqué un skin Marabook !";
+        /// <summary>Une frise « s'étend sur plus de dix mille ans » au-delà de ce nombre d'années.</summary>
+        public const long FireKeeperYears = 10000;
+        /// <summary>…et « Assermenté » veut au moins ce nombre de personnages fichés absents du livre fini.</summary>
+        public const int SwornAbsent = 10;
+
+        /// <summary>Les succès SECRETS à condition mesurable (les trois qui débloquent un skin) dont la
+        /// condition tient et qui manquent encore. Les autres secrets se gagnent par un geste.</summary>
+        public static List<string> SecretsEarned(AchievementFacts facts, ICollection<string> unlocked)
+        {
+            var earned = new List<string>();
+            foreach (var id in new[] { FireKeeper, WhiteWood, Sworn })
+                if (!unlocked.Contains(id) && Holds(id, facts)) earned.Add(id);
+            return earned;
+        }
 
         /// <summary>« Complexe de Dieu » : ce nom d'auteur, accents et casse pliés.</summary>
         public static bool IsGodName(string author)
@@ -312,6 +339,9 @@ namespace Marabook.Model
                 case "jamais-content": return f.SheetCategories >= 10;
                 case "toujours-plus": return f.FullSheet;
                 case "complexe-de-dieu": return f.GodComplex;
+                case FireKeeper: return f.LongOriginalTimeline;
+                case WhiteWood: return f.PlanMatchesBook;
+                case Sworn: return f.FinishedBookWithoutTen;
                 case "terre-brulee": return f.PermanentlyDeleted >= 1;
                 case "masochiste": return f.PermanentlyDeleted >= 20;
                 case "chirurgien": return f.MaxFolderDepth >= 3;
@@ -454,7 +484,7 @@ namespace Marabook.Model
         /// <paramref name="blankSince"/> (id → « yyyy-MM-dd ») mémorise depuis
         /// quand chaque écrit est vierge et se met à jour ici.</summary>
         public static AchievementFacts Gather(Project project, Func<BinderItem, int> docPages,
-            Func<BinderItem, int> bookPages, Dictionary<string, string> blankSince, DateTime now)
+            Func<BinderItem, int> bookPages, Dictionary<string, string> blankSince, DateTime now, ICollection<string> unlocked = null)
         {
             var f = new AchievementFacts { FinishedBookParts = -1 };
             if (project == null) return f;
@@ -512,6 +542,7 @@ namespace Marabook.Model
                         break;
                     case ItemKind.Plan:
                         f.Plans++;
+                        if (item.Plan != null && PlanMatchesBook(project, item.Plan)) f.PlanMatchesBook = true;
                         if (item.Plan != null)
                         {
                             f.MaxPlanColumns = Math.Max(f.MaxPlanColumns, item.Plan.Columns.Count);
@@ -540,6 +571,11 @@ namespace Marabook.Model
                         break;
                 }
             }
+            // Les trois succès qui débloquent un skin (25/11). Le dernier relit tout un livre : seulement
+            // tant qu'il n'est pas obtenu.
+            foreach (var timeline in Timelines.All(project))
+                if (IsLongOriginalTimeline(project, timeline)) { f.LongOriginalTimeline = true; break; }
+            if (unlocked == null || !unlocked.Contains(Sworn)) f.FinishedBookWithoutTen = AnyFinishedBookWithoutTen(project);
             // Les écrits disparus (corbeille, autre projet) sortent du suivi.
             if (blankSince != null)
             {
@@ -548,6 +584,101 @@ namespace Marabook.Model
                 foreach (var id in stale) blankSince.Remove(id);
             }
             return f;
+        }
+
+        /// <summary>Une temporalité ORIGINALE : pas le calendrier de notre monde — des ères, ou d'autres mois.</summary>
+        public static bool IsOriginalSystem(TimeSystem system)
+        {
+            if (system == null) return false;
+            if (system.HasSegments) return true;
+            var ours = TimeSystem.Gregorian();
+            if (system.Months.Count != ours.Months.Count) return true;
+            for (var i = 0; i < ours.Months.Count; i++)
+                if (system.Months[i].Days != ours.Months[i].Days || !string.Equals((system.Months[i].Name ?? "").Trim(), ours.Months[i].Name, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>L'étendue d'une frise, en années : le plus grand de son fragment (De… à…), de l'écart
+        /// entre sa première et sa dernière brique, et de la durée de ses ères.</summary>
+        public static long TimelineYears(Project project, BinderItem timeline)
+        {
+            if (timeline == null || timeline.Timeline == null) return 0;
+            var info = timeline.Timeline;
+            long span = 0;
+            if (info.HasFragment) span = Math.Max(span, Math.Abs(info.To.Year - info.From.Year));
+            long first = long.MaxValue, last = long.MinValue;
+            foreach (var entry in info.Events)
+            {
+                if (entry == null || entry.IsPending || entry.Start == null) continue;
+                first = Math.Min(first, entry.Start.Year);
+                last = Math.Max(last, entry.End != null ? entry.End.Year : entry.Start.Year);
+            }
+            if (first != long.MaxValue) span = Math.Max(span, last - first);
+            var system = Timelines.SystemOf(project, timeline);
+            if (!info.HasFragment && system != null && system.HasSegments)
+            {
+                long eras = 0;
+                foreach (var segment in system.Segments) eras += Math.Max(0, segment.Length);
+                span = Math.Max(span, eras);
+            }
+            return span;
+        }
+
+        /// <summary>« Gardien du Feu » : une frise d'une temporalité originale, sur PLUS de dix mille ans.</summary>
+        public static bool IsLongOriginalTimeline(Project project, BinderItem timeline)
+        {
+            if (timeline == null || timeline.Timeline == null || project == null) return false;
+            if (project.FindTimeSystem(timeline.Timeline.SystemId) == null) return false; // une frise sans temporalité à elle
+            return IsOriginalSystem(Timelines.SystemOf(project, timeline)) && TimelineYears(project, timeline) > FireKeeperYears;
+        }
+
+        /// <summary>« Faiseur de Bois Blanc » : le plan est relié à un LIVRE qui a un nombre de chapitres
+        /// prévus, et compte exactement autant de colonnes.</summary>
+        public static bool PlanMatchesBook(Project project, PlanInfo plan)
+        {
+            if (project == null || plan == null || plan.LinkedItemId == null) return false;
+            var book = project.FindById(plan.LinkedItemId);
+            if (book == null || book.Kind != ItemKind.Book || book.Book == null || book.Book.ChapterGoal <= 0) return false;
+            var root = book.RootCategory();
+            if (root != null && root.CategoryKey == Project.KeyTrash) return false;
+            return plan.Columns.Count == book.Book.ChapterGoal;
+        }
+
+        /// <summary>Les personnages fichés (hors Corbeille) dont aucun nom n'apparaît dans les écrits du livre.</summary>
+        public static int CharactersAbsentFrom(Project project, BinderItem book)
+        {
+            if (project == null || book == null) return 0;
+            var text = new System.Text.StringBuilder();
+            foreach (var item in Descendants(book))
+                if (item.Kind == ItemKind.Text && item.Document != null) text.Append(item.Document.ToPlainText()).Append('\n');
+            var whole = text.ToString();
+            var absent = 0;
+            foreach (var sheet in project.AllItems())
+            {
+                if (sheet.Kind != ItemKind.Sheet || sheet.IsCategory) continue;
+                var root = sheet.RootCategory();
+                if (root != null && root.CategoryKey == Project.KeyTrash) continue;
+                var category = project.TopSheetCategoryOf(sheet);
+                if (category == null || !IsCharacterCategory(category.Name)) continue;
+                var names = Presence.NamesOf(sheet, project.TemplateOf(sheet));
+                if (names.Count == 0 || Presence.CountIn(whole, names) == 0) absent++;
+            }
+            return absent;
+        }
+
+        /// <summary>« Assermenté » : un livre FINI (le même « fini » que « Le début de la fin ») où au moins
+        /// dix personnages déjà fichés n'apparaissent pas.</summary>
+        public static bool AnyFinishedBookWithoutTen(Project project)
+        {
+            if (project == null) return false;
+            foreach (var item in project.AllItems())
+            {
+                if (item.Kind != ItemKind.Book || item.IsCategory) continue;
+                var root = item.RootCategory();
+                if (root != null && root.CategoryKey == Project.KeyTrash) continue;
+                if (IsFinished(item) && CharactersAbsentFrom(project, item) >= SwornAbsent) return true;
+            }
+            return false;
         }
 
         public static bool IsCharacterCategory(string name)

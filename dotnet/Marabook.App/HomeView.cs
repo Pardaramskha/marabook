@@ -119,12 +119,11 @@ namespace Marabook.App
             _hero.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             _hero.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             _hero.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            _heroCard = Frame(null, new Thickness(18, 16, 18, 16));
+            // « Ascension » (25/11) : chaque carte porte un cadre enluminé — riche (coup de fouet, feuille) et
+            // à cimier sur celle-ci seulement, la carte du compteur de mots.
+            _heroCard = Frame(_hero, new Thickness(18, 16, 18, 16), true, true);
             _heroCard.Tag = "home-hero";
-            var layers = new Panel();
-            layers.Children.Add(_hero);
-            layers.Children.Add(Skin.OrbitInside(_heroCard));
-            _heroCard.Child = layers;
+            ((Panel)_heroCard.Child).Children.Add(Skin.OrbitInside(_heroCard));
             column.Children.Add(_heroCard);
 
             _grid = new Grid();
@@ -144,6 +143,8 @@ namespace Marabook.App
             _booksHost.Children.Add(_books);
             var booksCard = Card("Livres", _booksHost, 2);
             booksCard.Tag = "home-books";
+            _booksFrame = FrameOf(booksCard);
+            if (_booksFrame != null) _booksFrame.Foot = true; // un séparateur au pied de la carte (« Ascension »)
             column.Children.Add(booksCard);
 
             Content = column;
@@ -168,19 +169,35 @@ namespace Marabook.App
             return label;
         }
 
-        private static Border Frame(Control child, Thickness padding)
+        private static Border Frame(Control child, Thickness padding, bool rich = false, bool crest = false)
         {
-            return new Border
+            var card = new Border
             {
                 Background = Chrome.BarBgLight,
                 BorderBrush = Chrome.Border,
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Padding = padding,
-                Margin = new Thickness(4),
-                Child = child
+                Margin = new Thickness(4)
             };
+            Skin.Illuminated(card); // sous « Ascension », ses coins restent droits : ils portent les enluminures
+            // Le contenu, et par-dessus le cadre enluminé d'« Ascension » (il ne peint rien ailleurs).
+            var layers = new Panel();
+            if (child != null) layers.Children.Add(child);
+            layers.Children.Add(IlluminatedFrame.Inside(card, rich, crest));
+            card.Child = layers;
+            return card;
         }
+
+        /// <summary>Le cadre enluminé d'une carte bâtie par Frame.</summary>
+        internal static IlluminatedFrame FrameOf(Border card)
+        {
+            var layers = card == null ? null : card.Child as Panel;
+            if (layers != null) foreach (var child in layers.Children) if (child is IlluminatedFrame) return (IlluminatedFrame)child;
+            return null;
+        }
+
+        private IlluminatedFrame _booksFrame;
 
         /// <summary>La carte d'un bloc : son étiquette, son contenu.</summary>
         private Border Card(string title, Control content, int index)
@@ -259,6 +276,8 @@ namespace Marabook.App
             FillHero();
             FillBooks();
             foreach (var label in _labels) label.Foreground = Skin.Museum ? (IBrush)Chrome.Accent : Chrome.FaintText;
+            // La place du séparateur au pied de la carte Livres (« Ascension »).
+            _booksHost.Margin = new Thickness(0, 0, 0, AscensionArt.On ? 20 : 0);
             Reflow();
         }
 
@@ -354,6 +373,7 @@ namespace Marabook.App
                 var launch = Buttons.Text(sprint != null && sprint.Active ? "Relancer un sprint" : "Lancer un sprint", null, Buttons.Bar, Buttons.Look.Primary);
                 launch.Margin = new Thickness(0, 0, 8, 4);
                 launch.Tag = "home-sprint";
+                launch.Classes.Add(AscensionArt.MagicClass); // ce qui LANCE : la magie bleue d'« Ascension » (25/11)
                 launch.Click += delegate { Raise(SprintRequested); };
                 actions.Children.Add(launch);
             }
