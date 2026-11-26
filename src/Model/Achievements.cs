@@ -99,11 +99,104 @@ namespace Marabook.Model
         {
             new Achievement(Curious, "Il suffit d'être curieux", "Cliquez sur ce succès. C'est pas si difficile, hein ?") { Secret = true },
             new Achievement(GodComplex, "Complexe de Dieu", "Ah, vous vous croyez malins, hein ?") { Secret = true },
+            // Passé chez les secrets (26/11/2026, Rémi) : il est facile de le rater — il ne compte donc plus dans le total ni les paliers.
+            new Achievement(Cretin, "Crétin des alpes", "Recherchez une fiche alors que vous n'en avez pas encore créée.") { Secret = true },
             // Les trois succès qui DÉBLOQUENT un skin de la série « Museum » (25/11/2026, Rémi).
             new Achievement(FireKeeper, "Gardien du Feu", "Créez une frise avec une temporalité originale s'étendant sur plus de dix mille ans.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumFire },
             new Achievement(WhiteWood, "Faiseur de Bois Blanc", "Vous avez créé un plan lié à un livre comprenant autant de colonnes que votre livre a de chapitres prévus.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumWood },
-            new Achievement(Sworn, "Assermenté", "Vous venez de terminer un livre, et au moins dix personnages déjà fichés n'y sont pas apparus. Ce n'est que le début.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumOath }
+            new Achievement(Sworn, "Assermenté", "Vous venez de terminer un livre, et au moins dix personnages déjà fichés n'y sont pas apparus. Ce n'est que le début.") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumOath },
+            // LE DERNIER (26/11/2026, Rémi) : il débloque « Ascension ». Il ne se mesure pas au fil de l'eau : la
+            // fenêtre le donne à l'export du livre qui remplit toutes ses conditions (WorldMissing).
+            new Achievement(World, "S'offrir un monde", "Vous avez réussi à aller plus loin que bien des gens") { Secret = true, Reward = SkinReward, UnlocksSkin = Skins.MuseumAscent }
         };
+
+        public const string World = "s-offrir-un-monde";
+        /// <summary>Les seuils de « S'offrir un monde » : pages du livre (strictement plus), personnages nommés, entrées du dictionnaire.</summary>
+        public const int WorldPages = 150, WorldCharacters = 15, WorldLexicon = 30;
+
+        /// <summary>Ce que la fenêtre mesure pour « S'offrir un monde », et que le modèle ne sait pas mesurer seul.</summary>
+        public sealed class WorldCheck
+        {
+            public bool Everything;       // le profil « Cinglé·e »
+            public int Pages;             // les pages du livre entier
+            public int ChecklistProblems; // les lignes de la check-list d'édition qui ne sont pas au vert
+            public int SpellingLeft;      // les mots encore inconnus dans tout le livre (ni corrigés, ni appris, ni ignorés)
+            public int LexiconEntries;    // les entrées personnalisées du dictionnaire (projet et global)
+        }
+
+        /// <summary>« S'OFFRIR UN MONDE » : ce qui MANQUE encore à ce livre, en clair (liste vide = toutes les
+        /// conditions sont remplies). Onze conditions, qui prennent toute l'application :
+        /// le profil Cinglé·e ; tout le livre terminé ; ses informations d'édition et commerciales remplies ;
+        /// une couverture ; la check-list d'édition au vert ; des pages liminaires et plus de 150 pages ;
+        /// au moins 15 personnages fichés nommés dans le livre ; au moins 30 entrées au dictionnaire ; plus une
+        /// faute d'orthographe ; une temporalité, un monde et une frise ; et, sur une frise, la durée du livre.</summary>
+        public static List<string> WorldMissing(Project project, BinderItem book, WorldCheck check)
+        {
+            var missing = new List<string>();
+            if (project == null || book == null || book.Kind != ItemKind.Book || book.Book == null || check == null) { missing.Add("un livre"); return missing; }
+            if (!check.Everything) missing.Add("être en mode Cinglé·e");
+            int texts = 0, notDone = 0, extras = 0;
+            foreach (var item in Descendants(book))
+            {
+                if (item.Kind != ItemKind.Text) continue;
+                if (item.IsExtraPage || item.IsToc) { extras++; continue; }
+                texts++;
+                if (item.Status != "done") notDone++;
+            }
+            if (texts == 0 || notDone > 0) missing.Add("tout le contenu du livre marqué comme terminé");
+            var info = book.Book;
+            var author = Filled(info.AuthorOverride) || Filled(project.Author);
+            if (!(author && Filled(info.Isbn) && Filled(info.Publisher) && Filled(info.Year) && Filled(info.Genre) && Filled(info.Audience)
+                && info.Themes.Count > 0 && Filled(info.Pitch) && Filled(info.BackCover)))
+                missing.Add("toutes les informations d'édition et commerciales du livre");
+            if (book.ImageId == null || project.FindImage(book.ImageId) == null) missing.Add("une couverture importée pour le livre");
+            if (check.ChecklistProblems > 0) missing.Add("toute la check-list d'édition au vert");
+            if (extras == 0 || check.Pages <= WorldPages) missing.Add("des pages liminaires et plus de " + WorldPages + " pages");
+            if (CharactersNamedIn(project, book) < WorldCharacters) missing.Add("au moins " + WorldCharacters + " personnages fichés nommés dans le livre");
+            if (check.LexiconEntries < WorldLexicon) missing.Add("au moins " + WorldLexicon + " entrées personnalisées au dictionnaire");
+            if (check.SpellingLeft > 0) missing.Add("plus aucune erreur d'orthographe dans tout le livre");
+            if (project.TimeSystems.Count == 0 || project.Worlds.Count == 0 || Timelines.All(project).Count == 0) missing.Add("une temporalité, un monde et une frise");
+            if (!BookSpanOnTimeline(project, book)) missing.Add("la durée du livre posée sur une frise, liée au livre");
+            return missing;
+        }
+
+        /// <summary>Les personnages fichés (hors Corbeille) dont un nom apparaît dans les écrits du livre.</summary>
+        public static int CharactersNamedIn(Project project, BinderItem book)
+        {
+            if (project == null || book == null) return 0;
+            var text = new System.Text.StringBuilder();
+            foreach (var item in Descendants(book))
+                if (item.Kind == ItemKind.Text && item.Document != null) text.Append(item.Document.ToPlainText()).Append('\n');
+            var whole = text.ToString();
+            var named = 0;
+            foreach (var sheet in project.AllItems())
+            {
+                if (sheet.Kind != ItemKind.Sheet || sheet.IsCategory) continue;
+                var root = sheet.RootCategory();
+                if (root != null && root.CategoryKey == Project.KeyTrash) continue;
+                var category = project.TopSheetCategoryOf(sheet);
+                if (category == null || !IsCharacterCategory(category.Name)) continue;
+                var names = Presence.NamesOf(sheet, project.TemplateOf(sheet));
+                if (names.Count > 0 && Presence.CountIn(whole, names) > 0) named++;
+            }
+            return named;
+        }
+
+        /// <summary>Vrai quand une frise porte une brique SUR LA DURÉE (un début et une fin) liée à ce livre.</summary>
+        public static bool BookSpanOnTimeline(Project project, BinderItem book)
+        {
+            if (project == null || book == null) return false;
+            foreach (var timeline in Timelines.All(project))
+            {
+                if (timeline.Timeline == null) continue;
+                foreach (var entry in timeline.Timeline.Events)
+                {
+                    if (entry == null || !entry.IsSpan || entry.IsPending) continue;
+                    foreach (var link in Timelines.LinksOf(entry)) if (link.Id == book.Id) return true;
+                }
+            }
+            return false;
+        }
 
         public const string FireKeeper = "gardien-du-feu", WhiteWood = "faiseur-de-bois-blanc", Sworn = "assermente";
         public const string SkinReward = "Vous avez débloqué un skin Marabook !";
@@ -263,7 +356,6 @@ namespace Marabook.Model
             new Achievement("besoin-de-lunettes", "Besoin de lunettes ?", "Écrivez cent mots avec un zoom de 300 %."),
             new Achievement(Minimalist, "Minimaliste", "Exportez un livre sans avoir utilisé de couleur personnalisée pour les fichiers, d'objectif de chapitre ni d'état de finition des documents."),
             new Achievement("pensez-a-vous-etirer", "Pensez à vous étirer", "Gardez l'application ouverte pendant plus de 8 heures consécutives."),
-            new Achievement(Cretin, "Crétin des alpes", "Recherchez une fiche alors que vous n'en avez pas encore créée."),
             new Achievement(About, "Enfin quelqu'un qui en a quelque chose à faire !", "Cliquez sur « À propos de Marabook »."),
             new Achievement("inner-peace", "Inner peace", "Écrivez 5 000 mots en mode calme."),
             new Achievement(OldSchool, "À l'ancienne", "Imprimez un document depuis Marabook."),

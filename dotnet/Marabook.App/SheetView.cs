@@ -158,7 +158,7 @@ namespace Marabook.App
             _previewToggle = new ToggleButton
             {
                 Classes = { Marabook.App.Theme.Owned },
-                Content = Icons.Label("apercu-wiki", "Mode wiki (F1)", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
+                Content = Icons.Label("apercu-wiki", "Mode wiki (F4)", 13, Chrome.Ink), // une icône du jeu : l'emoji 📖 sortait en « ??? » sur macOS (07/10)
                 FontWeight = FontWeight.SemiBold,
                 Padding = new Thickness(12, 4, 12, 4),
                 [ToolTip.TipProperty] = "Votre fiche, mais en plus stylé"};
@@ -182,7 +182,7 @@ namespace Marabook.App
                 var handler = NavigateRequested;
                 if (handler != null) handler(target);
             };
-            // F1 = mode wiki, F2 = généalogie (1.1.0, Rémi) : captés en tunnel,
+            // F4 = mode wiki (F1 jusqu'au 26/11 : il servira à l'aide), F2 = généalogie (1.1.0, Rémi) : captés en tunnel,
             // avant les zones de texte de la fiche.
             AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(OnFunctionKey), RoutingStrategies.Tunnel);
             DockPanel.SetDock(rightTools, Dock.Right);
@@ -686,21 +686,21 @@ namespace Marabook.App
             LayoutPapers(true);
         }
 
-        /// <summary>F1 bascule le mode wiki, F2 ouvre la généalogie quand la
+        /// <summary>F4 bascule le mode wiki, F2 ouvre la généalogie quand la
         /// fiche en a une (1.1.0).</summary>
         private void OnFunctionKey(object sender, KeyEventArgs e)
         {
             HandleFunctionKey(e);
         }
 
-        /// <summary>F1 / F2 de la fiche, aussi quand le clavier est AILLEURS
+        /// <summary>F4 / F2 de la fiche, aussi quand le clavier est AILLEURS
         /// (la Pile, après un clic sur la fiche — 29/10, Rémi : « F1 ne bascule
         /// pas, F2 renomme ») : la fenêtre les lui passe en tunnel tant que la
         /// fiche est à l'écran. Vrai si la touche a servi.</summary>
         public bool HandleFunctionKey(KeyEventArgs e)
         {
             if (_item == null || !IsVisible || e.Handled || e.KeyModifiers != KeyModifiers.None) return false;
-            if (e.Key == Key.F1)
+            if (e.Key == Key.F4)
             {
                 _previewToggle.IsChecked = _previewToggle.IsChecked != true;
                 e.Handled = true;
@@ -1772,7 +1772,7 @@ namespace Marabook.App
         }
 
         /// <summary>La généalogie en vue (1.1.0) : à la place des papers (et du
-        /// mode wiki, qu'elle éteint), comme F1 pour le wiki.</summary>
+        /// mode wiki, qu'elle éteint), comme F4 pour le wiki.</summary>
         private void ShowGenealogy()
         {
             if (_item == null) { _genealogyButton.IsChecked = false; return; }

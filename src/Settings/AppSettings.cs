@@ -60,7 +60,7 @@ namespace Marabook.Settings
             new ActionDefinition("new-folder", "Pile", "Nouveau dossier", "Ctrl+Shift+T"),
             new ActionDefinition("new-book", "Pile", "Nouveau livre", null),
             // Plus de F2 d'office (29/10, Rémi) : la touche est aux fiches
-            // (Généalogie), F1 au mode wiki — un geste personnalisé reste possible.
+            // (Généalogie), F4 au mode wiki (F1 jusqu'au 26/11 : il servira à l'aide) — un geste personnalisé reste possible.
             new ActionDefinition("rename", "Pile", "Renommer", null),
             new ActionDefinition("delete", "Pile", "Supprimer vers la corbeille", "Delete"),
             new ActionDefinition("empty-trash", "Pile", "Vider la corbeille", null),
@@ -304,6 +304,8 @@ namespace Marabook.Settings
         // l'entrée des tuiles, la glissade de la Pile et celle de la colonne de
         // droite. Décochée, tout se pose d'un coup.
         public static bool Animations = true;
+        /// <summary>Le dernier onglet visité des Préférences (son titre) : elles rouvrent dessus (26/11).</summary>
+        public static string PreferencesTab;
         /// <summary>Les réglages de chaque carte (lot 13, 16/11, Rémi : « que le logiciel se souvienne des
         /// outils et réglages de la carte entre les visites ») : par identifiant de carte, ce qui n'est pas
         /// le contenu du projet — l'outil en main, les filtres, le ciel, la vue. Les plus anciennes s'effacent.</summary>
@@ -762,6 +764,7 @@ namespace Marabook.Settings
                 ShowLooseLines = Json.AsBool(Json.Field(root, "looseLinesVisible"), false);
                 ShowWidowMarks = Json.AsBool(Json.Field(root, "widowMarksVisible"), true);
                 Animations = Json.AsBool(Json.Field(root, "animations"), true);
+                PreferencesTab = Json.AsString(Json.Field(root, "preferencesTab"));
                 MapStates = new Dictionary<string, Dictionary<string, object>>();
                 MapStateOrder = new List<string>();
                 var mapStates = Json.AsList(Json.Field(root, "mapStates"));
@@ -991,6 +994,7 @@ namespace Marabook.Settings
                 root["looseLinesVisible"] = ShowLooseLines;
                 root["widowMarksVisible"] = ShowWidowMarks;
                 root["animations"] = Animations;
+                if (!string.IsNullOrEmpty(PreferencesTab)) root["preferencesTab"] = PreferencesTab;
                 if (MapStateOrder.Count > 0)
                 {
                     var mapStates = new List<object>();

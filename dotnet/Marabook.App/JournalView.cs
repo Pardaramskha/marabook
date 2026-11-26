@@ -683,8 +683,17 @@ namespace Marabook.App
                 _medalBar.Children.Add(track);
                 if (ratio > 0) _medalBar.Children.Add(new Border { Margin = new Thickness(1), Background = AscensionArt.MagicFill(new RelativePoint(0, 0, RelativeUnit.Relative), new RelativePoint(1, 0, RelativeUnit.Relative)) });
             }
-            foreach (var achievement in Achievements.All)
+            // Les succès des DLC À PART (26/11/2026, Rémi) : sous ceux de Marabook, sous leur propre titre — comme
+            // les secrets. Ils comptent toujours dans le total et pour les paliers.
+            var ordered = new System.Collections.Generic.List<Achievement>();
+            foreach (var achievement in Achievements.All) if (achievement.ModuleId == null) ordered.Add(achievement);
+            var ownCount = ordered.Count;
+            foreach (var achievement in Achievements.All) if (achievement.ModuleId != null) ordered.Add(achievement);
+            for (var index = 0; index < ordered.Count; index++)
             {
+                var achievement = ordered[index];
+                if (index == ownCount)
+                    _achievementsPanel.Children.Add(new TextBlock { Text = "Succès DLC", Foreground = Chrome.Ink, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 12, 0, 8), Tag = "achievements-dlc" });
                 string date;
                 var earned = unlocked.TryGetValue(achievement.Id, out date);
                 var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
@@ -730,7 +739,8 @@ namespace Marabook.App
                     Text = "Succès secrets",
                     Foreground = Chrome.Ink,
                     FontWeight = FontWeight.SemiBold,
-                    Margin = new Thickness(0, 12, 0, 8)
+                    Margin = new Thickness(0, 12, 0, 8),
+                    Tag = "achievements-secrets"
                 });
                 foreach (var secret in Achievements.Secrets)
                 {

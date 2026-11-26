@@ -315,7 +315,7 @@ namespace Marabook.App
             // tout raccourci.
             AddHandler(KeyDownEvent, new EventHandler<KeyEventArgs>(delegate(object sender, KeyEventArgs e)
             {
-                if ((e.Key == Key.F1 || e.Key == Key.F2) && _sheetView != null && _sheetView.IsVisible) _sheetView.HandleFunctionKey(e);
+                if ((e.Key == Key.F4 || e.Key == Key.F2) && _sheetView != null && _sheetView.IsVisible) _sheetView.HandleFunctionKey(e);
             }), RoutingStrategies.Tunnel);
             KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -3569,8 +3569,8 @@ namespace Marabook.App
         /// « double-clic obligatoire » from a book's corkboard).</summary>
         private bool IsItemViewVisible(BinderItem item)
         {
-            if (IsGraphItem(item))
-                return _graphView != null && _graphView.IsVisible;
+            if (IsGraphItem(item)) // le Gros Graph et le Profiler partagent la vue : il faut aussi que ce soit la bonne page
+                return _graphView != null && _graphView.IsVisible && _graphView.ProfilerShown == IsProfilerItem(item);
             if (IsAtelierItem(item))
                 return _atelierView != null && _atelierView.IsVisible;
             if (item.Kind == ItemKind.Text)
@@ -3924,6 +3924,7 @@ namespace Marabook.App
             if (_project == null) return;
             if (_quickOpen == null) _quickOpen = new QuickOpenPalette(_shellGrid);
             _quickOpen.Sesame = SaySesame;
+            _quickOpen.DevAscension = delegate { OfferWorld(null, true); };
             _quickOpen.Show(_project, delegate(string id) { _binder.SelectItem(id); });
         }
 
@@ -6421,6 +6422,14 @@ namespace Marabook.App
         private async void OpenPreferences()
         {
             var dialog = new PreferencesDialog(this, _project);
+            // Les Préférences rouvrent sur le DERNIER ONGLET VISITÉ (26/11, Rémi), sauf demande expresse (Aide › Catalogue de DLC…).
+            if (_preferencesTab == null) _preferencesTab = AppSettings.PreferencesTab;
+            dialog.Closed += delegate
+            {
+                var last = dialog.Tabs.SelectedItem as TabItem;
+                var header = last == null ? null : last.Header as string;
+                if (header != null && header != AppSettings.PreferencesTab) { AppSettings.PreferencesTab = header; AppSettings.Save(); }
+            };
             if (_preferencesTab != null)
             {
                 foreach (var entry in dialog.Tabs.Items)
@@ -6590,7 +6599,8 @@ namespace Marabook.App
                 _inspTitle.Text = item.Title;
                 var template = item.Kind == ItemKind.Sheet
                     ? _project.TemplateOf(item) : null;
-                _inspKind.Text = IsGraphItem(item) ? "Graphe relationnel"
+                _inspKind.Text = IsProfilerItem(item) ? "Tableau des présences"
+                               : IsGraphItem(item) ? "Graphe relationnel"
                                : IsAtelierItem(item) ? "Outils"
                                : item.IsCategory ? "Catégorie"
                                : item.Kind == ItemKind.Folder ? "Dossier"
@@ -7441,10 +7451,15 @@ namespace Marabook.App
             var unresolved = 0;
             foreach (var family in missing)
                 if (string.Equals(AppSettings.SubstituteFont(family), family, StringComparison.OrdinalIgnoreCase)) unresolved++;
-            _fontAlertDot.Background = unresolved > 0 ? (IBrush)Chrome.Danger : Chrome.Ok;
+            // ORANGE, et ce qui est FAIT (26/11, Rémi) : une police qui manque est remplacée d'office — la pastille
+            // rouge « 1 police manquante », en permanence dans la barre, avait l'air d'une alarme.
+            string firstUnresolved = null;
+            foreach (var family in missing)
+                if (firstUnresolved == null && string.Equals(AppSettings.SubstituteFont(family), family, StringComparison.OrdinalIgnoreCase)) firstUnresolved = family;
+            _fontAlertDot.Background = unresolved > 0 ? (IBrush)Chrome.Warn : Chrome.Ok;
             _fontAlertText.Text = unresolved > 0
-                ? (unresolved > 1 ? unresolved + " polices manquantes" : "1 police manquante")
-                : "Tout va bien"; // toutes remplacées (09/10) — l'infobulle dit lesquelles
+                ? (unresolved > 1 ? unresolved + " polices remplacées" : firstUnresolved + " remplacée")
+                : "Tout va bien"; // toutes remplacées par un choix de l'auteur (09/10) — le dialogue dit lesquelles
             // Plus d'infobulle sur les infos de la barre (10/10, Rémi) : le clic ouvre le dialogue, qui dit tout.
             _fontAlert.IsVisible = true;
         }

@@ -143,11 +143,11 @@ namespace Marabook.App
             };
             _goTo.TextChanged += delegate { _goTo.ClearValue(TextBox.ForegroundProperty); };
             right.Children.Add(_goTo);
-            var zoomOut = Buttons.Text("−", "Dézoomer", Buttons.Compact, Buttons.Look.Outline);
+            var zoomOut = Buttons.Text("−", "Dézoomer", Buttons.Compact, Buttons.Look.Calm); // les actions secondaires en boutons discrets (26/11) : seul « Nouvel événement » est principal
             zoomOut.Click += delegate { ZoomBy(1 / 1.5, _surface.Bounds.Width / 2); };
-            var zoomIn = Buttons.Text("+", "Zoomer", Buttons.Compact, Buttons.Look.Outline);
+            var zoomIn = Buttons.Text("+", "Zoomer", Buttons.Compact, Buttons.Look.Calm);
             zoomIn.Click += delegate { ZoomBy(1.5, _surface.Bounds.Width / 2); };
-            var fit = Buttons.Text("Tout voir", "Ramener tout l'onglet dans la page", Buttons.Compact, Buttons.Look.Outline);
+            var fit = Buttons.Text("Tout voir", "Ramener tout l'onglet dans la page", Buttons.Compact, Buttons.Look.Calm);
             fit.Click += delegate { FitAll(); };
             right.Children.Add(zoomOut);
             right.Children.Add(zoomIn);
@@ -162,7 +162,8 @@ namespace Marabook.App
             DockPanel.SetDock(right, Dock.Right);
             row.Children.Add(right);
 
-            var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            // Un DockPanel (26/11) : le bouton du système, dernier, prend la place qui RESTE et s'abrège — il passait sous « Aller à une date ».
+            var left = new DockPanel { VerticalAlignment = VerticalAlignment.Center };
             var back = new Button
             {
                 Content = Icons.Make("arrow-left-bold", 12, Chrome.Ink),
@@ -184,16 +185,17 @@ namespace Marabook.App
             rename.VerticalAlignment = VerticalAlignment.Center;
             rename.Click += delegate { var h = RenameRequested; if (h != null) h(); };
             left.Children.Add(rename);
-            _systemButton = Buttons.IconText("pile-frises", "Système", "Le système temporel de cette frise : segments, notation, calendrier", Buttons.Compact, Buttons.Look.Outline);
+            _systemButton = Buttons.IconText("pile-frises", "Système", "Le système temporel de cette frise : segments, notation, calendrier", Buttons.Compact, Buttons.Look.Calm);
             _systemButton.Margin = new Thickness(14, 0, 0, 0);
             _systemButton.Tag = "timeline-system";
+            _systemButton.HorizontalAlignment = HorizontalAlignment.Left;
             _systemButton.Click += delegate { var h = SystemEditRequested; if (h != null && _item != null) h(_system); };
             left.Children.Add(_systemButton);
-            _extentButton = Buttons.Text("Étendue", "Ce que la frise couvre : toute la durée du système, ou un fragment", Buttons.Compact, Buttons.Look.Outline);
+            _extentButton = Buttons.Text("Étendue", "Ce que la frise couvre : toute la durée du système, ou un fragment", Buttons.Compact, Buttons.Look.Calm);
             _extentButton.Margin = new Thickness(6, 0, 0, 0);
             _extentButton.Tag = "timeline-extent";
             _extentButton.Click += delegate { EditExtent(); };
-            _parallelButton = Buttons.IconText("frise", "Parallélisme", "Superposer une autre frise du même système : années alignées, repère du survol sur les deux", Buttons.Compact, Buttons.Look.Outline);
+            _parallelButton = Buttons.IconText("frise", "Parallélisme", "Superposer une autre frise du même système : années alignées, repère du survol sur les deux", Buttons.Compact, Buttons.Look.Calm);
             _parallelButton.Margin = new Thickness(6, 0, 0, 0);
             _parallelButton.Tag = "timeline-parallel";
             _parallelButton.Click += delegate { Ui.ShowMenu(ParallelMenu(), _parallelButton); };
@@ -412,7 +414,12 @@ namespace Marabook.App
                 _selected = _events.Find(delegate(TimelineEvent e) { return e.Id == id; });
             }
             _title.Text = _item.Title;
-            _systemButton.Content = Icons.Label("pile-frises", _system.Name, 13, Chrome.Ink);
+            var systemLabel = new DockPanel();
+            var systemIcon = Icons.Make("pile-frises", 13, Chrome.Ink) as Control;
+            if (systemIcon != null) { systemIcon.Margin = new Thickness(0, 0, 6, 0); systemIcon.VerticalAlignment = VerticalAlignment.Center; DockPanel.SetDock(systemIcon, Dock.Left); systemLabel.Children.Add(systemIcon); }
+            systemLabel.Children.Add(new TextBlock { Text = _system.Name, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            _systemButton.Content = systemLabel;
+            ToolTip.SetTip(_systemButton, _system.Name + " — le système temporel de cette frise : segments, notation, calendrier");
             _extentButton.Content = _item.Timeline.HasFragment ? "Fragment" : "Étendue";
             ToolTip.SetTip(_extentButton, "Ce que la frise couvre : " + Timelines.FragmentLabel(_system, _item.Timeline) + ". Cliquer pour changer.");
             if (!_embedded)
@@ -1636,6 +1643,8 @@ namespace Marabook.App
         internal int TabCountForProbe { get { return _tabs.Children.Count; } }
         internal void SelectTabForProbe(int index) { SelectTab(index); }
         internal double ScaleForProbe { get { return _scale; } }
+        internal static string PointShapeForProbe { get { return Surface.PointShapeForProbe; } }
+        internal static string EraShapeForProbe { get { return Surface.EraShapeForProbe; } }
         internal void ZoomForProbe(double factor) { ZoomBy(factor, _surface.Bounds.Width / 2); }
         internal void ToggleTypeForProbe(string typeId) { if (!_hidden.Remove(typeId)) _hidden.Add(typeId); Redraw(); RefreshInspector(); }
         internal int PlacedCountForProbe { get { return _surface.PlacedCount; } }
@@ -2058,12 +2067,36 @@ namespace Marabook.App
                         var left = Math.Max(0, x1);
                         var right = Math.Min(width, x2);
                         context.DrawRectangle(new SolidColorBrush(tint, i % 2 == 0 ? 0.07 : 0.035), null, new Rect(left, RulerH, right - left, height - RulerH));
-                        context.DrawRectangle(new SolidColorBrush(tint, 0.20), null, new Rect(left, RulerH, right - left, BandH));
+                        var banner = Skin.Museum; // sous un skin « Museum » (26/11/2026, Rémi) : l'ère est un BANDEAU
+                        context.DrawRectangle(new SolidColorBrush(tint, banner ? 0.30 : 0.20), null, new Rect(left, RulerH, right - left, BandH));
                         var name = Text(segment.Name + "  ·  " + TimeSystem.YearsLabel(segment.Length), 11, Chrome.Ink, FontWeight.SemiBold);
+                        if (banner && Skin.TitleFont != null) name.SetFontFamily(Skin.TitleFont);
                         name.MaxLineCount = 1;
                         name.Trimming = TextTrimming.CharacterEllipsis;
-                        name.MaxTextWidth = Math.Max(10, right - left - 16);
-                        if (right - left > 40) context.DrawText(name, new Point(left + 8, RulerH + (BandH - name.Height) / 2));
+                        name.MaxTextWidth = Math.Max(10, right - left - (banner ? 44 : 16));
+                        if (banner)
+                        {
+                            // Le bandeau : deux filets, le nom au centre entre deux losanges, les bouts en queue d'aronde
+                            // (seulement là où l'ère finit vraiment dans la page).
+                            var rule = new Pen(new SolidColorBrush(tint, 0.85), 1);
+                            context.DrawLine(rule, new Point(left, RulerH + 2.5), new Point(right, RulerH + 2.5));
+                            context.DrawLine(rule, new Point(left, RulerH + BandH - 2.5), new Point(right, RulerH + BandH - 2.5));
+                            var midY = RulerH + BandH / 2;
+                            if (right - left > 24)
+                            {
+                                if (x1 >= 0) Notch(context, x1, midY, 6, true);
+                                if (x2 <= width) Notch(context, x2, midY, 6, false);
+                            }
+                            if (right - left > 60)
+                            {
+                                var centre = (left + right) / 2;
+                                context.DrawText(name, new Point(centre - name.Width / 2, RulerH + (BandH - name.Height) / 2));
+                                var gem = new SolidColorBrush(tint, 0.9);
+                                Diamond(context, gem, null, new Point(centre - name.Width / 2 - 10, midY), 3);
+                                Diamond(context, gem, null, new Point(centre + name.Width / 2 + 10, midY), 3);
+                            }
+                        }
+                        else if (right - left > 40) context.DrawText(name, new Point(left + 8, RulerH + (BandH - name.Height) / 2));
                         if (!owner.SegmentOnly && x1 >= 0 && x1 <= width) context.DrawLine(new Pen(new SolidColorBrush(tint, 0.7), 1.5), new Point(x1, RulerH), new Point(x1, height));
                     }
 
@@ -2132,8 +2165,17 @@ namespace Marabook.App
                             if (!double.IsNaN(placed.LifeTo))
                                 context.DrawLine(new Pen(new SolidColorBrush(color, 0.55), 2), new Point(placed.X1, middle), new Point(placed.LifeTo, middle));
                             context.DrawLine(new Pen(new SolidColorBrush(color, 0.45), 1), new Point(placed.X1, RulerH), new Point(placed.X1, middle));
-                            if (pointed) context.DrawEllipse(new SolidColorBrush(color, 0.28), null, new Point(placed.X1, middle), 12, 12);
-                            context.DrawEllipse(new SolidColorBrush(color), new Pen(selected ? (IBrush)Chrome.Ink : Chrome.CanvasBg, selected ? 2 : 1.5), new Point(placed.X1, middle), hovered ? 7 : 6, hovered ? 7 : 6);
+                            if (Skin.Museum)
+                            {
+                                // Sous un skin « Museum » (26/11/2026, Rémi) : un événement ponctuel est un LOSANGE.
+                                if (pointed) Diamond(context, new SolidColorBrush(color, 0.28), null, new Point(placed.X1, middle), 14);
+                                Diamond(context, new SolidColorBrush(color), new Pen(selected ? (IBrush)Chrome.Ink : Chrome.CanvasBg, selected ? 2 : 1.5), new Point(placed.X1, middle), hovered ? 8.5 : 7.5);
+                            }
+                            else
+                            {
+                                if (pointed) context.DrawEllipse(new SolidColorBrush(color, 0.28), null, new Point(placed.X1, middle), 12, 12);
+                                context.DrawEllipse(new SolidColorBrush(color), new Pen(selected ? (IBrush)Chrome.Ink : Chrome.CanvasBg, selected ? 2 : 1.5), new Point(placed.X1, middle), hovered ? 7 : 6, hovered ? 7 : 6);
+                            }
                             if (placed.Label != null)
                             {
                                 if (placed.LabelLeft) context.DrawText(placed.Label, new Point(placed.X1 - 12 - placed.Label.Width, middle - placed.Label.Height / 2));
@@ -2190,6 +2232,39 @@ namespace Marabook.App
                     context.DrawText(caption, new Point(Math.Max(2, left) + 7, Math.Max(2, top) + 4));
                 }
             }
+
+            /// <summary>Un losange centré, de demi-diagonale donnée.</summary>
+            internal static void Diamond(DrawingContext context, IBrush fill, IPen pen, Point centre, double half)
+            {
+                var shape = new StreamGeometry();
+                using (var path = shape.Open())
+                {
+                    path.BeginFigure(new Point(centre.X, centre.Y - half), true);
+                    path.LineTo(new Point(centre.X + half, centre.Y));
+                    path.LineTo(new Point(centre.X, centre.Y + half));
+                    path.LineTo(new Point(centre.X - half, centre.Y));
+                    path.EndFigure(true);
+                }
+                context.DrawGeometry(fill, pen, shape);
+            }
+
+            /// <summary>La queue d'aronde d'un bandeau d'ère : une encoche du fond de la frise, au bout gauche ou droit.</summary>
+            private static void Notch(DrawingContext context, double x, double midY, double depth, bool leftEnd)
+            {
+                var shape = new StreamGeometry();
+                using (var path = shape.Open())
+                {
+                    path.BeginFigure(new Point(x, midY - BandH / 2), true);
+                    path.LineTo(new Point(x + (leftEnd ? depth : -depth), midY));
+                    path.LineTo(new Point(x, midY + BandH / 2));
+                    path.EndFigure(true);
+                }
+                context.DrawGeometry(Chrome.CanvasBg, null, shape);
+            }
+
+            /// <summary>Ce qui se dessine pour un événement ponctuel et pour une ère — pour la sonde.</summary>
+            internal static string PointShapeForProbe { get { return Skin.Museum ? "losange" : "rond"; } }
+            internal static string EraShapeForProbe { get { return Skin.Museum ? "bandeau" : "bande"; } }
 
             /// <summary>L'année absolue sous le curseur.</summary>
             private long PointedYear()

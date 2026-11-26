@@ -74,7 +74,7 @@ namespace Marabook.App
 
             var manageStyles = new Button
             {
-                Content = new TextBlock { Text = "Aa  Gestion des styles…", FontSize = 12, FontWeight = FontWeight.SemiBold },
+                Content = new TextBlock { Text = "Aa  Gestion des styles…", FontSize = 12, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis }, // des points de suspension quand la police du skin le fait déborder (26/11)
                 [ToolTip.TipProperty] = "Gestion des styles…",
                 Width = 150,
                 Height = 26,

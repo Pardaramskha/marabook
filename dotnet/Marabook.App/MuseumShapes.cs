@@ -289,8 +289,8 @@ namespace Marabook.App
                 new Typeface(title ?? FontFamily.Default, FontStyle.Normal, title == null ? FontWeight.SemiBold : FontWeight.Medium), title == null ? 17 : 19, Chrome.Ink);
             context.DrawText(big, new Point(center.X - big.Width / 2, center.Y - big.Height / 2 - (_caption.Length > 0 ? 6 : 0)));
             if (_caption.Length == 0) return;
-            var small = new FormattedText(_caption, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface(Skin.UiFont ?? FontFamily.Default), 9, Chrome.FaintText);
-            context.DrawText(small, new Point(center.X - small.Width / 2, center.Y + 9));
+            var small = new FormattedText(_caption, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight, new Typeface(Skin.UiFont ?? FontFamily.Default), 11, Chrome.SoftText); // 11 px, un cran plus clair (26/11)
+            context.DrawText(small, new Point(center.X - small.Width / 2, center.Y + 8));
         }
     }
 
@@ -301,7 +301,7 @@ namespace Marabook.App
     {
         private double _ratio;
 
-        public MilestoneBar() { Height = 30; MinWidth = 180; AscensionArt.Animate(this, AscensionArt.Kind.Shine); }
+        public MilestoneBar() { Height = 33; MinWidth = 180; AscensionArt.Animate(this, AscensionArt.Kind.Shine); }
 
         public double Ratio { get { return _ratio; } }
 
@@ -348,8 +348,8 @@ namespace Marabook.App
                 var share = Skins.BookMilestones[i];
                 var x = Math.Round(width * share) + 0.5;
                 var passed = _ratio + 1e-9 >= share;
-                // Les jalons d'« Ascension » : des losanges — pleins, or pâle et halo une fois franchis ; creux sinon.
-                if (ascent)
+                // Les jalons en LOSANGES (« Ascension », et « Gardien du Feu » depuis le 26/11) : pleins, pâles et à halo une fois franchis ; creux sinon.
+                if (Skin.DiamondTracks)
                 {
                     var at = new Point(x, Top + Thick / 2);
                     if (passed) AscensionArt.PaleDiamond(context, at, 4.4);
@@ -357,8 +357,8 @@ namespace Marabook.App
                 }
                 else context.DrawLine(new Pen(Chrome.SoftText, 1), new Point(x, Top - 3), new Point(x, Top + Thick + 3));
                 // À l'étroit, le libellé seul : les trois tiennent côte à côte.
-                var label = new FormattedText((width >= 430 ? (share * 100).ToString("0", culture) + " % · " : "") + Skins.BookMilestoneNames[i].ToUpper(culture), culture, FlowDirection.LeftToRight, face, 9,
-                    passed ? (IBrush)Chrome.SoftText : Chrome.FaintText);
+                var label = new FormattedText((width >= 430 ? (share * 100).ToString("0", culture) + " % · " : "") + Skins.BookMilestoneNames[i].ToUpper(culture), culture, FlowDirection.LeftToRight, face, 11, // 11 px au moins, un cran plus clair (26/11 : les très petits textes gris)
+                    passed ? (IBrush)Chrome.Ink : Chrome.SoftText);
                 // Centré sous son trait ; le premier et le dernier restent dans la barre.
                 var left = Math.Max(0, Math.Min(width - label.Width, x - label.Width / 2));
                 context.DrawText(label, new Point(left, Top + Thick + 6));

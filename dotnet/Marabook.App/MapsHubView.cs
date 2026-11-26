@@ -29,27 +29,18 @@ namespace Marabook.App
         {
             Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
-            var head = new Border { Background = Chrome.BarBgLight, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(16, 8, 16, 8) };
+            // Le bandeau commun des vues d'atterrissage (26/11) : icône, titre, actions à droite — sans phrase de description.
+            var head = new ViewBanner("pile-cartes", Project.MapsRootTitle);
             SetDock(head, Dock.Top);
-            var row = new DockPanel();
-            var right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
             _total = new TextBlock { Foreground = Chrome.SoftText, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0), Tag = "maps-total" };
-            right.Children.Add(_total);
+            head.Actions.Children.Add(_total);
             var analyzer = Buttons.Text("Analyseur de .plot", "Ce que pèse chaque partie du projet dans son fichier", Buttons.Compact, Buttons.Look.Outline);
             analyzer.Click += delegate { var h = AnalyzerRequested; if (h != null) h(); };
-            right.Children.Add(analyzer);
+            head.Actions.Children.Add(analyzer);
             var add = Buttons.IconText("plus-bold", "Nouvelle carte", "Importer une image : elle est découpée en tuiles et optimisée à l'import", Buttons.Compact, Buttons.Look.Primary);
             add.Tag = "maps-new";
             add.Click += delegate { var h = NewMapRequested; if (h != null) h(); };
-            right.Children.Add(add);
-            DockPanel.SetDock(right, Dock.Right);
-            row.Children.Add(right);
-            var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            title.Children.Add(Icons.Make("pile-cartes", 20, Chrome.Accent));
-            title.Children.Add(new TextBlock { Text = Project.MapsRootTitle, Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            title.Children.Add(new TextBlock { Text = "Les lieux de votre univers : mondes, pays, villes — tracés, mesurés, liés aux fiches.", Foreground = Chrome.SoftText, FontSize = 12.5, Margin = new Thickness(14, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-            row.Children.Add(title);
-            head.Child = row;
+            head.Actions.Children.Add(add);
             Children.Add(head);
 
             _cards = new WrapPanel();

@@ -161,6 +161,8 @@ namespace Marabook.App
         private bool _suggestWorkerRunning;
         private bool _suggestRepaintQueued;
         private Correction.Hunspell.SpellEngine _spellEngine; // null sans dico
+        /// <summary>Le moteur d'orthographe de l'éditeur (null sans dictionnaire) — pour relire tout un livre (« S'offrir un monde », 26/11).</summary>
+        internal Correction.Hunspell.SpellEngine SpellEngineForWorld { get { return _spellEngine; } }
         private Border _corrBar;
         private StackPanel _corrList;
         // Les catégories REPLIÉES du panneau (30/10, Rémi) : chaque papier se

@@ -72,7 +72,8 @@ namespace Marabook.App
             -3, 0.5, 0.314,   0, 0.56, 0.51,   0, 0.563, 0.659,   -1, 0.5, 0.882,   -1, 0.45, 0.608,   135, 0.905, 0.412 };
         private static readonly double[] AscentLight = {
             1, 0.971, 0.045,   7, 1.035, 0.078,   0, 0.937, 0.088,   140, 0, 0.116,   0, 0.937, 0.102,   2, 0.243, -0.061,
-            -3, 0.425, 0.686,   0, 0.561, 0.42,   0, 0.56, 0.294,   0, 0.563, 0.359,   -1, 0.45, 0.608,   134, 0.904, 0.451 };
+            // L'accent du clair FONCÉ d'un cran (26/11 : l'or à 0,42 de clarté manquait de contraste sur le bleu très pâle — comme Bois Blanc fonce le sien).
+            -3, 0.425, 0.686,   0, 0.60, 0.31,   0, 0.58, 0.235,   0, 0.563, 0.359,   -1, 0.45, 0.608,   134, 0.904, 0.451 };
 
         /// <summary>Le fond effectif : celui choisi (borné par le mode), sinon celui du skin.</summary>
         private static Color MuseumGround(bool dark)
@@ -241,23 +242,51 @@ namespace Marabook.App
 
         private static FontFamily MuseumUiFont(string id)
         {
-            if (id == Skins.MuseumAscent) return new FontFamily("Source Sans 3, Source Sans Pro, Segoe UI, Helvetica Neue, DejaVu Sans");
-            if (id == Skins.MuseumWood) return new FontFamily("Work Sans, Segoe UI, Helvetica Neue, DejaVu Sans");
-            if (id == Skins.MuseumOath) return new FontFamily("IBM Plex Sans, Segoe UI, Helvetica Neue, DejaVu Sans");
-            return new FontFamily("Inter, Segoe UI, Helvetica Neue, DejaVu Sans");
+            // LES POLICES DES SKINS SONT EMBARQUÉES (26/11/2026, Rémi) — toutes sous licence OFL (assets/fonts, leur
+            // licence à côté), en quatre graisses, réduites au latin : sur un Mac neuf, les trois premiers skins
+            // retombaient sur Georgia et Helvetica Neue, et n'avaient plus rien de distinct.
+            if (id == Skins.MuseumAscent) return Embedded("Source Sans 3");
+            if (id == Skins.MuseumWood) return Embedded("Work Sans");
+            if (id == Skins.MuseumOath) return Embedded("IBM Plex Sans");
+            return new FontFamily("fonts:Inter#Inter"); // Inter : embarquée par Avalonia (OFL)
         }
 
-        /// <summary>La police des TITRES (toasts, cartels), ou null hors de la série « Museum ». Les
-        /// polices du dessin (Cormorant Garamond, EB Garamond, Libre Caslon Text, licence OFL) ne sont
-        /// pas embarquées : installées sur la machine, elles sont prises ; sinon une garalde du système.</summary>
+        /// <summary>« GARDIEN DU FEU », le côté muséum (26/11/2026, Rémi, d'après l'analyse DinoBones) : UNE TEINTE
+        /// PASTEL PAR FAMILLE DE FICHES — toutes à la même clarté et à la même saturation, comme les espèces du
+        /// jeu : seule la teinte change, d'une famille à l'autre (l'angle d'or les écarte au mieux). Null sous un
+        /// autre skin : l'icône garde la couleur qu'elle avait.</summary>
+        public static IBrush FamilyTint(SheetCategory category, Project project)
+        {
+            if (Current != Skins.MuseumFire || category == null || project == null) return null;
+            var top = category;
+            for (var parent = project.ParentOf(top); parent != null; parent = project.ParentOf(top)) top = parent;
+            var index = 0;
+            foreach (var each in project.TopCategories()) { if (ReferenceEquals(each, top)) break; index++; }
+            return new SolidColorBrush(FamilyColor(index, Chrome.Dark));
+        }
+
+        /// <summary>La teinte de la famille n° <paramref name="index"/> : même saturation, même clarté, teinte seule différente.</summary>
+        internal static Color FamilyColor(int index, bool dark) { return Hsl((28 + index * 137.508) % 360, dark ? 0.46 : 0.42, dark ? 0.74 : 0.40); }
+
+        /// <summary>LA PISTE À LOSANGES (l'intensité d'un élément de plan, les jalons d'un livre) : sous « Ascension »
+        /// et, depuis le 26/11, sous « Gardien du Feu ».</summary>
+        public static bool DiamondTracks { get { var id = Current; return id == Skins.MuseumAscent || id == Skins.MuseumFire; } }
+
+        /// <summary>Une police embarquée dans l'application (assets/fonts), par son nom de famille.</summary>
+        internal static FontFamily Embedded(string family) { return new FontFamily("avares://Marabook/Assets/Fonts#" + family); }
+        /// <summary>Les familles embarquées pour les skins, et leurs fichiers de licence (OFL) : la sonde vérifie qu'elles se résolvent.</summary>
+        internal static readonly string[] EmbeddedFamilies = { "Cormorant Garamond", "EB Garamond", "Libre Caslon Text", "Work Sans", "IBM Plex Sans", "Source Sans 3", "Ascension SC" };
+
+        /// <summary>La police des TITRES (toasts, cartels), ou null hors de la série « Museum » : Cormorant
+        /// Garamond, EB Garamond, Libre Caslon Text et Ascension SC, embarquées (licence OFL).</summary>
         public static FontFamily TitleFont
         {
             get
             {
                 var id = Current;
-                if (id == Skins.MuseumFire) return new FontFamily("Cormorant Garamond, Garamond, Palatino Linotype, Georgia, DejaVu Serif");
-                if (id == Skins.MuseumWood) return new FontFamily("EB Garamond, Garamond, Palatino Linotype, Georgia, DejaVu Serif");
-                if (id == Skins.MuseumOath) return new FontFamily("Libre Caslon Text, Book Antiqua, Palatino Linotype, Georgia, DejaVu Serif");
+                if (id == Skins.MuseumFire) return Embedded("Cormorant Garamond");
+                if (id == Skins.MuseumWood) return Embedded("EB Garamond");
+                if (id == Skins.MuseumOath) return Embedded("Libre Caslon Text");
                 // « Ascension SC » (25/11) : EMBARQUÉE — Marcellus SC, son « 1 » à drapeau, ses espaces fines.
                 if (id == Skins.MuseumAscent) return AscentTitleFont;
                 return null;
@@ -755,6 +784,20 @@ namespace Marabook.App
 
         private bool Live { get { return Active && (Gate == null || Gate()); } }
 
+        /// <summary>À L'ARRÊT (26/11, Rémi) — animations coupées, ou sous une sonde / une capture : le filet ne
+        /// s'efface plus et ne flotte plus n'importe où sur le tour ; il se POSE au milieu du filet du haut, à la
+        /// couleur de l'accent.</summary>
+        private bool Resting
+        {
+            get
+            {
+                if (!Skin.Museum || (Gate != null && !Gate())) return false;
+                var launch = App.Launch;
+                return !AppSettings.Animations || (launch != null && launch.Unattended);
+            }
+        }
+        internal bool RestingForProbe { get { return Resting; } }
+
         /// <summary>La condition vient de changer : le filet part tout de suite, sans attendre son coup d'œil.</summary>
         internal void Nudge() { Wake(); }
 
@@ -809,6 +852,7 @@ namespace Marabook.App
         private void Wake()
         {
             if (_running || !_attached) return;
+            if (Resting && IsEffectivelyVisible) { Advance(); return; } // posé : rien ne tourne
             if (!Live || !IsEffectivelyVisible) { Clear(); return; }
             var top = TopLevel.GetTopLevel(this);
             if (top == null) return;
@@ -820,6 +864,7 @@ namespace Marabook.App
         {
             _running = false;
             if (!_attached) return;
+            if (Resting && IsEffectivelyVisible) { Advance(); return; }
             if (!Live || !IsEffectivelyVisible) { Clear(); return; }
             Advance();
             var top = TopLevel.GetTopLevel(this);
@@ -843,8 +888,11 @@ namespace Marabook.App
             if (width < 12 || height < 12) { Clear(); return; }
             var radius = Radius;
             var perimeter = 2 * (width + height) - 8 * radius + 2 * Math.PI * radius;
-            var start = (Clock.Elapsed.TotalSeconds / Turn % 1.0) * perimeter;
             var length = perimeter * Share;
+            // Posé : centré sur le plat du haut (le tour part de la fin du coin haut gauche).
+            var flat = Math.Max(0, width - 2 * radius);
+            var start = Resting ? Math.Max(0, (flat - Math.Min(length, flat)) / 2) : (Clock.Elapsed.TotalSeconds / Turn % 1.0) * perimeter;
+            if (Resting) length = Math.Min(length, flat);
             var count = Math.Max(2, (int)Math.Ceiling(length / 2.5) + 1);
             var points = new Point[count];
             double left = double.MaxValue, top = double.MaxValue, right = double.MinValue, bottom = double.MinValue;
@@ -892,7 +940,7 @@ namespace Marabook.App
 
         internal bool DrawnForProbe { get { return _points.Length > 0; } }
         internal int BandsShownForProbe { get { var count = 0; foreach (var band in _bands) if (band.Shown) count++; return count; } }
-        internal void AdvanceForProbe() { if (Live) Advance(); else Clear(); }
+        internal void AdvanceForProbe() { if (Live || Resting) Advance(); else Clear(); }
 
         /// <summary>Une bande du filet : elle peint la part du segment qui passe chez elle.</summary>
         private sealed class Band : Control
@@ -927,7 +975,7 @@ namespace Marabook.App
                     for (var i = 1; i < points.Length; i++) path.LineTo(points[i] - origin);
                     path.EndFigure(false);
                 }
-                context.DrawGeometry(null, new Pen(Chrome.Glow, Thickness) { LineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round }, geometry);
+                context.DrawGeometry(null, new Pen(_owner.Resting ? (IBrush)Chrome.Accent : Chrome.Glow, Thickness) { LineCap = PenLineCap.Round, LineJoin = PenLineJoin.Round }, geometry);
             }
         }
     }

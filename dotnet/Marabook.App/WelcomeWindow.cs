@@ -67,6 +67,9 @@ namespace Marabook.App
                 CornerRadius = new CornerRadius(16),
                 Child = profilePage ? BuildProfilePage() : Build()
             };
+            // HABILLÉE PAR LE SKIN (26/11, Rémi : « première impression, mais pas habillée ») : sous un skin « Museum »,
+            // le fond PEINT de la fenêtre principale (et non un aplat), et ses titres dans la police des titres.
+            if (Skin.Museum) { Skin.BackdropOn(_paper); _paper.BorderBrush = Chrome.BorderStrong; _paper.Tag = "welcome-dressed"; }
             Content = _paper;
             Closing += delegate(object sender, WindowClosingEventArgs e)
             {
@@ -288,13 +291,7 @@ namespace Marabook.App
         {
             var head = new StackPanel();
             DockPanel.SetDock(head, Dock.Top);
-            head.Children.Add(new TextBlock
-            {
-                Text = AppInfo.Name + " - C'est parti pour nerder",
-                FontSize = 26,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = Chrome.Ink
-            });
+            head.Children.Add(WelcomeTitle());
             head.Children.Add(new TextBlock
             {
                 Text = "Version " + AppInfo.Version + " · " + AppPlatform.OsName,
@@ -312,13 +309,7 @@ namespace Marabook.App
             // ---- en tête : le titre, la version
             var head = new StackPanel();
             DockPanel.SetDock(head, Dock.Top);
-            head.Children.Add(new TextBlock
-            {
-                Text = AppInfo.Name + " - C'est parti pour nerder",
-                FontSize = 26,
-                FontWeight = FontWeight.SemiBold,
-                Foreground = Chrome.Ink
-            });
+            head.Children.Add(WelcomeTitle());
             head.Children.Add(new TextBlock
             {
                 Text = "Version " + AppInfo.Version + " · " + AppPlatform.OsName,
@@ -506,8 +497,12 @@ namespace Marabook.App
                     FontSize = 11,
                     Foreground = Chrome.SoftText,
                     TextWrapping = TextWrapping.Wrap,
+                    // Deux lignes, et des points de suspension : le descriptif était coupé en pleine phrase (« pour dangereux », 26/11).
+                    MaxLines = 2,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
                     Height = 30,
-                    Margin = new Thickness(0, 3, 0, 0)
+                    Margin = new Thickness(0, 3, 0, 0),
+                    Tag = "welcome-dlc-tagline"
                 });
                 column.Children.Add(new TextBlock
                 {
@@ -668,6 +663,21 @@ namespace Marabook.App
             });
             if (candidate == null) return "Ce fichier n'a pas pu être lu" + (string.IsNullOrEmpty(failure) ? "." : " : " + failure);
             return signature.Verdict(candidate);
+        }
+
+        /// <summary>Le grand titre de l'accueil : dans la police des titres sous un skin « Museum ».</summary>
+        private static TextBlock WelcomeTitle()
+        {
+            var title = new TextBlock
+            {
+                Text = AppInfo.Name + " - C'est parti pour nerder",
+                FontSize = 26,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Chrome.Ink,
+                Tag = "welcome-title"
+            };
+            Skin.Title(title);
+            return title;
         }
 
         private Control RecentTile(string path)

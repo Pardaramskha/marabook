@@ -31,7 +31,10 @@ namespace Marabook.App
         private WrapPanel _bookActions;    // livre : Nouvel écrit / Nouvelle partie / Nouvelle liminaire / page de fin / annexe (14/09, b49) — replié si étroit
         private readonly List<Control> _extraPageActions = new List<Control>(); // les trois boutons de pages extra, masquables par le profil (1.1.0)
         private readonly List<Control> _extraFilter = new List<Control>();      // le filtre « Extras : » du tableau, idem
-        internal bool ExtraPageButtonsShownForProbe { get { return _extraPageActions.Count > 0 && _extraPageActions[0].IsVisible; } }
+        private bool _extraPagesShown = true;
+        private Buttons.MenuEntry[] _bookNewEntries;
+        internal bool ExtraPageButtonsShownForProbe { get { return _extraPagesShown; } }
+        internal List<string> BookNewLabelsForProbe { get { return Buttons.NewMenuLabelsForProbe(_bookNewEntries); } }
         /// <summary>Tutoriel (29/10) : la rangée des boutons d'un livre (liminaires, pages de fin, annexes…).</summary>
         internal Control BookActionsForTutorial { get { return _bookActions; } }
         private StackPanel _folderActions; // dossier d'Écrits : Nouvel écrit / Nouveau sous-dossier (14/09)
@@ -187,6 +190,9 @@ namespace Marabook.App
             }
         }
 
+        private ViewBanner _banner;
+        internal ViewBanner BannerForProbe { get { return _banner; } }
+
         public CorkboardView()
         {
             Focusable = true; // le focus logique quitte la Pile à l'affichage
@@ -214,36 +220,21 @@ namespace Marabook.App
                 Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0),
                 IsVisible = false
             };
-            var bookText = Buttons.IconText("plus-bold", "Nouvel écrit",
-                "Un écrit à la fin du livre, au gabarit du livre", Buttons.Bar, Buttons.Look.Primary);
-            bookText.Margin = new Thickness(0, 0, 0, 6);
-            bookText.Click += delegate { RequestNewDocument(null); };
-            _bookActions.Children.Add(bookText);
-            var bookPart = Buttons.IconText("folder-bold", "Nouvelle partie",
-                "Une partie : un dossier indicatif, traversé par la compilation et les folios", Buttons.Bar, Buttons.Look.Outline);
-            bookPart.Margin = new Thickness(8, 0, 0, 6);
-            bookPart.Click += delegate { RequestNewDocument("folder"); };
-            _bookActions.Children.Add(bookPart);
-            // Les trois sections de pages extra (b49) : liminaires avant le
-            // corps, pages de fin après, annexes tout à la fin.
-            var bookExtra = Buttons.IconText("file-dashed-bold", "Nouvelle liminaire",
-                null, Buttons.Bar, Buttons.Look.Outline);
-            bookExtra.Margin = new Thickness(8, 0, 0, 6);
-            bookExtra.Click += delegate { OpenExtraMenu(bookExtra, ExtraPages.SectionFront); };
-            _bookActions.Children.Add(bookExtra);
-            _extraPageActions.Add(bookExtra);
-            var bookBack = Buttons.IconText("file-dashed-bold", "Nouvelle page de fin",
-                null, Buttons.Bar, Buttons.Look.Outline);
-            bookBack.Margin = new Thickness(8, 0, 0, 6);
-            bookBack.Click += delegate { OpenExtraMenu(bookBack, ExtraPages.SectionBack); };
-            _bookActions.Children.Add(bookBack);
-            _extraPageActions.Add(bookBack);
-            var bookAnnex = Buttons.IconText("file-dashed-bold", "Nouvelle annexe",
-                null, Buttons.Bar, Buttons.Look.Outline);
-            bookAnnex.Margin = new Thickness(8, 0, 0, 6);
-            bookAnnex.Click += delegate { OpenExtraMenu(bookAnnex, ExtraPages.SectionAnnex); };
-            _bookActions.Children.Add(bookAnnex);
-            _extraPageActions.Add(bookAnnex);
+            // UN bouton « Nouveau ▾ » (26/11, Rémi) : cinq boutons « Nouveau… » passaient sur deux lignes. Les trois
+            // sections de pages extra (b49 : liminaires, pages de fin, annexes) y ouvrent leur menu, sur ce même bouton.
+            Button bookNew = null;
+            Func<bool> extras = delegate { return _extraPagesShown; };
+            _bookNewEntries = new[]
+            {
+                new Buttons.MenuEntry("plus-bold", "Écrit", delegate { RequestNewDocument(null); }, "Un écrit à la fin du livre, au gabarit du livre"),
+                new Buttons.MenuEntry("folder-bold", "Partie", delegate { RequestNewDocument("folder"); }, "Une partie : un dossier indicatif, traversé par la compilation et les folios"),
+                new Buttons.MenuEntry("file-dashed-bold", "Liminaire…", delegate { OpenExtraMenu(bookNew, ExtraPages.SectionFront); }, "Avant le corps du livre", extras),
+                new Buttons.MenuEntry("file-dashed-bold", "Page de fin…", delegate { OpenExtraMenu(bookNew, ExtraPages.SectionBack); }, "Après le corps du livre", extras),
+                new Buttons.MenuEntry("file-dashed-bold", "Annexe…", delegate { OpenExtraMenu(bookNew, ExtraPages.SectionAnnex); }, "Tout à la fin", extras)
+            };
+            bookNew = Buttons.NewMenu("Un écrit, une partie, une page liminaire, de fin ou une annexe", Buttons.Bar, _bookNewEntries);
+            bookNew.Margin = new Thickness(0, 0, 0, 6);
+            _bookActions.Children.Add(bookNew);
             // Dossier d'Écrits (14/09) : « Nouvel écrit » (principal), « Nouveau sous-dossier ».
             _folderActions = new StackPanel
             {
@@ -330,24 +321,24 @@ namespace Marabook.App
             _trashActions.Children.Add(empty);
             _cards = new WrapPanel { Margin = new Thickness(16, 8, 16, 16) };
             var layout = new StackPanel();
-            var filterHeader = BuildFilterHeader(); // bâtit aussi le bouton « Curation »
+            BuildFilterHeader(); // bâtit « Filtres » et « Curation », que le bandeau reçoit
             // LA LIGNE DU HAUT (25/11, Rémi) : les boutons de création à gauche (une seule de ces
             // rangées se montre à la fois) et, collé à droite de la même ligne, « Curation » —
             // l'ancien « Tableau », qui vivait une ligne plus bas, à côté des filtres.
-            var actionRows = new StackPanel();
-            actionRows.Children.Add(_bookActions);
-            actionRows.Children.Add(_folderActions);
-            actionRows.Children.Add(_planActions);
-            actionRows.Children.Add(_mindMapActions);
-            actionRows.Children.Add(_writingsActions);
-            actionRows.Children.Add(_researchActions);
-            actionRows.Children.Add(_trashActions);
-            var topRow = new DockPanel { LastChildFill = true, Tag = "corkboard-top-row" };
-            DockPanel.SetDock(_outlineToggle, Dock.Right);
-            topRow.Children.Add(_outlineToggle);
-            topRow.Children.Add(actionRows);
-            layout.Children.Add(topRow);
-            layout.Children.Add(filterHeader);
+            // LE BANDEAU (26/11, Rémi) : l'icône et le titre de ce qu'on regarde, et TOUTES les actions à droite —
+            // « Filtres », « Curation », puis les boutons de création (une seule de ces rangées se montre à la
+            // fois), le principal contre le bord. Il reste en place quand les cartes défilent.
+            _banner = new ViewBanner();
+            _filterToggle.Margin = new Thickness(0);
+            _outlineToggle.Margin = new Thickness(0);
+            _outlineToggle.VerticalAlignment = VerticalAlignment.Center;
+            _banner.Actions.Children.Add(_filterToggle);
+            _banner.Actions.Children.Add(_outlineToggle);
+            foreach (var actions in new Panel[] { _bookActions, _folderActions, _planActions, _mindMapActions, _writingsActions, _researchActions, _trashActions })
+            {
+                ViewBanner.Adopt(actions);
+                _banner.Actions.Children.Add(actions);
+            }
             layout.Children.Add(BuildFilterBar());
             layout.Children.Add(_cards);
             layout.Children.Add(BuildOutliner());
@@ -372,7 +363,11 @@ namespace Marabook.App
                 [ScrollViewer.VerticalScrollBarVisibilityProperty] = ScrollBarVisibility.Auto,
                 Content = host
             };
-            Child = scroll;
+            var frame = new DockPanel();
+            DockPanel.SetDock(_banner, Dock.Top);
+            frame.Children.Add(_banner);
+            frame.Children.Add(scroll);
+            Child = frame;
             DragDrop.SetAllowDrop(this, true);
             AddHandler(DragDrop.DragOverEvent, OnBoardDragOver);
             AddHandler(DragDrop.DropEvent, OnBoardDrop);
@@ -472,9 +467,7 @@ namespace Marabook.App
                 // Un écran à part entière : « Précédent » ramène aux cartes (21/11, Rémi).
                 ScreenSteps.Record(this, delegate { SetOutliner(!shown); }, delegate { SetOutliner(shown); });
             };
-            var header = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(24, 8, 24, 0) };
-            header.Children.Add(_filterToggle);
-            return header;
+            return null;
         }
 
         private ToggleButton _outlineToggle;
@@ -1018,10 +1011,12 @@ namespace Marabook.App
             _cards.IsVisible = true;
             _outliner.IsVisible = false;
             _outlineToggle.IsVisible = false;
+            _banner.SetItem(_folder);
             if (_folder == null) { _outliner.Clear(); return; }
             _bookActions.IsVisible = _folder.Kind == ItemKind.Book && BookTexts ? true : false;
             // Le profil (1.1.0) peut cacher les pages éditeur : leurs boutons et leur filtre.
             var extraPages = Profiles.Enabled(Profiles.BookExtraPages);
+            _extraPagesShown = extraPages; // les entrées « Liminaire… », « Page de fin… », « Annexe… » du bouton « Nouveau ▾ »
             foreach (var control in _extraPageActions) control.IsVisible = extraPages;
             foreach (var control in _extraFilter) control.IsVisible = extraPages;
             _folderActions.IsVisible = _folder.Kind == ItemKind.Folder && _folder.RootCategory().CategoryKey == Project.KeyWritings
@@ -1881,6 +1876,20 @@ namespace Marabook.App
                     MaxHeight = 150,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
+
+            // LE DOS DE LA CARTE (skins « Museum », 26/11, Rémi) : une carte sans image, sans notes et sans extrait
+            // — un document de Recherche, un dossier — restait vide ; elle montre son icône et ce qu'elle est.
+            if (Skin.Museum && body.Children.Count == 0)
+            {
+                var back = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(8, 16, 8, 10), Tag = "card-back" };
+                var mark = ItemIcons.Render(item, 30, Chrome.FaintText) as Control;
+                if (mark != null) { mark.HorizontalAlignment = HorizontalAlignment.Center; mark.Opacity = 0.8; back.Children.Add(mark); }
+                var kind = item.IsCategory ? "Catégorie" : item.Kind == ItemKind.Folder ? "Dossier" : item.Kind == ItemKind.Sheet ? "Fiche" : item.Kind == ItemKind.Book ? "Livre"
+                    : item.Kind == ItemKind.Media ? "Document" + (string.IsNullOrEmpty(item.MediaExtension) ? "" : " " + item.MediaExtension.TrimStart('.').ToUpperInvariant())
+                    : item.Kind == ItemKind.Text ? "Écrit vierge" : item.Kind == ItemKind.Plan ? "Plan" : item.Kind == ItemKind.MindMap ? "Carte mentale" : "";
+                if (kind.Length > 0) back.Children.Add(new TextBlock { Text = kind.ToUpper(System.Globalization.CultureInfo.CurrentCulture), Foreground = Chrome.FaintText, FontSize = 11, LetterSpacing = 1.4, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 7, 0, 0) });
+                body.Children.Add(back);
+            }
 
             // Pied de carte : pastille d'état + compteur d'annotations.
             var footer = new StackPanel

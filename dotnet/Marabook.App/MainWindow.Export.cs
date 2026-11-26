@@ -107,7 +107,69 @@ namespace Marabook.App
                 _binder.Rebuild();
                 if (_current == request.WriteBackBook) _bookView.Load(_current, _history, _project);
             }
+            // « S'OFFRIR UN MONDE » (26/11) : le livre qui remplit toutes les conditions du dernier succès est salué
+            // AVANT son export — « En avant ! » conclut l'export et fait tomber le succès.
+            var offered = !AppSettings.Achievements.ContainsKey(Achievements.World) && !TutorialActive ? WorldBookOf(request) : null;
+            if (offered != null && WorldMissing(offered).Count == 0)
+            {
+                await OfferedWorldDialog.Show(this);
+                await RunExport(request);
+                UnlockAchievement(Achievements.World);
+                return;
+            }
             await RunExport(request);
+        }
+
+        /// <summary>Le livre qu'un export concerne : celui qui contient TOUT ce qui est exporté (null s'il y en a plusieurs, ou aucun).</summary>
+        private BinderItem WorldBookOf(ExportRequest request)
+        {
+            if (request == null || _project == null) return null;
+            BinderItem book = null;
+            foreach (var id in request.ItemIds)
+            {
+                var item = _project.FindById(id);
+                var its = item == null ? null : item.Kind == ItemKind.Book ? item : item.EnclosingBook();
+                if (its == null) continue;
+                if (book != null && !ReferenceEquals(book, its)) return null;
+                book = its;
+            }
+            return book;
+        }
+
+        /// <summary>Ce qui manque à ce livre pour « S'offrir un monde » (vide : tout y est). Mesure l'orthographe de
+        /// tout le livre : à ne demander qu'au moment d'un export, jamais au fil de l'eau.</summary>
+        internal List<string> WorldMissing(BinderItem book)
+        {
+            var check = new Achievements.WorldCheck
+            {
+                Everything = AppSettings.Profile == Profiles.Everything,
+                Pages = BookPageTotal(book),
+                ChecklistProblems = BookPublicationTab.ProblemsOf(book, _project, CachedPageCount),
+                LexiconEntries = _project.Lexicon.Count + AppSettings.Lexicon.Count,
+                SpellingLeft = WorldSpellingLeft(book)
+            };
+            return Achievements.WorldMissing(_project, book, check);
+        }
+
+        /// <summary>Les mots encore inconnus de tout le livre : ni justes, ni appris (projet ou global), ni ignorés.</summary>
+        private int WorldSpellingLeft(BinderItem book)
+        {
+            var engine = Correction.SpellDictionary.Default;
+            if (engine == null) return 0; // sans dictionnaire installé, rien ne peut être dit faux
+            var checker = new Correction.SpellChecker(engine) { ProjectWords = _project.Lexicon, GlobalWords = AppSettings.Lexicon, Neologisms = AppSettings.NeologismsEnabled };
+            var texts = new List<BinderItem>();
+            CollectBookTexts(book, texts);
+            try { return Correction.UnknownWords.Collect(_project, checker, texts).Count; }
+            catch (Exception) { return 0; }
+        }
+
+        /// <summary>La fenêtre « Vous avez réussi », puis le succès. En mise au point (« dev-ascension ») : sans export,
+        /// et même si le succès est déjà là — il est alors rejoué (retiré, puis redonné) pour voir son toast.</summary>
+        private async void OfferWorld(BinderItem book, bool dev)
+        {
+            await OfferedWorldDialog.Show(this);
+            if (dev && AppSettings.Achievements.ContainsKey(Achievements.World)) AppSettings.Achievements.Remove(Achievements.World);
+            UnlockAchievement(Achievements.World);
         }
 
         // ============================================================= les exports rapides

@@ -271,8 +271,8 @@ namespace Marabook.App
             _tabs.Clear();
             if (!TabsOn()) { TabsChanged(); return fallback; }
             _tabs.Limit = AppSettings.MaxTabs;
-            _tabs.Restore(project.OpenTabs, project.ActiveTab, delegate(string id) { return id == AtelierItemId || (id == GraphItemId ? Marabook.Settings.Profiles.Enabled(Marabook.Settings.Profiles.Graph) : project.FindById(id) != null); });
-            var active = _tabs.ActiveItemId == null ? null : (_tabs.ActiveItemId == GraphItemId ? _graphItem : _tabs.ActiveItemId == AtelierItemId ? _atelierItem : project.FindById(_tabs.ActiveItemId));
+            _tabs.Restore(project.OpenTabs, project.ActiveTab, delegate(string id) { return id == AtelierItemId || (id == GraphItemId || id == ProfilerItemId ? Marabook.Settings.Profiles.Enabled(Marabook.Settings.Profiles.Graph) : project.FindById(id) != null); });
+            var active = _tabs.ActiveItemId == null ? null : (_tabs.ActiveItemId == GraphItemId ? _graphItem : _tabs.ActiveItemId == ProfilerItemId ? _profilerItem : _tabs.ActiveItemId == AtelierItemId ? _atelierItem : project.FindById(_tabs.ActiveItemId));
             TabsChanged();
             return active ?? fallback;
         }

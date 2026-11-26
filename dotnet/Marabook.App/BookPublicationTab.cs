@@ -121,6 +121,7 @@ namespace Marabook.App
         /// <summary>Recalcule la check-list et les tailles (à l'affichage de l'onglet).</summary>
         public void Refresh()
         {
+            Problems = 0;
             _checklist.Children.Clear();
             _sizes.Children.Clear();
             _sizes.RowDefinitions.Clear();
@@ -445,8 +446,21 @@ namespace Marabook.App
         /// un filet discret (18/10) ; une ligne CRITIQUE en défaut (gabarit,
         /// enchaînement) sort en rouge — les autres restent orange, elles
         /// n'empêchent pas la publication.</summary>
+        /// <summary>Les lignes de la check-list qui ne sont pas au vert, à la dernière mise à jour (« S'offrir un monde », 26/11).</summary>
+        public int Problems { get; private set; }
+
+        /// <summary>La check-list d'un livre, jouée hors de l'écran : le nombre de ses lignes qui ne sont pas au vert.</summary>
+        public static int ProblemsOf(BinderItem book, Project project, Func<BinderItem, int> pageCounter)
+        {
+            var tab = new BookPublicationTab();
+            tab.Load(book, project, pageCounter);
+            tab.Refresh();
+            return tab.Problems;
+        }
+
         private void Row(bool ok, string text, string remedy, bool critical = false, string tag = null)
         {
+            if (!ok) Problems++;
             if (_checklist.Children.Count > 0)
                 _checklist.Children.Add(new Border
                 {

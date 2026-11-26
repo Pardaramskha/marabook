@@ -148,14 +148,21 @@ namespace Marabook.App
                 var texts = shell.BookViewForProbe.TextsForProbe;
                 var toggle = texts.OutlineToggleForProbe;
                 var label = toggle.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock block) { return block.Text; }).FirstOrDefault();
-                var topRow = toggle.GetVisualParent() as DockPanel;
                 Check(toggle.IsVisible && label == "Curation", "le bouton « Tableau » des écrits s'appelle « Curation »");
-                var newText = texts.GetVisualDescendants().OfType<Button>().FirstOrDefault(delegate(Button button) { return button.IsVisible && button.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock block) { return block.Text == "Nouvel écrit"; }); });
+                // La barre de commande d'un livre (26/11) : UN bouton « Nouveau ▾ », qui déroule ses cinq créations.
+                var newMenus = texts.GetVisualDescendants().OfType<Button>().Count(delegate(Button button) { return button.IsVisible && "new-menu".Equals(button.Tag); });
+                var created = texts.BookNewLabelsForProbe;
+                Check(newMenus == 1 && created.Count == 5 && created[0] == "Écrit" && created.Contains("Partie") && created.Contains("Liminaire…") && created.Contains("Annexe…"),
+                    "la barre d'un livre n'a plus qu'un bouton « Nouveau ▾ » : " + string.Join(", ", created.ToArray()));
+                var newText = texts.GetVisualDescendants().OfType<Button>().FirstOrDefault(delegate(Button button) { return button.IsVisible && "new-menu".Equals(button.Tag); }); // « Nouveau ▾ » (26/11)
                 var toggleAt = toggle.TranslatePoint(new Point(0, 0), texts);
                 var newAt = newText == null ? null : newText.TranslatePoint(new Point(0, 0), texts);
-                Check(topRow != null && "corkboard-top-row".Equals(topRow.Tag) && toggleAt.HasValue && newAt.HasValue && Math.Abs(toggleAt.Value.Y - newAt.Value.Y) < 6 && toggleAt.Value.X > newAt.Value.X + 200
-                    && toggleAt.Value.X + toggle.Bounds.Width > texts.Bounds.Width - 60,
-                    "…il est sur la ligne du haut, celle de « Nouvel écrit », collé à droite (y " + (toggleAt.HasValue ? toggleAt.Value.Y.ToString("0") : "-") + " / " + (newAt.HasValue ? newAt.Value.Y.ToString("0") : "-") + ")");
+                // Le bandeau de la vue (26/11 soir, Rémi) : icône, titre, et toutes les actions à droite — « Curation » puis « Nouveau ▾ », contre le bord.
+                var banner = texts.BannerForProbe;
+                Check(banner != null && banner.IsVisible && banner.Title == book.Title && toggle.GetVisualAncestors().Contains(banner) && newText != null && newText.GetVisualAncestors().Contains(banner)
+                    && toggleAt.HasValue && newAt.HasValue && Math.Abs(toggleAt.Value.Y - newAt.Value.Y) < 6 && newAt.Value.X > toggleAt.Value.X
+                    && newAt.Value.X + newText.Bounds.Width > texts.Bounds.Width - 30,
+                    "…il est dans le bandeau du tableau (« " + (banner == null ? "" : banner.Title) + " »), à droite avec « Nouveau ▾ » (y " + (toggleAt.HasValue ? toggleAt.Value.Y.ToString("0") : "-") + " / " + (newAt.HasValue ? newAt.Value.Y.ToString("0") : "-") + ")");
                 Shot(shell, "lot31-curation.png");
 
                 // ------------------------------------------------ une partie de livre au Général du rail

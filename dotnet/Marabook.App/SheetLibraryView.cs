@@ -34,7 +34,6 @@ namespace Marabook.App
         private readonly StackPanel _rows;
         private readonly ScrollViewer _scroll;
         private readonly Button _back;
-        private readonly TextBlock _scopeLabel;
         // La rangée des PASTILLES (1.0.4) : une par catégorie, avec son compte
         // — un filtre quand elle a des fiches, un raccourci « créer » quand
         // elle est vide ; les catégories vides n'ont plus de rangée. Le tri
@@ -328,7 +327,8 @@ namespace Marabook.App
             // — La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
             // barre, les boutons à gauche (« Nouvelle fiche » en principal,
             // puis catégorie et modèles), la recherche contre le bord droit.
-            var toolbar = new DockPanel { Margin = new Thickness(24, TopGap, 24, 0) };
+            // Le bandeau commun des vues d'atterrissage (26/11) : icône, titre (le dossier quand on y est entré), actions à droite.
+            var toolbar = _banner = new ViewBanner();
             SetDock(toolbar, Dock.Top);
             _searchBox = new TextBox();
             _searchBox.TextChanged += delegate
@@ -373,7 +373,7 @@ namespace Marabook.App
 
             var left = _actionsRow = new StackPanel { Orientation = Orientation.Horizontal };
             _back = Buttons.Icon("arrow-left-bold", "Retour", Buttons.Bar, Buttons.Look.Calm);
-            _back.Margin = new Thickness(0, 0, 6, 0);
+            _back.Margin = new Thickness(0, 0, 10, 0);
             _back.IsVisible = false;
             _back.Click += delegate
             {
@@ -381,33 +381,20 @@ namespace Marabook.App
                 if (handler != null && _project != null)
                     handler(_scope != null && _scope.Parent != null ? _scope.Parent : _project.Category(Project.KeySheets));
             };
-            left.Children.Add(_back);
-            _scopeLabel = new TextBlock
-            {
-                Foreground = Chrome.Ink,
-                FontSize = 15,
-                FontWeight = FontWeight.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 14, 0),
-                IsVisible = false,
-                MaxWidth = 320,
-                TextTrimming = TextTrimming.CharacterEllipsis
-            };
-            left.Children.Add(_scopeLabel);
+            toolbar.Lead.Children.Add(_back);
             // « Nouvelle fiche » : UN bouton principal (pack du 12/09/2026) —
             // la catégorie se choisit dans le dialogue avec le nom.
-            var newSheet = Buttons.IconText("plus-bold", "Nouvelle fiche",
-                null,
-                Buttons.Bar, Buttons.Look.Primary);
-            newSheet.Click += delegate { NewSheet(); };
+            // UN bouton « Nouveau ▾ » (26/11, Rémi), les autres actions en boutons discrets : cinq boutons de même
+            // poids ne disaient plus lequel sert.
+            _newEntries = new[]
+            {
+                new Buttons.MenuEntry("plus-bold", "Fiche", delegate { NewSheet(); }, "La catégorie se choisit avec le nom"),
+                new Buttons.MenuEntry("folder-bold", "Catégorie", delegate { NewCategory(); }, "Une nouvelle famille de fiches, avec son modèle")
+            };
+            var newSheet = Buttons.NewMenu("Une fiche ou une catégorie de fiches", Buttons.Bar, _newEntries);
             left.Children.Add(newSheet);
-            var newCategory = Buttons.IconText("plus-bold", "Nouvelle catégorie",
-                null, Buttons.Bar, Buttons.Look.Outline);
-            newCategory.Margin = new Thickness(8, 0, 0, 0);
-            newCategory.Click += delegate { NewCategory(); };
-            left.Children.Add(newCategory);
             var templates = _templatesButton = Buttons.IconText("pencil-simple-line", "Éditeur de modèles",
-                null, Buttons.Bar, Buttons.Look.Outline);
+                null, Buttons.Bar, Buttons.Look.Calm);
             templates.Margin = new Thickness(8, 0, 0, 0);
             templates.Click += delegate { EditTemplates(); };
             left.Children.Add(templates);
@@ -415,7 +402,7 @@ namespace Marabook.App
             // des écrits sans fiche, à créer en lot — le pendant des mots inconnus.
             var missing = Buttons.IconText("magnifying-glass-bold", "Fiches manquantes…",
                 null,
-                Buttons.Bar, Buttons.Look.Outline);
+                Buttons.Bar, Buttons.Look.Calm);
             missing.Margin = new Thickness(8, 0, 0, 0);
             missing.Click += delegate { ShowMissingSheets(); };
             left.Children.Add(missing);
@@ -423,7 +410,7 @@ namespace Marabook.App
             // qui est né, mort, et son âge. Le bouton allume et éteint ; la puce
             // à côté dit la date et la règle.
             _epochButton = Buttons.IconTextToggle("pile-frises", "Époque",
-                "Placer les fiches à une date d'une frise : qui est né, mort, et son âge", Buttons.Bar, Buttons.Look.Outline);
+                "Placer les fiches à une date d'une frise : qui est né, mort, et son âge", Buttons.Bar, Buttons.Look.Calm);
             _epochButton.Margin = new Thickness(8, 0, 0, 0);
             _epochButton.Tag = "library-epoch";
             _epochButton.Click += delegate { var h = EpochRequested; if (h != null) h(false); };
@@ -434,7 +421,13 @@ namespace Marabook.App
             _epochChip.Tag = "library-epoch-date";
             _epochChip.Click += delegate { var h = EpochRequested; if (h != null) h(true); };
             left.Children.Add(_epochChip);
-            toolbar.Children.Add(left);
+            ViewBanner.Adopt(left);
+            // La puce de la date suit SON bouton « Époque », même une fois la rangée retournée.
+            left.Children.Remove(_epochChip);
+            left.Children.Insert(1, _epochChip);
+            _epochButton.Margin = new Thickness(0);
+            _epochChip.Margin = new Thickness(4, 0, 0, 0);
+            toolbar.Actions.Children.Add(left);
             Children.Add(toolbar);
 
             // La ligne de la RECHERCHE (1.1.0, Rémi) : sous les boutons, sur
@@ -503,8 +496,7 @@ namespace Marabook.App
             _history = history;
             _scope = scope != null && scope.Kind == ItemKind.Folder ? scope : null;
             _back.IsVisible = _scope != null ? true : false;
-            _scopeLabel.IsVisible = _back.IsVisible;
-            _scopeLabel.Text = _scope != null ? _scope.Title : "";
+            _banner.SetItem(_scope ?? (project == null ? null : project.Category(Project.KeySheets)));
             _entranceOn = true; // les tuiles entrent en fondu à l'ouverture du panneau (1.0.6)
             RebuildRows();
         }
@@ -1029,7 +1021,7 @@ namespace Marabook.App
                         _filterCategoryId = selected ? null : categoryRef.Id;
                         RebuildRows();
                     },
-                    delegate(Control anchor) { ShowCategoryMenu(anchor, categoryRef); });
+                    delegate(Control anchor) { ShowCategoryMenu(anchor, categoryRef); }, Skin.FamilyTint(category, _project));
                 MakeDropZone(chip, categoryRef, selected ? Chrome.Accent : (IBrush)Chrome.Border); // une tuile lâchée sur la pastille change de catégorie (1.1.0)
                 _chips.Children.Add(chip);
             }
@@ -1052,9 +1044,9 @@ namespace Marabook.App
         /// sur une catégorie vide, qui crée), une astérisque en haut à droite
         /// quand l'icône est un choix de l'utilisateur.</summary>
         private static Border Chip(string icon, string name, int count, bool selected, bool empty, bool custom, string tip,
-            Action click, Action<Control> rightClick)
+            Action click, Action<Control> rightClick, IBrush tint = null)
         {
-            var ink = selected ? Brushes.White : (IBrush)Chrome.Ink;
+            var ink = selected ? Brushes.White : tint ?? Chrome.Ink; // « Gardien du Feu » : la pastille à la teinte de sa famille
             var soft = selected ? Brushes.White : (IBrush)Chrome.SoftText;
             var content = new StackPanel { Orientation = Orientation.Horizontal };
             var made = Icons.Make(icon, 15, empty ? soft : ink) as Control;
@@ -1304,6 +1296,7 @@ namespace Marabook.App
         }
 
         private Button _templatesButton; // le tutoriel le met en valeur (29/10)
+        private ViewBanner _banner;
         private StackPanel _actionsRow;  // Nouvelle fiche / Nouvelle catégorie / Éditeur de modèles / Fiches manquantes
         internal Control TemplatesButtonForTutorial { get { return _templatesButton; } }
         internal Control ActionsRowForTutorial { get { return _actionsRow; } }
@@ -1825,6 +1818,9 @@ namespace Marabook.App
 
         /// <summary>Les gestes d'une fiche de la bibliothèque, tuile ou ligne :
         /// choisir, étendre la sélection, ouvrir, glisser, le menu.</summary>
+        private Buttons.MenuEntry[] _newEntries;
+        internal List<string> NewLabelsForProbe { get { return Buttons.NewMenuLabelsForProbe(_newEntries); } }
+
         private void Wire(Border card, BinderItem sheet, bool lift)
         {
             var sheetRef = sheet;
@@ -1887,7 +1883,7 @@ namespace Marabook.App
             var icon = CategoryIcon(category, project);
             if (icon != null)
             {
-                var made = Icons.Make(icon, size, Chrome.SoftText);
+                var made = Icons.Make(icon, size, Skin.FamilyTint(category, project) ?? Chrome.SoftText); // « Gardien du Feu » : la teinte de sa famille
                 made.HorizontalAlignment = HorizontalAlignment.Center;
                 made.VerticalAlignment = VerticalAlignment.Center;
                 return Rosace.Behind(made, size); // « Ascension », lot 2 : la rosace derrière l'icône

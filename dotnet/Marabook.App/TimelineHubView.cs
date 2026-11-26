@@ -55,17 +55,9 @@ namespace Marabook.App
             _chronology = chronology;
             Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
             Focusable = true;
-            var head = new Border
-            {
-                Background = Chrome.BarBgLight, BorderBrush = Chrome.Border, BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(16, 8, 16, 8)
-            };
+            // Le bandeau commun des vues d'atterrissage (26/11) : icône, titre — sans phrase de description.
+            var head = new ViewBanner(chronology ? "pile-chronologie" : "pile-frises", chronology ? Project.TimelinesRootTitle : Project.AstrolabeRootTitle);
             SetDock(head, Dock.Top);
-            var title = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-            title.Children.Add(Icons.Make(chronology ? "pile-chronologie" : "pile-frises", 20, Chrome.Accent));
-            title.Children.Add(new TextBlock { Text = chronology ? Project.TimelinesRootTitle : Project.AstrolabeRootTitle, Foreground = Chrome.Ink, FontSize = 17, FontWeight = FontWeight.SemiBold, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-            title.Children.Add(new TextBlock { Text = chronology ? "Les frises de votre univers : ce qui s'y passe, dans l'ordre où cela s'est passé." : "Le temps de votre univers : comment il se compte, et sous quel ciel.", Foreground = Chrome.SoftText, FontSize = 12.5, Margin = new Thickness(14, 2, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-            head.Child = title;
             Children.Add(head);
 
             // LA CHAÎNE : les trois étapes, dans l'ordre, et qui dépend de qui.

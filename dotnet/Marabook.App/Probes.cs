@@ -2091,8 +2091,8 @@ namespace Marabook.App
                     await Settle();
                     Check(shell.MissingFontsForProbe.Contains("Police Imaginaire XYZ"), "une police inconnue du catalogue est signalée manquante");
                     var alert = shell.FontAlertForProbe; // plus d'infobulle sur la barre (10/10, Rémi)
-                    Check(alert != null && alert.IsVisible && shell.FontAlertTextForProbe.Contains("manquante") && ToolTip.GetTip(alert) == null,
-                        "la barre d'état montre la pastille rouge « " + (baselineUnresolved + 1) + " police(s) manquante(s) », sans infobulle (« " + shell.FontAlertTextForProbe + " »)");
+                    Check(alert != null && alert.IsVisible && shell.FontAlertTextForProbe.Contains("remplacée") && !shell.FontAlertTextForProbe.Contains("manquante") && ToolTip.GetTip(alert) == null,
+                        "la barre d'état montre une pastille ORANGE qui dit ce qui est fait — « " + shell.FontAlertTextForProbe + " » (" + (baselineUnresolved + 1) + " police(s)) —, plus une alarme rouge ; sans infobulle");
                     string replacement = null;
                     var substitutionTask = FontSubstitutionDialog.Show(shell, new List<string> { "Police Imaginaire XYZ" }, shell.Project);
                     await Settle();
@@ -2963,18 +2963,18 @@ namespace Marabook.App
                 shell.Binder.SelectItem(character.Id);
                 await Settle();
                 Check(shell.Sheet.GenealogyButtonVisibleForProbe, "fiche à relations : le bouton « Généalogie (F2) » est là");
-                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
+                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F4, Source = shell.Sheet });
                 await Settle();
                 Check(shell.Sheet.PreviewOnForProbe, "F1 passe en mode wiki");
-                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Sheet });
+                shell.Sheet.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F4, Source = shell.Sheet });
                 await Settle();
                 Check(!shell.Sheet.PreviewOnForProbe, "…et F1 en sort");
                 // Le clavier dans la Pile (29/10, Rémi) : F1 et F2 atteignent
                 // quand même la fiche à l'écran, et F2 ne renomme plus rien.
-                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Binder });
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F4, Source = shell.Binder });
                 await Settle();
                 Check(shell.Sheet.PreviewOnForProbe, "F1 frappé dans la Pile bascule quand même le mode wiki de la fiche à l'écran");
-                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F1, Source = shell.Binder });
+                shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F4, Source = shell.Binder });
                 await Settle();
                 shell.Binder.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F2, Source = shell.Binder });
                 await Settle();

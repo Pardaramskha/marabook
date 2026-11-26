@@ -43,7 +43,7 @@
     <AvaloniaResource Include="..\..\tools\app.ico" Link="Assets\app.ico" />
     <!-- La police des titres d'« Ascension » (25/11, Rémi) : « Ascension SC », dérivée de Marcellus SC (OFL 1.1,
          assets/fonts/AscensionSC-OFL.txt). La première police embarquée : ce skin doit avoir la sienne partout. -->
-    <AvaloniaResource Include="..\..\assets\fonts\AscensionSC-Regular.ttf" Link="Assets\Fonts\AscensionSC-Regular.ttf" />
+    <AvaloniaResource Include="..\..\assets\fonts\*.ttf" Link="Assets\Fonts\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Les patch notes de chaque version (patchnotes/<VERSION>.md, le texte
@@ -66,6 +66,7 @@
     <EmbeddedResource Include="..\..\assets\dlc\*.jpg;..\..\assets\dlc\*.png" LogicalName="dlc/%(Filename)%(Extension)" />
     <!-- Les images des profils (2.0.0, 25/11, Rémi) : assets/profils/<profil>.png, en tête de chaque tuile du choix du profil. -->
     <EmbeddedResource Include="..\..\assets\profils\*.png" LogicalName="profils/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\assets\skins\*.png" LogicalName="skins/%(Filename)%(Extension)" />
     <!-- Le dictionnaire d'orthographe à côté de la DLL (1/11) : SpellChecker le
          cherche dans <exe>/dict ; publish.ps1 le copie dans l'archive, mais la
          sonde de l'intégration continue tourne sur bin/ — sans cette copie,

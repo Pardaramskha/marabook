@@ -36,6 +36,8 @@ namespace Marabook.App
 
         public event Action<bool> Changed; // projectScope
 
+        private readonly ViewBanner _banner;
+
         public DictionaryView()
         {
             Skin.Ground(this); // Chrome.WindowBg, ou transparent sur le fond d'un skin (21/11)
@@ -44,7 +46,8 @@ namespace Marabook.App
             // La rangée du haut, alignée sur celle d'Écrits (14/09) : pas de
             // barre, « Nouvelle entrée » en principal à gauche, la recherche
             // contre le bord droit.
-            var toolbar = new DockPanel { Margin = new Thickness(24, SheetLibraryView.TopGap, 24, 0) };
+            // Le bandeau commun des vues d'atterrissage (26/11) : icône, titre, actions à droite.
+            var toolbar = _banner = new ViewBanner();
             SetDock(toolbar, Dock.Top);
             _searchBox = new TextBox { [ToolTip.TipProperty] = "Filtrer les entrées"};
             _searchBox.TextChanged += delegate { ResetPages(); Rebuild(); };
@@ -78,19 +81,20 @@ namespace Marabook.App
             _classFilter.Items.Add("À revoir — migration nécessaire"); // les entrées de l'ancien format (30/09)
             _classFilter.SelectedIndex = 0;
             _classFilter.SelectionChanged += delegate { ResetPages(); Rebuild(); };
-            left.Children.Add(_classFilter);
             _pageSize = new ComboBox { Margin = new Thickness(8, 0, 0, 0), MinWidth = 110, VerticalAlignment = VerticalAlignment.Center };
             foreach (var size in PageSizes) _pageSize.Items.Add(size + " par page");
             _pageSize.SelectedIndex = 0;
             _pageSize.SelectionChanged += delegate { ResetPages(); Rebuild(); };
-            left.Children.Add(_pageSize);
-            toolbar.Children.Add(left);
+            ViewBanner.Adopt(left);
+            toolbar.Actions.Children.Add(left);
             Children.Add(toolbar);
             // La recherche sur SA ligne, sous les boutons (1.1.0, Rémi) —
             // comme dans la bibliothèque de fiches.
             var searchRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 10, 24, 0) };
             SetDock(searchRow, Dock.Top);
             searchRow.Children.Add(SheetLibraryView.SearchField(_searchBox));
+            searchRow.Children.Add(_classFilter); // la nature et la taille de page : avec la recherche, elles filtrent la même liste (26/11)
+            searchRow.Children.Add(_pageSize);
             Children.Add(searchRow);
 
             _sections = new StackPanel { Margin = new Thickness(16, 12, 16, 24), MaxWidth = 980, HorizontalAlignment = HorizontalAlignment.Left };
@@ -104,6 +108,7 @@ namespace Marabook.App
         public void Load(Project project)
         {
             _project = project;
+            _banner.SetItem(project == null ? null : project.Category(Project.KeyDictionary));
             Rebuild();
         }
 
@@ -219,17 +224,23 @@ namespace Marabook.App
             add.Click += delegate { NewEntry(projectScope); };
             DockPanel.SetDock(add, Dock.Right);
             header.Children.Add(add);
+            var captionText = caption + (entries == null ? " (aucun projet ouvert)"
+                : " — " + entries.Count + (entries.Count > 1 ? " entrées" : " entrée") + ReviewSuffix(entries));
+            // UNE PAGE DE REGISTRE sous un skin « Museum » (26/11, Rémi) : l'en-tête en capitales de métal, un filet
+            // de métal dessous, et chaque entrée sur sa ligne, soulignée d'un filet (BuildRow) — plus de boîtes.
+            var register = Skin.Museum;
             header.Children.Add(new TextBlock
             {
-                Text = caption + (entries == null ? " (aucun projet ouvert)"
-                    : " — " + entries.Count + (entries.Count > 1 ? " entrées" : " entrée") + ReviewSuffix(entries)),
-                Foreground = Chrome.Ink,
+                Text = register ? captionText.ToUpper(System.Globalization.CultureInfo.CurrentCulture) : captionText,
+                Foreground = register ? (IBrush)Chrome.Accent : Chrome.Ink,
                 FontWeight = FontWeight.SemiBold,
-                FontSize = 14,
-                VerticalAlignment = VerticalAlignment.Center
+                FontSize = register ? 12 : 14,
+                LetterSpacing = register ? 1.6 : 0,
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = "dictionary-head"
             });
             _sections.Children.Add(header);
-            _sections.Children.Add(new Border { Height = 1, Background = Chrome.Border, Margin = new Thickness(0, 0, 0, 6) });
+            _sections.Children.Add(new Border { Height = 1, Background = register ? (IBrush)Chrome.BorderStrong : Chrome.Border, Margin = new Thickness(0, 0, 0, 6) });
             if (entries == null) return;
 
             var filter = (_searchBox.Text ?? "").Trim();
@@ -314,6 +325,18 @@ namespace Marabook.App
                 Padding = new Thickness(10, 6, 10, 6),
                 Margin = new Thickness(0, 0, 0, 4)
             };
+            if (Skin.Museum)
+            {
+                // La ligne d'un registre : sans boîte, un filet de métal dessous.
+                row.Background = Brushes.Transparent;
+                row.BorderBrush = new SolidColorBrush(Color.FromArgb(0x70, Chrome.BorderStrong.Color.R, Chrome.BorderStrong.Color.G, Chrome.BorderStrong.Color.B));
+                row.BorderThickness = new Thickness(0, 0, 0, 1);
+                row.CornerRadius = new CornerRadius(0);
+                row.Margin = new Thickness(0);
+                row.Padding = new Thickness(6, 7, 6, 7);
+                row.Tag = "dictionary-register-row";
+                Skin.KeepCorners(row);
+            }
             if (projectScope) _entryRows[entry] = row;
             var grid = new Grid();
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(180) });

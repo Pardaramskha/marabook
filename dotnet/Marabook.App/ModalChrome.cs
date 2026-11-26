@@ -58,7 +58,7 @@ namespace Marabook.App
         /// <summary>Vrai pour une fenêtre qui prend l'habit (toutes, sauf la principale, l'accueil et le tutoriel).</summary>
         public static bool Applies(Window window)
         {
-            return window != null && !(window is MainWindow) && !(window is WelcomeWindow) && !(window is TutorialWindow);
+            return window != null && !(window is MainWindow) && !(window is WelcomeWindow) && !(window is TutorialWindow) && !(window is OfferedWorldDialog); // « Vous avez réussi » a sa propre silhouette
         }
 
         /// <summary>Au démarrage : toute fenêtre qui naît est habillée — dès qu'elle reçoit son

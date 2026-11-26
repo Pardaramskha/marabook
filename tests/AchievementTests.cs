@@ -34,6 +34,9 @@ namespace Marabook.Tests
         /// verrou des skins, et le sésame.</summary>
         private static void SkinSecrets(Harness t)
         {
+            // « Crétin des alpes » est passé chez les secrets (26/11/2026, Rémi) : hors du total et des paliers.
+            var cretin = Achievements.Find(Achievements.Cretin);
+            t.Check(cretin != null && cretin.Secret && Array.IndexOf(Achievements.Secrets, cretin) >= 0 && Array.IndexOf(Achievements.All, cretin) < 0, "« Crétin des alpes » est un succès secret : il ne compte plus dans le total");
             foreach (var id in new[] { Achievements.FireKeeper, Achievements.WhiteWood, Achievements.Sworn })
             {
                 var secret = Achievements.Find(id);
@@ -92,7 +95,10 @@ namespace Marabook.Tests
             // Le verrou des skins, et le sésame.
             var earned = new List<string>();
             t.Check(Skins.Locked(Skins.MuseumFire, earned, false) && Skins.Locked(Skins.MuseumWood, earned, false) && Skins.Locked(Skins.MuseumOath, earned, false), "sans succès, les trois skins sont verrouillés");
-            t.Check(!Skins.Locked(Skins.MuseumAscent, earned, false) && !Skins.Locked(Skins.Modern, earned, false) && !Skins.Locked(Skins.Eden, earned, false), "…Ascension et les autres restent libres");
+            t.Check(Skins.Locked(Skins.MuseumAscent, earned, false) && !Skins.Locked(Skins.MuseumAscent, new List<string> { Achievements.World }, false), "…« Ascension » aussi : c'est « S'offrir un monde » qui l'ouvre");
+            t.Check(!Skins.Locked(Skins.Modern, earned, false) && !Skins.Locked(Skins.Eden, earned, false), "…les autres restent libres");
+            t.Check(Skins.IsDevAscension("dev-ascension") && Skins.IsDevAscension(" DEV-Ascension ") && !Skins.IsDevAscension("dev-ascensions"), "le code de mise au point « dev-ascension » se lit sans casse, seul");
+            WorldOffered(t);
             earned.Add(Achievements.WhiteWood);
             t.Check(!Skins.Locked(Skins.MuseumWood, earned, false) && Skins.Locked(Skins.MuseumFire, earned, false), "un succès ouvre son skin, et lui seul");
             t.Check(!Skins.Locked(Skins.MuseumFire, new List<string>(), true) && !Skins.Locked(Skins.MuseumOath, null, true), "le sésame les ouvre tous");
@@ -163,7 +169,7 @@ namespace Marabook.Tests
                 if (!ids.Add(achievement.Id)) duplicates++;
                 if (string.IsNullOrEmpty(achievement.Name) || string.IsNullOrEmpty(achievement.Description)) duplicates++;
             }
-            t.Equal(69, Achievements.All.Length, "soixante-neuf succès, paliers compris (« Tour du proprio » du tutoriel, 29/10)");
+            t.Equal(68, Achievements.All.Length, "soixante-huit succès, paliers compris (« Tour du proprio » du tutoriel, 29/10 ; « Crétin des alpes » passé chez les secrets, 26/11)");
             t.Equal(0, duplicates, "ids uniques, noms et descriptions remplis");
             t.Check(Achievements.Find(Achievements.Emperor) != null && Achievements.Find("inconnu") == null, "Find retrouve un id, ignore l'inconnu");
             var curious = Achievements.Find(Achievements.Curious);
@@ -368,6 +374,67 @@ namespace Marabook.Tests
             t.Check(earned.Count == 1 && earned[0] == Achievements.Emperor, "tous les autres acquis : l'Empereur");
             all.Remove(Achievements.Yolo);
             t.Equal(0, Achievements.Earned(facts, all).Count, "il manque Yolo (événement) : pas d'Empereur");
+        }
+
+        /// <summary>« S'offrir un monde » : les onze conditions, une à une.</summary>
+        private static void WorldOffered(Harness t)
+        {
+            var world = Achievements.Find(Achievements.World);
+            t.Check(world != null && world.Secret && world.Name == "S'offrir un monde" && world.Reward == Achievements.SkinReward && world.UnlocksSkin == Skins.MuseumAscent, "« S'offrir un monde » est un succès secret qui débloque « Ascension »");
+            var project = AchievementFixture.Build();
+            var book = AchievementFixture.Find(project, "Livre complet (à publier en PDF)");
+            var bare = new Achievements.WorldCheck();
+            var all = Achievements.WorldMissing(project, book, bare);
+            t.Check(all.Contains("être en mode Cinglé·e") && all.Count >= 5, "un livre ordinaire, hors du mode Cinglé·e, est loin du compte (" + all.Count + " conditions manquent)");
+            // On remplit tout, puis on retire une condition à la fois.
+            var good = new Achievements.WorldCheck { Everything = true, Pages = 151, ChecklistProblems = 0, SpellingLeft = 0, LexiconEntries = 30 };
+            book.ImageId = project.AddImage(new byte[] { 1, 2, 3 }, ".png");
+            var story = new List<BinderItem>();
+            foreach (var item in book.Children) if (item.Kind == ItemKind.Text && !item.IsExtraPage && !item.IsToc) story.Add(item);
+            var names = new System.Text.StringBuilder();
+            for (var i = 1; i <= 15; i++) names.Append("Personnage ").Append(i).Append(" entre. ");
+            if (story.Count > 0) story[0].Document = TextDocument.FromPlainText(story[0].Document.ToPlainText() + " " + names);
+            if (project.TimeSystems.Count == 0) project.TimeSystems.Add(TimeSystem.Gregorian());
+            if (project.Worlds.Count == 0) project.Worlds.Add(new World());
+            var frieze = new BinderItem { Kind = ItemKind.Timeline, Title = "Frise", Timeline = new TimelineInfo { SystemId = project.TimeSystems[0].Id } };
+            frieze.Timeline.Events.Add(new TimelineEvent { Title = "Le livre", Start = new TimePoint(1200), End = new TimePoint(1203), LinkKind = "book", LinkId = book.Id });
+            project.Category(Project.KeyTimelines).Children.Add(frieze);
+            var left = Achievements.WorldMissing(project, book, good);
+            t.Check(left.Count == 0, "toutes les conditions remplies : rien ne manque" + (left.Count > 0 ? " — reste : " + string.Join(" ; ", left.ToArray()) : ""));
+            t.Check(Achievements.CharactersNamedIn(project, book) >= 15 && Achievements.BookSpanOnTimeline(project, book), "…quinze personnages fichés y sont nommés, et sa durée est posée sur une frise");
+            Func<Action<Achievements.WorldCheck>, List<string>> with = delegate(Action<Achievements.WorldCheck> change)
+            {
+                var check = new Achievements.WorldCheck { Everything = true, Pages = 151, ChecklistProblems = 0, SpellingLeft = 0, LexiconEntries = 30 };
+                change(check);
+                return Achievements.WorldMissing(project, book, check);
+            };
+            t.Check(with(delegate(Achievements.WorldCheck c) { c.Everything = false; }).Count == 1, "hors du mode Cinglé·e : une condition manque");
+            t.Check(with(delegate(Achievements.WorldCheck c) { c.Pages = 150; }).Count == 1, "150 pages tout rond ne suffisent pas (« dépassant »)");
+            t.Check(with(delegate(Achievements.WorldCheck c) { c.ChecklistProblems = 1; }).Count == 1, "une ligne de la check-list pas au vert : non");
+            t.Check(with(delegate(Achievements.WorldCheck c) { c.SpellingLeft = 1; }).Count == 1, "une faute d'orthographe restante : non");
+            t.Check(with(delegate(Achievements.WorldCheck c) { c.LexiconEntries = 29; }).Count == 1, "29 entrées au dictionnaire : non");
+            frieze.Timeline.Events[0].End = null;
+            t.Check(Achievements.WorldMissing(project, book, good).Count == 1, "une brique ponctuelle n'est pas une durée");
+            frieze.Timeline.Events[0].End = new TimePoint(1203);
+            frieze.Timeline.Events[0].LinkId = "ailleurs";
+            t.Check(Achievements.WorldMissing(project, book, good).Count == 1, "une durée liée à autre chose que le livre ne compte pas");
+            frieze.Timeline.Events[0].LinkId = book.Id;
+            var cover = book.ImageId;
+            book.ImageId = null;
+            t.Check(Achievements.WorldMissing(project, book, good).Count == 1, "sans couverture : non");
+            book.ImageId = cover;
+            var isbn = book.Book.Isbn;
+            book.Book.Isbn = "";
+            t.Check(Achievements.WorldMissing(project, book, good).Count == 1, "un champ d'édition vide : non");
+            book.Book.Isbn = isbn;
+            if (story.Count > 0)
+            {
+                story[0].Status = "beta";
+                t.Check(Achievements.WorldMissing(project, book, good).Count == 1, "un chapitre pas terminé : non");
+                story[0].Status = "done";
+            }
+            project.Worlds.Clear();
+            t.Check(Achievements.WorldMissing(project, book, good).Count == 1, "sans monde : non");
         }
 
         private static void BlankPage(Harness t)

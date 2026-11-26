@@ -797,23 +797,11 @@ namespace Marabook.App
                 }
                 else column.Children.Add(preview);
                 var name = new TextBlock { Text = Skins.Label(id), FontWeight = FontWeight.SemiBold, Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center };
-                if (Skins.Premium(id))
-                {
-                    // Un skin PREMIUM (la série « Museum », 24/11) : une étiquette à côté de son nom.
-                    var title = new DockPanel { Margin = new Thickness(0, 7, 0, 1) };
-                    var premium = new Border
-                    {
-                        Background = Chrome.AccentTint, BorderBrush = Chrome.AccentSoft, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3),
-                        Padding = new Thickness(5, 0, 5, 1), VerticalAlignment = VerticalAlignment.Center, Tag = "skin-premium",
-                        Child = new TextBlock { Text = "PREMIUM", FontSize = 9, FontWeight = FontWeight.SemiBold, Foreground = Chrome.AccentStrong }
-                    };
-                    DockPanel.SetDock(premium, Dock.Right);
-                    title.Children.Add(premium);
-                    title.Children.Add(name);
-                    column.Children.Add(title);
-                }
-                else { name.Margin = new Thickness(0, 7, 0, 1); column.Children.Add(name); }
-                column.Children.Add(new TextBlock { Text = locked ? "Verrouillé — un succès secret l'ouvre." : Skins.Description(id), Foreground = Chrome.SoftText, FontSize = 11.5, FontStyle = locked ? FontStyle.Italic : FontStyle.Normal, TextWrapping = TextWrapping.Wrap });
+                // Ni badge « Premium », ni descriptif, ni infobulle (26/11, Rémi) : le mot reste entre nous, et la vignette
+                // — une vraie capture pour ces skins — dit le reste.
+                name.Margin = new Thickness(0, 7, 0, 1);
+                name.TextTrimming = TextTrimming.CharacterEllipsis;
+                column.Children.Add(name);
                 var card = new Border
                 {
                     Width = 178,
@@ -827,8 +815,7 @@ namespace Marabook.App
                     Child = column,
                     Tag = (locked ? "skin-locked:" : "skin:") + id
                 };
-                if (locked) ToolTip.SetTip(card, "Ce skin se débloque en obtenant le succès secret « " + Achievements.Find(Skins.UnlockedBy(skinId)).Name + " ».");
-                else card.PointerReleased += delegate { SetSkin(skinId); };
+                if (!locked) card.PointerReleased += delegate { SetSkin(skinId); };
                 _skinCards.Children.Add(card);
             }
 
@@ -900,8 +887,29 @@ namespace Marabook.App
 
         /// <summary>La vignette d'un skin : son fond, une « fenêtre », un bouton — en couleurs FIGÉES
         /// (elle montre le skin, pas celui qui est en cours).</summary>
+        private static readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> SkinShots = new Dictionary<string, Avalonia.Media.Imaging.Bitmap>();
+
+        /// <summary>La vignette d'un skin « Museum » : une VRAIE CAPTURE de l'Accueil sous ce skin (assets/skins, tirée
+        /// par la sonde et recadrée sur un coin parlant : le cadre, l'anneau, un cartel, un bouton). Null si elle manque.</summary>
+        private static Avalonia.Media.Imaging.Bitmap SkinShot(string id)
+        {
+            Avalonia.Media.Imaging.Bitmap shot;
+            if (SkinShots.TryGetValue(id, out shot)) return shot;
+            try
+            {
+                using (var stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream("skins/" + id + ".png"))
+                    shot = stream == null ? null : new Avalonia.Media.Imaging.Bitmap(stream);
+            }
+            catch (Exception) { shot = null; }
+            SkinShots[id] = shot;
+            return shot;
+        }
+
         private static Control SkinPreview(string id)
         {
+            var capture = Skins.IsMuseum(id) ? SkinShot(id) : null;
+            if (capture != null)
+                return new Border { Height = 64, CornerRadius = new CornerRadius(0), ClipToBounds = true, Tag = "skin-preview", Background = new ImageBrush(capture) { Stretch = Stretch.UniformToFill, AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Top } };
             var accent = Chrome.ToColor(Ink.Parse(AppSettings.AccentColor ?? Chrome.DefaultAccent));
             var second = Chrome.ToColor(Ink.Parse(Skins.SecondFor(AppSettings.AccentColor ?? Chrome.DefaultAccent, AppSettings.SkinAccent2)));
             IBrush ground, paper, button;
@@ -1116,7 +1124,7 @@ namespace Marabook.App
                 new[] { "Échap", "Fermer la recherche, vider un champ, désélectionner sur la carte, fermer un menu de propositions" },
                 new[] { "Entrée, Tab, flèches dans un champ à propositions", "Prendre la proposition, s'y déplacer" },
                 new[] { "Ctrl+clic / Maj+clic dans la Pile", "Sélection multiple (le Général en mode lot)" },
-                new[] { "F1 / F2 sur une fiche", "Vue wiki / arbre généalogique" },
+                new[] { "F4 / F2 sur une fiche", "Vue wiki / arbre généalogique" },
                 new[] { "Double-clic sur un nœud du Gros Graph", "Ouvrir l'élément" }
             })
             {

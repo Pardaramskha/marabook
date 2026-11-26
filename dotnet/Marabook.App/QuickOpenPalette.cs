@@ -30,7 +30,9 @@ namespace Marabook.App
         /// <summary>LE SÉSAME (25/11/2026) : ce que fait la palette quand la phrase secrète (Skins.Sesame)
         /// y est tapée seule puis validée. Posé par la coquille.</summary>
         public Action Sesame;
-        private const string SesameTag = "\u0001sesame";
+        private const string SesameTag = "\u0001sesame", DevAscensionTag = "\u0001dev-ascension";
+        /// <summary>Le code « dev-ascension » (26/11) : rejouer la fenêtre « Vous avez réussi », sans export.</summary>
+        public Action DevAscension;
 
         public QuickOpenPalette(Panel host)
         {
@@ -128,6 +130,19 @@ namespace Marabook.App
                 _hint.Text = IdleHint;
                 return;
             }
+            if (DevAscension != null && Skins.IsDevAscension(query))
+            {
+                _list.Items.Add(new ListBoxItem
+                {
+                    Content = new TextBlock { Text = "Appuyez sur Entrée pour rejouer « Vous avez réussi » (mise au point).", Foreground = Chrome.Ink, FontStyle = FontStyle.Italic },
+                    Tag = DevAscensionTag,
+                    Padding = new Thickness(8, 4, 8, 4)
+                });
+                _list.IsVisible = true;
+                _list.SelectedIndex = 0;
+                _hint.Text = "…";
+                return;
+            }
             if (Sesame != null && Skins.IsSesame(query))
             {
                 // L'option secrète : une seule ligne, qui ne dit que de valider.
@@ -194,6 +209,13 @@ namespace Marabook.App
             var entry = (_list.SelectedItem ?? (_list.Items.Count > 0 ? _list.Items[0] : null)) as ListBoxItem;
             if (entry == null || entry.Tag == null) return;
             var id = (string)entry.Tag;
+            if (id == DevAscensionTag)
+            {
+                Close();
+                var dev = DevAscension;
+                if (dev != null) dev();
+                return;
+            }
             if (id == SesameTag)
             {
                 Close();

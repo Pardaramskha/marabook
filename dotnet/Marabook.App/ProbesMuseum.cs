@@ -40,6 +40,7 @@ namespace Marabook.App
                 await Settle();
                 var inkBefore = Chrome.Ink.Color;
                 var accentModern = Chrome.Accent.Color;
+                Check(TimelineView.PointShapeForProbe == "rond" && TimelineView.EraShapeForProbe == "bande", "« Marabook modern » : sur une frise, des ronds et des bandes, comme avant");
                 Check(Skin.Plain && Skin.Plaque() == null && Skin.TitleFont == null && !OrbitLine.Active, "« Marabook modern » : ni plaque, ni police de titres, ni filet en orbite");
 
                 // Le NOUVEL ACCUEIL (24/11 au soir) vaut pour tous les skins : d'abord sous « modern ».
@@ -68,12 +69,13 @@ namespace Marabook.App
                     Shot(shell, "accueil-modern.png");
                 }
 
-                BinderItem book = null, sheet = FirstTitled(project, "Keira"), text = null;
+                BinderItem book = null, sheet = FirstTitled(project, "Keira"), text = null, frise = null;
                 foreach (var item in project.AllItems())
                 {
                     if (item.RootCategory() != null && item.RootCategory().CategoryKey == Project.KeyTrash) continue;
                     if (book == null && item.Kind == ItemKind.Book) book = item;
                     if (text == null && item.Kind == ItemKind.Text) text = item;
+                    if (frise == null && item.Kind == ItemKind.Timeline) frise = item;
                 }
                 // Des tuiles colorées, le temps de la sonde : la tranche en S se voit sur les captures.
                 var tints = new[] { "#C0392B", "#16A085", "#8E44AD" };
@@ -140,7 +142,10 @@ namespace Marabook.App
                 for (var i = 0; i < 3; i++) await Settle();
                 Check(Math.Abs(Skin.Round(8) - 8) < 0.01 && anyCard != null && Math.Abs(anyCard.CornerRadius.TopLeft - 8) < 0.01, "…à 100 % : le dessin d'origine revient");
                 Check(Skin.TileFade(Colors.Red) == null, "« modern » garde le dégradé habituel des tuiles");
-                Check(prefs.GetVisualDescendants().OfType<Border>().Count(delegate(Border border) { return "skin-premium".Equals(border.Tag); }) == 4, "…quatre d'entre eux portent l'étiquette PREMIUM");
+                Check(prefs.GetVisualDescendants().OfType<Border>().Count(delegate(Border border) { return "skin-premium".Equals(border.Tag); }) == 0
+                    && prefs.GetVisualDescendants().OfType<Border>().Count(delegate(Border border) { return "skin-preview".Equals(border.Tag) && border.Background is ImageBrush; }) == 4
+                    && prefs.GetVisualDescendants().OfType<Border>().Where(delegate(Border border) { var tag = border.Tag as string; return tag != null && (tag.StartsWith("skin:") || tag.StartsWith("skin-locked:")); }).All(delegate(Border border) { return ToolTip.GetTip(border) == null; }),
+                    "…les quatre skins « Museum » montrent une vraie capture en vignette ; plus d'étiquette PREMIUM, ni de descriptif, ni d'infobulle");
 
                 foreach (var id in new[] { Skins.MuseumAscent, Skins.MuseumFire, Skins.MuseumWood, Skins.MuseumOath })
                 {
@@ -212,6 +217,23 @@ namespace Marabook.App
                         await Settle();
                         Shot(shell, "museum-" + id + "-ecrit.png");
                     }
+                    // Les vues dessinées à la main (26/11/2026, Rémi) : le Graphe en cartels, la Frise en losanges et bandeaux.
+                    shell.ShowGraphForProbe();
+                    await Settle();
+                    await Settle();
+                    var graphNodes = shell.GraphViewForProbe.GetVisualDescendants().OfType<GraphView.NodeView>().ToList();
+                    Check(graphNodes.Count > 0 && graphNodes.All(delegate(GraphView.NodeView node) { return node.CartelForProbe && node.Label.FontSize >= 11 && node.Label.FontFamily == Skin.TitleFont && node.CartelContrastForProbe >= 7; }),
+                        "…les " + graphNodes.Count + " nœuds du Gros Graph posent leur titre sur un cartel, dans la police des titres");
+                    Shot(shell, "museum-" + id + "-graphe.png");
+                    Check(shell.GraphViewForProbe.TitleForProbe == "Gros Graph" && shell.GraphViewForProbe.GetVisualDescendants().OfType<ViewBanner>().Count() == 1, "…le Gros Graph porte le bandeau des vues d'atterrissage : icône, titre, sans description");
+                    Check(TimelineView.PointShapeForProbe == "losange" && TimelineView.EraShapeForProbe == "bandeau", "…sur une frise, l'événement ponctuel est un losange et l'ère un bandeau");
+                    if (frise != null)
+                    {
+                        shell.Binder.SelectItem(frise.Id);
+                        await Settle();
+                        await Settle();
+                        Shot(shell, "museum-" + id + "-frise.png");
+                    }
                     // L'autre visage (clair pour un skin de nuit, sombre pour Bois Blanc) : dérivé, il doit rester lisible.
                     AppSettings.DarkTheme = !night;
                     shell.ApplyAppearanceForProbe();
@@ -228,6 +250,24 @@ namespace Marabook.App
                     else
                     {
                         ProbeNotAscension(prefs, name);
+                        // « Gardien du Feu » (26/11) : le cartel des vues, la teinte pastel des familles de fiches, la piste à losanges.
+                        var famSheetsroot = project.Category(Project.KeySheets);
+                        if (famSheetsroot != null)
+                        {
+                            shell.Binder.SelectItem(famSheetsroot.Id);
+                            for (var i = 0; i < 3; i++) await Settle();
+                            if (id == Skins.MuseumFire)
+                            {
+                                Check(!shell.GetVisualDescendants().OfType<TextBlock>().Any(delegate(TextBlock each) { return "view-cartel".Equals(each.Tag); }), "…plus de cartel en capitales au-dessus des vues : le bandeau de la vue dit où l'on est");
+                                var famTints = new System.Collections.Generic.List<Color>();
+                                for (var i = 0; i < 6; i++) famTints.Add(Skin.FamilyColor(i, true));
+                                var famFirst = project.TopCategories().FirstOrDefault();
+                                Check(famTints.Distinct().Count() == 6 && famTints.All(delegate(Color each) { return Math.Abs(Chrome.Luma(each) - Chrome.Luma(famTints[0])) < 40; }) && Skin.FamilyTint(famFirst, project) != null && Skin.DiamondTracks,
+                                    "…une teinte pastel par famille de fiches (six teintes distinctes, de clarté voisine), et la piste à losanges pour l'intensité des plans");
+                                Shot(shell, "feu-fiches-familles.png");
+                            }
+                            else Check(Skin.FamilyTint(project.TopCategories().FirstOrDefault(), project) == null && Skin.DiamondTracks == (id == Skins.MuseumAscent), "…pas de teinte par famille sous " + name);
+                        }
                         // Les textures tracées du 25/11 au soir : le marbre de « Bois Blanc », le kintsugi d'« Assermenté ».
                         if (id == Skins.MuseumWood) Check(Skin.MarbleSidesForProbe && Skin.SideReliefForProbe > 0.03, "…la Pile et le rail de « Bois Blanc » portent un marbre tracé, sous leur verre");
                         else Check(!Skin.MarbleSidesForProbe || !Skin.FrostedSides, "…pas de marbre sous " + name);

@@ -54,6 +54,50 @@ namespace Marabook.App
             return button;
         }
 
+        /// <summary>Une entrée du bouton « Nouveau ▾ ».</summary>
+        public sealed class MenuEntry
+        {
+            public string Icon, Label, Tip;
+            public Action Run;
+            /// <summary>Faux : l'entrée est absente du menu (un profil la cache).</summary>
+            public Func<bool> Shown;
+            public MenuEntry(string icon, string label, Action run, string tip = null, Func<bool> shown = null) { Icon = icon; Label = label; Run = run; Tip = tip; Shown = shown; }
+        }
+
+        /// <summary>LE BOUTON « NOUVEAU ▾ » (26/11/2026, Rémi : la barre de commande des vues) — UN bouton principal
+        /// qui déroule ce que la vue sait créer, à la place d'une rangée de « Nouveau… » qui passait sur deux lignes
+        /// (cinq sur un livre, cinq sur les Fiches). Les autres actions de la barre deviennent des boutons discrets.</summary>
+        public static Button NewMenu(string tooltip, double height, params MenuEntry[] entries)
+        {
+            var button = IconText("plus-bold", "Nouveau ▾", tooltip, height, Look.Primary);
+            button.Tag = "new-menu";
+            button.Click += delegate
+            {
+                var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+                foreach (var entry in entries)
+                {
+                    if (entry == null || (entry.Shown != null && !entry.Shown())) continue;
+                    var run = entry.Run;
+                    var item = new MenuItem { Header = entry.Label, Tag = "new:" + entry.Label };
+                    if (entry.Icon != null) item.Icon = Icons.Make(entry.Icon, 14, Chrome.Ink);
+                    if (entry.Tip != null) ToolTip.SetTip(item, entry.Tip);
+                    // Après la fermeture du menu : une entrée peut en ouvrir un autre, sur le même bouton.
+                    item.Click += delegate { Avalonia.Threading.Dispatcher.UIThread.Post(delegate { if (run != null) run(); }, Avalonia.Threading.DispatcherPriority.Background); };
+                    menu.Items.Add(item);
+                }
+                Ui.ShowMenu(menu, button);
+            };
+            return button;
+        }
+
+        /// <summary>Sonde : les libellés que « Nouveau ▾ » déroulerait.</summary>
+        internal static System.Collections.Generic.List<string> NewMenuLabelsForProbe(MenuEntry[] entries)
+        {
+            var labels = new System.Collections.Generic.List<string>();
+            foreach (var entry in entries) if (entry != null && (entry.Shown == null || entry.Shown())) labels.Add(entry.Label);
+            return labels;
+        }
+
         /// <summary>Le GRAND CARRÉ du ruban : icône en haut au centre, libellé
         /// dessous, toute la hauteur du ruban.</summary>
         public static Button Big(string icon, string label, string tooltip, double size, Look look)

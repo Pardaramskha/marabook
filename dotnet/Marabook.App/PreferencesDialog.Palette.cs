@@ -265,7 +265,7 @@ namespace Marabook.App
             var zoomRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
             _zoomSlider = new Slider { Minimum = 100, Maximum = 200, Value = Math.Round(AppSettings.UiZoom * 100), TickFrequency = 5, IsSnapToTickEnabled = true, Width = 260, VerticalAlignment = VerticalAlignment.Center, Tag = "ui-zoom" };
             _zoomLabel = new TextBlock { Foreground = Chrome.Ink, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 12, 0), Width = 52, Tag = "ui-zoom-label" };
-            var zoomReset = Buttons.Text("100 %", "Revenir à la taille d'origine", Buttons.Compact, Buttons.Look.Outline);
+            var zoomReset = Buttons.Text("Taille d'origine", "Revenir à 100 %", Buttons.Compact, Buttons.Look.Outline);
             zoomReset.Tag = "ui-zoom-reset";
             zoomReset.VerticalAlignment = VerticalAlignment.Center;
             zoomReset.Click += delegate { _zoomSlider.Value = 100; };

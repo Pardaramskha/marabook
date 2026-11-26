@@ -26,7 +26,7 @@ namespace Marabook.App
 
         /// <summary>Une PAGE de la Pile qui n'est pas du projet (le Gros Graph, l'Atelier) :
         /// rien à y créer, à renommer, à supprimer ni à y déposer.</summary>
-        public static bool IsPageKey(string key) { return key == GraphKey || key == AtelierKey; }
+        public static bool IsPageKey(string key) { return key == GraphKey || key == ProfilerKey || key == AtelierKey; }
 
         private Control BuildAtelierView()
         {

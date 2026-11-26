@@ -42,6 +42,9 @@ namespace Marabook.App
             var path = achievement.ModuleId != null
                 ? ModuleImagePath(achievement.ModuleId, achievement.Id)
                 : ImagePath(achievement.Id);
+            // L'image d'un succès de DLC (26/11/2026, Rémi) : celle du module s'il en apporte une, sinon celle que
+            // Marabook embarque sous le même identifiant.
+            if (achievement.ModuleId != null && !File.Exists(path)) path = ImagePath(achievement.Id);
             Avalonia.Media.Imaging.Bitmap source = null;
             if (File.Exists(path))
             {
@@ -66,7 +69,7 @@ namespace Marabook.App
                 // Pas de conversion en gris chez Avalonia : l'opacité du cadre suffit.
                 var picture = new ImageBrush(source) { Stretch = Stretch.UniformToFill };
                 // Les trois succès qui débloquent un skin (26/11, Rémi) : leur image est serrée — on n'en garde que le cœur.
-                if (achievement.UnlocksSkin != null) picture.SourceRect = new RelativeRect(RewardCrop, RewardCrop, 1 - 2 * RewardCrop, 1 - 2 * RewardCrop, RelativeUnit.Relative);
+                if (achievement.UnlocksSkin != null && achievement.Id != Achievements.World) picture.SourceRect = new RelativeRect(RewardCrop, RewardCrop, 1 - 2 * RewardCrop, 1 - 2 * RewardCrop, RelativeUnit.Relative);
                 frame.Background = picture;
                 return frame;
             }

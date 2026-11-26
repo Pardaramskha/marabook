@@ -352,8 +352,8 @@ namespace Marabook.App
                     if (arg == "open" && !AppSettings.BinderVisible) ToggleBinder();
                     break;
                 case "graph": // la facette et l'amplitude du Gros Graph (1/11)
-                    if (_graphView == null || !_graphView.IsVisible) ShowGraph();
-                    if (arg == "presences") _graphView.ShowFacetForTutorial("Présences");
+                    if (arg == "presences") { _binder.SelectItem(ProfilerItemId, true); break; } // le tableau des présences est une page à part : le Profiler (26/11)
+                    if (_graphView == null || !_graphView.IsVisible || !ReferenceEquals(_current, _graphItem)) _binder.SelectItem(GraphItemId, true);
                     else if (arg == "scope:all") _graphView.ScopeForProbe(0); // « Tout le récit »
                     break;
                 case "window":

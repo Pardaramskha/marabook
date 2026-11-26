@@ -44,6 +44,15 @@ namespace Marabook.App
             if (face != null) foreach (var c in sample) { ushort glyph; if (!face.TryGetGlyph(c, out glyph) || glyph == 0) missing += "U+" + ((int)c).ToString("X4") + " "; }
             Check(face != null && missing.Length == 0, "…« " + sample + " » se compose sans glyphe manquant" + (missing.Length > 0 ? " (manquent : " + missing + ")" : ""));
             Check(!AscensionArt.Moving, "…sous une sonde, l'horloge des ornements est figée (images stables)");
+            // Les polices des quatre skins sont EMBARQUÉES (26/11) : chacune se résout par son nom, en quatre graisses, sans repli.
+            var unresolved = "";
+            foreach (var family in Skin.EmbeddedFamilies)
+                foreach (var weight in family == "Ascension SC" ? new[] { FontWeight.Normal } : new[] { FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold })
+                {
+                    var found = new Typeface(Skin.Embedded(family), FontStyle.Normal, weight).GlyphTypeface;
+                    if (found == null || found.FamilyName != family || (family != "Ascension SC" && found.Weight != weight)) unresolved += family + " " + weight + " (" + (found == null ? "introuvable" : found.FamilyName + " " + found.Weight) + ") ; ";
+                }
+            Check(unresolved.Length == 0, "les polices des skins sont embarquées : " + Skin.EmbeddedFamilies.Length + " familles, quatre graisses chacune" + (unresolved.Length > 0 ? " — en défaut : " + unresolved : ""));
 
             // 3 et 4. Les trois métaux.
             Check(MetalSwatches(prefs) == 3, "trois pastilles de métal après les couleurs communes (or, vermeil, argent)");
@@ -189,13 +198,13 @@ namespace Marabook.App
             Func<string, int> cards = delegate(string prefix) { return prefs.GetVisualDescendants().OfType<Border>().Count(delegate(Border border) { var tag = border.Tag as string; return tag != null && tag.StartsWith(prefix); }); };
             try
             {
-                foreach (var id in new[] { Achievements.FireKeeper, Achievements.WhiteWood, Achievements.Sworn }) AppSettings.Achievements.Remove(id);
+                foreach (var id in new[] { Achievements.FireKeeper, Achievements.WhiteWood, Achievements.Sworn, Achievements.World }) AppSettings.Achievements.Remove(id);
                 AppSettings.EverythingUnlocked = false;
                 prefs.RebuildSkinsForProbe();
                 await Settle();
                 var current = Skin.Current;
-                var expected = 3 - (Skins.UnlockedBy(current) != null ? 1 : 0);
-                Check(cards("skin-locked:") == expected && cards("skin:") == Skins.Ids.Length - expected, "sans leurs succès, les skins « Museum » à débloquer sont verrouillés (" + cards("skin-locked:") + ") — pas celui en cours, ni « Ascension »");
+                var expected = 4 - (Skins.UnlockedBy(current) != null ? 1 : 0);
+                Check(cards("skin-locked:") == expected && cards("skin:") == Skins.Ids.Length - expected, "sans leurs succès, les quatre skins « Museum » sont verrouillés (" + cards("skin-locked:") + ") — pas celui en cours");
                 AppSettings.Achievements[Achievements.FireKeeper] = "2026-11-25 23:00";
                 prefs.RebuildSkinsForProbe();
                 await Settle();
@@ -222,6 +231,30 @@ namespace Marabook.App
                 await Settle();
                 Check(cards("skin-locked:") == 0, "…plus aucun skin verrouillé dans les Préférences");
                 prefs.Hide();
+
+                // « S'offrir un monde » : le code de mise au point rejoue sa fenêtre, sans export ; « En avant ! » donne le succès.
+                AppSettings.EverythingUnlocked = false;
+                AppSettings.Achievements.Remove(Achievements.World);
+                palette = shell.QuickOpenForProbe;
+                await Settle();
+                palette.TypeForProbe(Skins.DevAscension);
+                await Settle();
+                Check(palette.ResultCountForProbe == 1, "« dev-ascension » dans la palette : une ligne de mise au point");
+                palette.ChooseForProbe();
+                for (var i = 0; i < 4; i++) await Settle();
+                var world = shell.OwnedWindows.OfType<OfferedWorldDialog>().FirstOrDefault();
+                Check(world != null && world.SystemDecorations == SystemDecorations.None && !ModalChrome.DressedForProbe(world)
+                    && !world.GetVisualDescendants().OfType<Control>().Any(delegate(Control control) { return "modal-close".Equals(control.Tag); })
+                    && world.GetVisualDescendants().OfType<OfferedWorldDialog.WorldFrame>().Any(),
+                    "…la fenêtre « Vous avez réussi » s'ouvre : sa propre silhouette (une arche), ni barre de titre ni croix");
+                var heading = world == null ? null : world.GetVisualDescendants().OfType<TextBlock>().FirstOrDefault(delegate(TextBlock block) { return "world-heading".Equals(block.Tag); });
+                var texts = world == null ? 0 : world.GetVisualDescendants().OfType<TextBlock>().Count(delegate(TextBlock block) { return "world-text".Equals(block.Tag) && block.Foreground is LinearGradientBrush; });
+                Check(heading != null && heading.Text == "VOUS AVEZ RÉUSSI" && heading.FontFamily == Skin.AscentTitleFont && texts == 4, "…son grand titre centré dans la police d'« Ascension », son texte en lettres d'or (" + texts + " paragraphes), quel que soit le skin en cours (" + Skin.Current + ")");
+                if (world != null) { Shot(world, "monde-vous-avez-reussi.png"); world.ForwardForProbe(); }
+                for (var i = 0; i < 4; i++) await Settle();
+                Check(AppSettings.Achievements.ContainsKey(Achievements.World) && !AppSettings.SkinLocked(Skins.MuseumAscent), "« En avant ! » la referme et donne « S'offrir un monde » : « Ascension » est débloqué");
+                AppSettings.Achievements.Remove(Achievements.World);
+                AppSettings.EverythingUnlocked = true;
 
                 // Un succès obtenu dit, en gras, ce qu'il a débloqué.
                 AppSettings.Achievements[Achievements.Sworn] = "2026-11-25 23:00";
@@ -370,6 +403,21 @@ namespace Marabook.App
             for (var i = 0; i < 3; i++) await Settle();
             Check(view != null && view.GetVisualDescendants().OfType<Grid>().Any(delegate(Grid grid) { return "journal-medal-bar".Equals(grid.Tag); }), "…l'onglet Succès ouvre sur le médaillier : le compte et sa barre de magie");
             if (journal != null) Shot(journal, "ascension2-journal-succes.png");
+            // Les succès des DLC à part (26/11/2026, Rémi) : sous ceux de Marabook, sous leur titre, avant les secrets.
+            if (view != null)
+            {
+                Achievements.SetModuleAchievements(new System.Collections.Generic.List<Achievement> { new Achievement("mo-atelier", "Bientôt ce sera un deck entier", "Sonde.") { ModuleId = "mental-o" } });
+                view.RefreshAchievements();
+                for (var i = 0; i < 2; i++) await Settle();
+                var lines = view.GetVisualDescendants().OfType<TextBlock>().Select(delegate(TextBlock block) { return "achievements-dlc".Equals(block.Tag) ? "#dlc" : "achievements-secrets".Equals(block.Tag) ? "#secrets" : (block.Text ?? "").ToLowerInvariant(); }).ToList();
+                var dlcAt = lines.IndexOf("#dlc");
+                Check(dlcAt > lines.IndexOf("empereur des nerds") && lines.IndexOf("empereur des nerds") >= 0 && lines.IndexOf("bientôt ce sera un deck entier") > dlcAt && lines.IndexOf("#secrets") > lines.IndexOf("bientôt ce sera un deck entier")
+                    && lines.IndexOf("crétin des alpes") > lines.IndexOf("#secrets"),
+                    "…les succès des DLC ont leur section, sous ceux de Marabook et avant les secrets — où « Crétin des alpes » est passé");
+                if (journal != null) Shot(journal, "journal-succes-dlc.png");
+                Achievements.SetModuleAchievements(Modules.ModuleAchievements());
+                view.RefreshAchievements();
+            }
             if (view != null) view.SelectTabForTutorial(0);
             // …et au clair (non maquetté).
             AppSettings.DarkTheme = false;

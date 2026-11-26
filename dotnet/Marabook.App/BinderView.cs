@@ -68,6 +68,8 @@ namespace Marabook.App
         /// coquille, montré comme une racine d'Encyclopédie — sélectionnable,
         /// jamais déplacé ni cible de dépôt, sans menu.</summary>
         public BinderItem GraphItem;
+        /// <summary>Le Profiler (26/11) : le tableau des présences, une page à part sous le Gros Graph.</summary>
+        public BinderItem ProfilerItem;
         /// <summary>L'Atelier (21/11) : la première page de la section Outils — pas un item du projet.</summary>
         public BinderItem AtelierItem;
         // Épingler sur le côté (b47) : la coquille tient l'épingle ; la Pile
@@ -551,6 +553,16 @@ namespace Marabook.App
             return null;
         }
 
+        /// <summary>Le nom de la section de la Pile où vit cet élément (« Encyclopédie » pour une fiche), ou null.</summary>
+        internal static string SectionNameOf(BinderItem item)
+        {
+            if (item == null) return null;
+            if (item.IsCategory && (item.CategoryKey == MainWindow.GraphKey || item.CategoryKey == MainWindow.ProfilerKey)) return "Encyclopédie";
+            if (item.IsCategory && item.CategoryKey == MainWindow.AtelierKey) return "Outils";
+            var section = SectionOf(item.RootCategory());
+            return section == null ? null : section.Name;
+        }
+
         /// <summary>Sonde (1.1.0) : les sections et leur état, dans l'ordre.</summary>
         internal static List<string> SectionNames()
         {
@@ -670,7 +682,8 @@ namespace Marabook.App
                     // Le graphe relationnel (1.1.0, 28/10) : une entrée fixe
                     // sous le Dictionnaire — pas un item du projet.
                     if (section.Name == "Outils" && AtelierItem != null) _tree.Items.Add(BuildNode(AtelierItem)); // une page, comme le graphe
-                    if (section.Name == "Encyclopédie" && GraphItem != null && Profiles.Enabled(Profiles.Graph)) _tree.Items.Add(BuildNode(GraphItem)); // une racine comme les autres : sélectionnable, dans l'historique et les onglets
+                    if (section.Name == "Encyclopédie" && ProfilerItem != null && GraphItem != null && Profiles.Enabled(Profiles.Graph)) { _tree.Items.Add(BuildNode(GraphItem)); _tree.Items.Add(BuildNode(ProfilerItem)); }
+                    else if (section.Name == "Encyclopédie" && GraphItem != null && Profiles.Enabled(Profiles.Graph)) _tree.Items.Add(BuildNode(GraphItem)); // une racine comme les autres : sélectionnable, dans l'historique et les onglets
                 }
                 // Une racine qu'aucune section ne nomme (un .plot plus récent) :
                 // jamais perdue, posée à la suite.
@@ -916,7 +929,7 @@ namespace Marabook.App
             {
                 Text = name,
                 Foreground = ink,
-                FontSize = 10.5,
+                FontSize = 11,
                 FontWeight = FontWeight.SemiBold,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 6, 0)
@@ -992,7 +1005,10 @@ namespace Marabook.App
 
         private Control BuildHeader(BinderItem item)
         {
-            var panel = new StackPanel { Orientation = Orientation.Horizontal };
+            // Une rangée qui TRONQUE SON TITRE (26/11, Rémi : « Chapitre premier — Le ven », coupé sans points de
+            // suspension) : dans une rangée horizontale ordinaire, le titre est mesuré sans borne et se fait
+            // rogner par le bord de la Pile ; ici, c'est lui qui cède la place, avec ses points de suspension.
+            var panel = new TrimRow();
             // Gabarits de pages : blueprint teinté de leur couleur.
             if (item.Kind == ItemKind.PageTemplate)
             {
@@ -1036,6 +1052,7 @@ namespace Marabook.App
                 title.Foreground = Chrome.SoftText;
             }
             panel.Children.Add(title);
+            panel.Shrink = title;
 
             // Le bouton de repli de la Pile (29/09), collé à droite de la
             // ligne Accueil : un caret vers la gauche ; la coquille cache la
@@ -2892,7 +2909,7 @@ namespace Marabook.App
                 {
                     Text = path,
                     Foreground = Chrome.SoftText,
-                    FontSize = 10,
+                    FontSize = 11,
                     TextTrimming = TextTrimming.CharacterEllipsis
                 });
             return new ListBoxItem { Content = panel, Tag = item.Id };
@@ -3030,6 +3047,49 @@ namespace Marabook.App
                 current = (current as Visual)?.GetVisualParent();
             var node = current as TreeViewItem;
             return node != null && node.Tag is BinderItem ? node : null;
+        }
+    }
+
+    /// <summary>UNE RANGÉE HORIZONTALE DONT UN ENFANT CÈDE (26/11/2026) : tous sont mesurés à leur aise, sauf
+    /// <see cref="Shrink"/> — le titre d'une ligne de la Pile — qui ne reçoit que ce qui reste et se tronque
+    /// donc de lui-même (points de suspension), au lieu d'être rogné par le bord.</summary>
+    internal sealed class TrimRow : StackPanel // une StackPanel pour qui la cherche (renommer en place, sondes) — sa mise en page est la sienne
+    {
+        public Control Shrink;
+        public TrimRow() { Orientation = Orientation.Horizontal; }
+
+        protected override Size MeasureOverride(Size availableSize)
+        {
+            double used = 0, height = 0;
+            foreach (var child in Children)
+            {
+                if (ReferenceEquals(child, Shrink)) continue;
+                child.Measure(new Size(double.PositiveInfinity, availableSize.Height));
+                used += child.DesiredSize.Width;
+                height = Math.Max(height, child.DesiredSize.Height);
+            }
+            if (Shrink != null && Children.Contains(Shrink))
+            {
+                var room = double.IsInfinity(availableSize.Width) ? double.PositiveInfinity : Math.Max(0, availableSize.Width - used);
+                Shrink.Measure(new Size(room, availableSize.Height));
+                used += Shrink.DesiredSize.Width;
+                height = Math.Max(height, Shrink.DesiredSize.Height);
+            }
+            return new Size(used, height);
+        }
+
+        protected override Size ArrangeOverride(Size finalSize)
+        {
+            double fixedWidth = 0;
+            foreach (var child in Children) if (!ReferenceEquals(child, Shrink)) fixedWidth += child.DesiredSize.Width;
+            double x = 0;
+            foreach (var child in Children)
+            {
+                var width = ReferenceEquals(child, Shrink) ? Math.Max(0, Math.Min(child.DesiredSize.Width, finalSize.Width - fixedWidth)) : child.DesiredSize.Width;
+                child.Arrange(new Rect(x, 0, width, finalSize.Height));
+                x += width;
+            }
+            return finalSize;
         }
     }
 }

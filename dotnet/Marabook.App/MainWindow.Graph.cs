@@ -33,13 +33,29 @@ namespace Marabook.App
             Icon = "svg:gg" // le dessin de Rémi (GG.svg)
         };
 
-        private static bool IsGraphItem(BinderItem item) { return item != null && item.IsCategory && item.CategoryKey == GraphKey; }
+        /// <summary>LE PROFILER (26/11/2026, Rémi) : le tableau des présences, sorti du Gros Graph — une autre
+        /// page synthétique de la Pile (section Encyclopédie, sous le Gros Graph), servie par la même vue.</summary>
+        public const string ProfilerItemId = "profiler";
+        public const string ProfilerKey = "profiler";
+        private readonly BinderItem _profilerItem = new BinderItem
+        {
+            Id = ProfilerItemId,
+            Kind = ItemKind.Category,
+            CategoryKey = ProfilerKey,
+            Title = "Profiler",
+            Icon = "svg:flying-flag"
+        };
+
+        private static bool IsProfilerItem(BinderItem item) { return item != null && item.IsCategory && item.CategoryKey == ProfilerKey; }
+        /// <summary>Vrai pour les deux pages de la vue du graphe : le Gros Graph et le Profiler.</summary>
+        private static bool IsGraphItem(BinderItem item) { return item != null && item.IsCategory && (item.CategoryKey == GraphKey || item.CategoryKey == ProfilerKey); }
 
         /// <summary>Un item par son id : du projet, ou le graphe.</summary>
         private BinderItem ResolveItem(string id)
         {
             if (id == null) return null;
             if (id == GraphItemId) return Profiles.Enabled(Profiles.Graph) ? _graphItem : null;
+            if (id == ProfilerItemId) return Profiles.Enabled(Profiles.Graph) ? _profilerItem : null;
             if (id == AtelierItemId) return _atelierItem; // l'Atelier (21/11)
             return _project == null ? null : _project.FindById(id);
         }
@@ -48,6 +64,8 @@ namespace Marabook.App
         {
             _graphView = new GraphView { IsVisible = false };
             _binder.GraphItem = _graphItem;
+            _binder.ProfilerItem = _profilerItem;
+            _graphView.SheetsRequested += delegate { var sheets = _project == null ? null : _project.Category(Project.KeySheets); if (sheets != null) _binder.SelectItem(sheets.Id, true); };
             _graphView.NodeSelected += InspectCard;
             _graphView.NavigateRequested += delegate(BinderItem item) { _binder.SelectItem(item.Id, true); };
             _graphView.NewTabRequested += OpenInNewTab;
@@ -77,6 +95,7 @@ namespace Marabook.App
             _sheetView.Clear();
             _graphView.IsVisible = true;
             _graphView.Open(_project);
+            _graphView.ShowAs(IsProfilerItem(_current)); // le Gros Graph montre la carte, le Profiler le tableau des présences
             RefreshGraphSection();
         }
 

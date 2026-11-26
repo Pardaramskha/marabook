@@ -518,7 +518,7 @@ namespace Marabook.App
             var hasCaption = !string.IsNullOrEmpty(caption);
             context.DrawText(big, new Point(center.X - big.Width / 2, center.Y - big.Height / 2 - (hasCaption ? 7 * k : 0)));
             if (!hasCaption) return;
-            var small = new FormattedText(caption, culture, FlowDirection.LeftToRight, new Typeface(Skin.UiFont ?? FontFamily.Default, FontStyle.Normal, FontWeight.Medium), 9, Chrome.SoftText);
+            var small = new FormattedText(caption, culture, FlowDirection.LeftToRight, new Typeface(Skin.UiFont ?? FontFamily.Default, FontStyle.Normal, FontWeight.Medium), 11, Chrome.SoftText);
             context.DrawText(small, new Point(center.X - small.Width / 2, center.Y + 13 * k));
         }
     }

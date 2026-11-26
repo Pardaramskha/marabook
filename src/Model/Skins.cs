@@ -41,7 +41,7 @@ namespace Marabook.Model
 
         /// <summary>LES SKINS À DÉBLOQUER (25/11/2026, Rémi) : « Gardien du Feu », « Bois Blanc » et
         /// « Assermenté » s'ouvrent chacun par un succès secret ; l'identifiant de ce succès, null pour
-        /// un skin libre. (« Ascension » n'a pas de succès : il reste libre.)</summary>
+        /// un skin libre. « Ascension » s'ouvre par le dernier : « S'offrir un monde ».</summary>
         public static string UnlockedBy(string id)
         {
             switch (Normalize(id))
@@ -49,6 +49,7 @@ namespace Marabook.Model
                 case MuseumFire: return Achievements.FireKeeper;
                 case MuseumWood: return Achievements.WhiteWood;
                 case MuseumOath: return Achievements.Sworn;
+                case MuseumAscent: return Achievements.World; // « S'offrir un monde » (26/11)
                 default: return null;
             }
         }
@@ -65,6 +66,11 @@ namespace Marabook.Model
         /// validée, cette phrase débloque tous les skins — et, à terme, tout ce qui se débloque dans
         /// l'application, hors succès. Sans casse, ni accents, ni ponctuation finale.</summary>
         public const string Sesame = "Je veux un monde meilleur";
+        /// <summary>Le code de mise au point (26/11) : tapé seul dans la même palette, il rejoue la fenêtre
+        /// « Vous avez réussi » de « S'offrir un monde », sans export.</summary>
+        public const string DevAscension = "dev-ascension";
+        public static bool IsDevAscension(string typed) { return string.Equals((typed ?? "").Trim(), DevAscension, StringComparison.OrdinalIgnoreCase); }
+
         public static bool IsSesame(string typed)
         {
             var folded = Correction.FrenchTokenizer.Fold((typed ?? "").Trim().TrimEnd('.', '!', ' ')).ToLowerInvariant();

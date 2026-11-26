@@ -215,7 +215,7 @@ namespace Marabook.App
                 {
                     shell.Binder.SelectItem(keira.Id);
                     await Settle();
-                    if (shell.Sheet.PreviewOnForProbe) { shell.Sheet.HandleFunctionKey(new Avalonia.Input.KeyEventArgs { Key = Avalonia.Input.Key.F1 }); await Settle(); }
+                    if (shell.Sheet.PreviewOnForProbe) { shell.Sheet.HandleFunctionKey(new Avalonia.Input.KeyEventArgs { Key = Avalonia.Input.Key.F4 }); await Settle(); }
                     shell.Sheet.SetViewPosition(1, -1);
                     await Settle();
                     shell.OpenNewTabForProbe();

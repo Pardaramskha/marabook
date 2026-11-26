@@ -133,16 +133,14 @@ namespace Marabook.App
 
             // L'en-tête : le titre à gauche, les facettes calées tout à droite
             // (31/10, Rémi), les filtres de la matrice dessous.
-            var header = new StackPanel { Margin = new Thickness(24, 18, 24, 8), Spacing = 8 };
-            var titleRow = new DockPanel();
-            DockPanel.SetDock(_facetButtons, Dock.Right);
+            _banner = new ViewBanner();
+            _banner.Actions.Children.Add(_summary);
             _facetButtons.VerticalAlignment = VerticalAlignment.Center;
-            titleRow.Children.Add(_facetButtons);
-            var title = new StackPanel();
-            title.Children.Add(new TextBlock { Text = "Graphe relationnel", Foreground = Chrome.Ink, FontSize = 20, FontWeight = FontWeight.SemiBold });
-            title.Children.Add(_summary);
-            titleRow.Children.Add(title); // le dernier enfant prend le reste : le titre, pas les boutons
-            header.Children.Add(titleRow);
+            _banner.Actions.Children.Add(_facetButtons);
+            DockPanel.SetDock(_banner, Dock.Top);
+            Children.Add(_banner);
+            SetBanner(false);
+            var header = new StackPanel { Margin = new Thickness(24, 10, 24, 4), Spacing = 8 };
             AddFacet("Carte", "La carte des liens : relations, liens, présences, structure");
             AddFacet("Présences", "Qui paraît dans quel écrit — et depuis quand on ne l'a plus vu");
 
@@ -412,6 +410,79 @@ namespace Marabook.App
             if (handler != null) handler();
         }
 
+        // ================================================================ le Gros Graph et le Profiler
+
+        /// <summary>LE GROS GRAPH SE SCINDE (26/11/2026, Rémi) : la Carte reste le « Gros Graph » ; le tableau des
+        /// présences devient une page à part de la Pile, le « PROFILER ». La même vue sert les deux : chacune de ses
+        /// deux pages montre UNE facette, et le sélecteur de facettes disparaît.</summary>
+        private ViewBanner _banner;
+        private void SetBanner(bool profiler)
+        {
+            _banner.SetItem(new BinderItem { Kind = ItemKind.Category, Icon = profiler ? "svg:flying-flag" : "svg:gg", Title = profiler ? "Profiler" : "Gros Graph" });
+        }
+        internal string TitleForProbe { get { return _banner.Title; } }
+        private Control _lock;
+        public bool ProfilerShown { get; private set; }
+        /// <summary>Le lien « Fiches » du Profiler verrouillé.</summary>
+        public event Action SheetsRequested;
+
+        public void ShowAs(bool profiler)
+        {
+            ProfilerShown = profiler;
+            SetBanner(profiler);
+            _facetButtons.IsVisible = false;
+            ShowFacet(profiler ? "Présences" : "Carte");
+            RefreshLock();
+        }
+
+        /// <summary>Le Profiler a besoin d'au moins un personnage fiché et d'un écrit.</summary>
+        public static bool ProfilerUnlocked(Project project)
+        {
+            if (project == null) return false;
+            bool character = false, text = false;
+            foreach (var item in project.AllItems())
+            {
+                if (item.IsCategory) continue;
+                var root = item.RootCategory();
+                if (root != null && root.CategoryKey == Project.KeyTrash) continue;
+                if (item.Kind == ItemKind.Text && !item.IsExtraPage && !item.IsToc && root != null && root.CategoryKey == Project.KeyWritings) text = true;
+                else if (item.Kind == ItemKind.Sheet)
+                {
+                    var category = project.TopSheetCategoryOf(item);
+                    if (category != null && Achievements.IsCharacterCategory(category.Name)) character = true;
+                }
+                if (character && text) return true;
+            }
+            return false;
+        }
+
+        internal bool LockedForProbe { get { return _lock != null && _lock.IsVisible; } }
+
+        /// <summary>« Tableau verrouillé » : le cadenas, le message, et un lien vers les Fiches — à la place du tableau.</summary>
+        private void RefreshLock()
+        {
+            var locked = ProfilerShown && !ProfilerUnlocked(_project);
+            if (_lock == null && locked)
+            {
+                var column = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Spacing = 6, Tag = "profiler-lock" };
+                var padlock = Icons.Make("padlock", 54, Chrome.SoftText) as Control;
+                if (padlock != null) { padlock.HorizontalAlignment = HorizontalAlignment.Center; padlock.Margin = new Thickness(0, 0, 0, 10); column.Children.Add(padlock); }
+                column.Children.Add(new TextBlock { Text = "Tableau verrouillé", Foreground = Chrome.Ink, FontSize = 18, FontWeight = FontWeight.SemiBold, HorizontalAlignment = HorizontalAlignment.Center });
+                column.Children.Add(new TextBlock { Text = "Créez au moins un personnage et un écrit pour utiliser le profiler", Foreground = Chrome.SoftText, HorizontalAlignment = HorizontalAlignment.Center, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap });
+                var link = Buttons.Text("Aller aux Fiches", "Ouvrir la bibliothèque des fiches", Buttons.Compact, Buttons.Look.Outline);
+                link.HorizontalAlignment = HorizontalAlignment.Center;
+                link.Margin = new Thickness(0, 10, 0, 0);
+                link.Tag = "profiler-sheets";
+                link.Click += delegate { var handler = SheetsRequested; if (handler != null) handler(); };
+                column.Children.Add(link);
+                _lock = column;
+                var host = _matrixHost.Parent as Panel;
+                if (host != null) host.Children.Add(_lock);
+            }
+            if (_lock != null) _lock.IsVisible = locked;
+            if (ProfilerShown) { _matrixHost.IsVisible = !locked; _matrixTools.IsVisible = !locked; }
+        }
+
         /// <summary>La Carte est-elle devant ? Ses outils ont alors leur place dans le Général.</summary>
         public bool MapShown { get { return _facet == "Carte"; } }
 
@@ -633,7 +704,7 @@ namespace Marabook.App
                 _items.TryGetValue(node.Id, out item);
                 var view = new NodeView(this, node, item, NodeBrush(node));
                 _nodes[node.Id] = view;
-                _world.Children.Add(view.Label);
+                _world.Children.Add(view.Caption);
                 _world.Children.Add(view);
                 view.Place(at.X, at.Y);
             }
@@ -733,10 +804,10 @@ namespace Marabook.App
             {
                 var shown = NodeShown(pair.Key);
                 pair.Value.IsVisible = shown;
-                pair.Value.Label.IsVisible = shown && labels;
+                pair.Value.Caption.IsVisible = shown && labels;
                 var lit = NodeLit(pair.Key);
                 pair.Value.Opacity = lit ? 1 : 0.18;
-                pair.Value.Label.Opacity = lit ? 1 : 0.25;
+                pair.Value.Caption.Opacity = lit ? 1 : 0.25;
                 pair.Value.SetSelected(pair.Key == _selectedId);
             }
             _edges.Invalidate();
@@ -1111,6 +1182,7 @@ namespace Marabook.App
         public string ScopeLabelForProbe { get { return _scopeBox.SelectedItem as string ?? ""; } }
         public string TypeLabelForProbe { get { return _typeBox.SelectedItem as string ?? ""; } }
         public bool NodeShowsPortraitForProbe(string id) { NodeView view; return _nodes.TryGetValue(id, out view) && view.HasPortrait; }
+        public bool NodeCartelForProbe(string id) { NodeView view; return _nodes.TryGetValue(id, out view) && view.CartelForProbe; }
 
         /// <summary>Sonde/capture : la carte centrée, au zoom donné, sur la
         /// première fiche à portrait (ou le premier nœud à défaut).</summary>
@@ -1249,6 +1321,12 @@ namespace Marabook.App
         {
             public readonly GraphNode Node;
             public readonly TextBlock Label;
+            /// <summary>Ce qui se pose sous la pastille : le titre nu, ou — sous un skin « Museum » (26/11/2026,
+            /// Rémi) — son CARTEL, la plaquette au filet de la couleur du nœud, comme sous une pièce exposée.</summary>
+            public readonly Control Caption;
+            internal const double CartelWidth = 168;
+            public bool CartelForProbe { get { return Caption != Label; } }
+            internal double CartelContrastForProbe { get { var holder = Caption as Panel; var plate = holder == null || holder.Children.Count == 0 ? null : holder.Children[0] as Border; var fill = plate == null ? null : plate.Background as SolidColorBrush; return fill == null ? 0 : Chrome.ContrastRatio(Chrome.Ink.Color, Color.FromRgb(fill.Color.R, fill.Color.G, fill.Color.B)); } }
             public readonly bool HasPortrait; // la pastille est l'image de la fiche
             private readonly GraphView _owner;
             private readonly double _radius;
@@ -1325,6 +1403,31 @@ namespace Marabook.App
                     Width = 140,
                     IsHitTestVisible = false
                 };
+                Caption = Label;
+                if (Skin.Museum)
+                {
+                    Label.Width = double.NaN;
+                    Label.MaxWidth = CartelWidth - 16;
+                    Label.TextTrimming = TextTrimming.CharacterEllipsis;
+                    var titleFont = Skin.TitleFont;
+                    if (titleFont != null) Label.FontFamily = titleFont;
+                    // Le fond des CARTES, pas celui du papier (26/11, Rémi) : au sombre avec « papier blanc », le papier
+                    // reste blanc sous une encre claire — le cartel était illisible.
+                    var paper = Chrome.CardBg.Color;
+                    var plate = new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromArgb(0xEC, paper.R, paper.G, paper.B)),
+                        BorderBrush = fill,
+                        BorderThickness = new Thickness(1, 2, 1, 1),
+                        CornerRadius = new CornerRadius(2),
+                        Padding = new Thickness(7, 1, 7, 2),
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        Child = Label
+                    };
+                    var holder = new Panel { Width = CartelWidth, IsHitTestVisible = false, Tag = "graph-cartel" };
+                    holder.Children.Add(plate);
+                    Caption = holder;
+                }
                 ToolTip.SetTip(this, node.Title + " — " + node.Degree + (node.Degree > 1 ? " liens" : " lien") + (node.IsSheet ? ", présente dans " + node.Presence + (node.Presence > 1 ? " écrits" : " écrit") : ""));
                 PointerPressed += OnPressed;
                 PointerMoved += OnMoved;
@@ -1335,8 +1438,8 @@ namespace Marabook.App
             {
                 Canvas.SetLeft(this, x - _radius);
                 Canvas.SetTop(this, y - _radius);
-                Canvas.SetLeft(Label, x - 70);
-                Canvas.SetTop(Label, y + _radius + 2);
+                Canvas.SetLeft(Caption, x - (Caption == Label ? 70 : CartelWidth / 2));
+                Canvas.SetTop(Caption, y + _radius + (Caption == Label ? 2 : 4));
             }
 
             public void SetSelected(bool selected)

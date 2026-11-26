@@ -209,7 +209,7 @@ namespace Marabook.App
                     shell.Binder.SelectItem(keira.Id);
                     await Settle();
                     var sheetView = shell.Sheet;
-                    if (sheetView.PreviewOnForProbe) { sheetView.HandleFunctionKey(new Avalonia.Input.KeyEventArgs { Key = Avalonia.Input.Key.F1 }); await Settle(); }
+                    if (sheetView.PreviewOnForProbe) { sheetView.HandleFunctionKey(new Avalonia.Input.KeyEventArgs { Key = Avalonia.Input.Key.F4 }); await Settle(); }
                     sheetView.ShowGeneralTabForProbe();
                     await Settle();
                     var lines = sheetView.BacklinksForProbe();
