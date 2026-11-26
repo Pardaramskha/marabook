@@ -462,6 +462,13 @@ namespace Marabook.App
             if (owner == null) return;
             var dimmed = opening != null || TopChild(owner, closing) != null; // à son ouverture, la fenêtre n'est pas encore inscrite chez sa parente
             Blur(owner, dimmed);
+            // LES INFOBULLES D'UN DIALOGUE NE S'OUVRAIENT PLUS (26/11, Rémi — trouvé au journal MARABOOK_BULLES) : une
+            // fenêtre couverte par son dialogue se croit toujours survolée, là où la souris l'a quittée (macOS ne lui
+            // dit pas qu'elle en est sortie). À chaque fois qu'elle se repeint à cet endroit, Avalonia y relit
+            // l'infobulle à montrer — aucune, sous le voile — et ANNULE celle que le dialogue s'apprêtait à ouvrir.
+            // Une fenêtre voilée ne décide donc plus des infobulles ; elle les retrouve quand son voile se lève.
+            if (dimmed) ToolTip.SetServiceEnabled(owner, false);
+            else owner.ClearValue(ToolTip.ServiceEnabledProperty);
             if (Applies(owner)) { owner.SetValue(DimmedProperty, dimmed); return; }
             // La fenêtre principale et l'accueil n'ont pas notre gabarit : le voile va dans leur couche d'ornements.
             Border veil;

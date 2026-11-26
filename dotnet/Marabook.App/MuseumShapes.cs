@@ -248,7 +248,7 @@ namespace Marabook.App
         /// <summary>Sous « Ascension », l'anneau est un NIMBE (AscensionArt.Nimbe), plus grand : 150 px.</summary>
         internal const double Side = 110, NimbeSide = 150;
 
-        public GoalRing() { Width = Height = AscensionArt.On ? NimbeSide : Side; AscensionArt.Animate(this); }
+        public GoalRing() { Width = Height = AscensionArt.On ? NimbeSide : Side; AscensionArt.Animate(this, AscensionArt.Kind.Turn); }
 
         public double Ratio { get { return _ratio; } }
         public string Text { get { return _text; } }
@@ -301,7 +301,7 @@ namespace Marabook.App
     {
         private double _ratio;
 
-        public MilestoneBar() { Height = 30; MinWidth = 180; AscensionArt.Animate(this); }
+        public MilestoneBar() { Height = 30; MinWidth = 180; AscensionArt.Animate(this, AscensionArt.Kind.Shine); }
 
         public double Ratio { get { return _ratio; } }
 

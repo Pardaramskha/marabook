@@ -185,6 +185,7 @@ namespace Marabook.App
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot30") { await ProbeLot30(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "profils") { await ProbeProfiles(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "lot31") { await ProbeLot31(shell); throw new OperationCanceledException(); }
+                if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "bulles") { await ProbeTips(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "museum") { await ProbeMuseum(shell); throw new OperationCanceledException(); }
                 if (Environment.GetEnvironmentVariable("MARABOOK_PROBE_ONLY") == "acces") { await ProbeAccessibility(shell); throw new OperationCanceledException(); }
                 // — La coquille sur le projet d'exemple.

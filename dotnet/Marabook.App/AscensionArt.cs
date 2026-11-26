@@ -121,17 +121,40 @@ namespace Marabook.App
 
         // ---------------------------------------------------------------- 3. l'horloge
 
-        internal const double SweepSeconds = 9, ShineSeconds = 3.6, TurnSeconds = 40;
-        private const double SweepRest = 0.44; // figé : le reflet au milieu du filet
+        /// <summary>LE RYTHME (patch performance, 26/11/2026, Rémi : « j'ai peur que les animations ralentissent
+        /// le tout ») — avant, tout ce qui bougeait était repeint vingt fois par seconde, sans répit : les
+        /// cadres enluminés et la silhouette des Préférences faisaient redessiner des fenêtres entières en
+        /// continu. Désormais :
+        ///  · le REFLET des filets passe en 2,6 s puis se repose le reste des 9 s — au repos, plus rien
+        ///    n'est repeint ; le reflet des BARRES passe en 1,4 s toutes les 6 s ;
+        ///  · la couronne du NIMBE tourne toujours, mais n'est repeinte que huit fois par seconde (elle
+        ///    fait un tour en 40 s : personne ne voit la différence) ;
+        ///  · chaque élément n'est repeint que pour CE QUI LE CONCERNE (Kind) ;
+        ///  · rien ne bouge pendant que l'auteur AGIT (souris, molette, clavier : Idle) ni pendant
+        ///    qu'une pastille d'onglet glisse (Quiet) — l'interface garde toute la machine ;
+        ///  · le temps est celui que l'horloge a réellement compté : une pause ne fait rien sauter.</summary>
+        internal const double SweepSeconds = 9, SweepLasts = 2.6, ShineSeconds = 6, ShineLasts = 1.4, TurnSeconds = 40;
+        private const double SweepRest = 0.44; // figé (animations coupées, sonde) : le reflet au milieu du filet
+        /// <summary>Après un geste de l'auteur, les ornements attendent ce temps avant de reprendre.</summary>
+        internal const double IdleSeconds = 0.7;
 
-        private static readonly Stopwatch Clock = Stopwatch.StartNew();
-        private static readonly List<WeakReference<Visual>> Moved = new List<WeakReference<Visual>>();
+        /// <summary>Ce qui fait repeindre un élément : le reflet des filets, celui des barres, la couronne qui tourne.</summary>
+        internal enum Kind { Gilt, Shine, Turn }
+
+        private sealed class Mover { public WeakReference<Visual> Visual; public Kind Kind; }
+
+        private static readonly Stopwatch Wall = Stopwatch.StartNew();
+        private static readonly List<Mover> Moved = new List<Mover>();
         private static DispatcherTimer _timer;
         private static LinearGradientBrush _gilt;
         private static Color _giltFor, _giltLo;
         private static double _giltAt = -1;
+        private static double _time;        // le temps compté par l'horloge, en secondes : il n'avance que quand elle tourne
+        private static double _lastTick = -1, _lastInput = -10, _quietUntil;
+        private static bool _sweeping, _shining, _hooked;
+        private static int _ticks;
 
-        /// <summary>Vrai quand les ornements bougent : « Ascension », animations permises, une fenêtre
+        /// <summary>Vrai quand les ornements PEUVENT bouger : « Ascension », animations permises, une fenêtre
         /// active, et ni sonde ni capture.</summary>
         internal static bool Moving
         {
@@ -139,7 +162,7 @@ namespace Marabook.App
             {
                 if (!On || !AppSettings.Animations) return false;
                 var launch = App.Launch;
-                if (launch != null && launch.Unattended) return false;
+                if (launch != null && launch.Unattended && !ForcedForBench) return false;
                 var desktop = Application.Current == null ? null : Application.Current.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime;
                 if (desktop == null) return false;
                 foreach (var window in desktop.Windows) if (window.IsActive && window.WindowState != WindowState.Minimized) return true;
@@ -147,42 +170,106 @@ namespace Marabook.App
             }
         }
 
-        private static double Phase(double seconds) { return (Clock.Elapsed.TotalSeconds % seconds) / seconds; }
+        /// <summary>Vrai quand l'auteur ne fait rien depuis un instant, et qu'aucune pastille d'onglet ne glisse.</summary>
+        /// <summary>Le banc d'essai des infobulles (ProbesTips) laisse tourner les ornements sous la sonde.</summary>
+        internal static bool ForcedForBench;
+        internal static bool Idle { get { var now = Wall.Elapsed.TotalSeconds; return (_openTips == 0 || now - _tipSince > 20) && now - _lastInput >= IdleSeconds && now >= _quietUntil; } }
+        /// <summary>Les infobulles ouvertes : tant qu'il y en a une, rien ne bouge dessous (26/11 — des bulles clignotaient dans les Préférences).</summary>
+        private static int _openTips;
+        private static double _tipSince; // garde-fou : un compte resté ouvert par erreur ne fige pas tout pour toujours
+        internal static int OpenTipsForProbe { get { return _openTips; } }
 
-        /// <summary>Où en est le reflet des barres, de 0 à 1 (aller seul, en boucle) ; −1 : pas de reflet.</summary>
-        internal static double ShinePhase { get { return Moving ? Phase(ShineSeconds) : -1; } }
-        /// <summary>L'angle de la couronne du nimbe, en radians (un tour en 40 s ; 0 figée).</summary>
-        internal static double TurnAngle { get { return Moving ? Phase(TurnSeconds) * 2 * Math.PI : 0; } }
+        /// <summary>Fait taire les ornements pour cette durée (une animation de l'interface a besoin de la machine).</summary>
+        internal static void Quiet(double milliseconds) { _quietUntil = Math.Max(_quietUntil, Wall.Elapsed.TotalSeconds + milliseconds / 1000.0); }
 
-        /// <summary>Inscrit un élément : il est repeint à chaque pas de l'horloge, tant qu'il se voit.</summary>
-        internal static void Animate(Visual visual)
+        /// <summary>Écoute les gestes de l'auteur, dans toutes les fenêtres (une fois).</summary>
+        private static void Hook()
+        {
+            if (_hooked) return;
+            _hooked = true;
+            EventHandler<Avalonia.Interactivity.RoutedEventArgs> note = delegate { _lastInput = Wall.Elapsed.TotalSeconds; };
+            ToolTip.IsOpenProperty.Changed.AddClassHandler<Control>(delegate(Control control, AvaloniaPropertyChangedEventArgs e)
+            {
+                _openTips = Math.Max(0, _openTips + (true.Equals(e.NewValue) ? 1 : -1));
+                if (true.Equals(e.NewValue)) _tipSince = Wall.Elapsed.TotalSeconds;
+                _lastInput = Wall.Elapsed.TotalSeconds; // une bulle qui se ferme : un instant de répit avant de reprendre
+            });
+            Avalonia.Input.InputElement.PointerMovedEvent.AddClassHandler<TopLevel>(delegate(TopLevel top, Avalonia.Input.PointerEventArgs e) { note(top, e); }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+            Avalonia.Input.InputElement.PointerPressedEvent.AddClassHandler<TopLevel>(delegate(TopLevel top, Avalonia.Input.PointerPressedEventArgs e) { note(top, e); }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+            Avalonia.Input.InputElement.PointerWheelChangedEvent.AddClassHandler<TopLevel>(delegate(TopLevel top, Avalonia.Input.PointerWheelEventArgs e) { note(top, e); }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+            Avalonia.Input.InputElement.KeyDownEvent.AddClassHandler<TopLevel>(delegate(TopLevel top, Avalonia.Input.KeyEventArgs e) { note(top, e); }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+        }
+
+        /// <summary>Le temps des ornements, en secondes : celui que l'horloge a compté (0 tant qu'elle n'a pas tourné).</summary>
+        internal static double Time { get { return _time; } }
+
+        private static double Cycle(double seconds) { return _time % seconds; }
+
+        /// <summary>Où en est le reflet des barres, de 0 à 1, pendant son passage ; −1 hors passage ou horloge figée.</summary>
+        internal static double ShinePhase { get { return _shining ? Math.Min(1, Cycle(ShineSeconds) / ShineLasts) : -1; } }
+        /// <summary>L'angle de la couronne du nimbe, en radians (un tour en 40 s ; 0 tant que l'horloge n'a pas tourné).</summary>
+        internal static double TurnAngle { get { return Cycle(TurnSeconds) / TurnSeconds * 2 * Math.PI; } }
+
+        /// <summary>Inscrit un élément : il est repeint quand ce qui le concerne bouge, tant qu'il se voit.</summary>
+        internal static void Animate(Visual visual, Kind kind = Kind.Gilt)
         {
             if (visual == null) return;
-            Moved.Add(new WeakReference<Visual>(visual));
+            Moved.Add(new Mover { Visual = new WeakReference<Visual>(visual), Kind = kind });
             if (_timer != null) return;
-            _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(50), DispatcherPriority.Render, delegate { Tick(); });
+            Hook();
+            // En priorité de RENDU, comme avant le patch performance (26/11) : passées en priorité d'arrière-plan, cette
+            // minuterie et celle du ciel ont coïncidé avec des infobulles qui ne s'ouvraient plus dans les Préférences.
+            _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(33), DispatcherPriority.Render, delegate { Tick(); });
             _timer.Start();
         }
 
         private static void Tick()
         {
+            var now = Wall.Elapsed.TotalSeconds;
             if (!Moving)
             {
-                // Figé : le filet revient à son reflet du milieu, une fois.
-                if (_gilt != null && _giltAt != SweepRest) { PlaceGilt(SweepRest); Repaint(); }
+                // Figé : le filet revient à son reflet du milieu, les barres perdent le leur — une fois.
+                _lastTick = -1;
+                if (_gilt != null && _giltAt != SweepRest) { PlaceGilt(SweepRest); Repaint(Kind.Gilt); }
+                if (_shining) { _shining = false; Repaint(Kind.Shine); }
+                _sweeping = false;
                 return;
             }
-            if (_gilt != null) PlaceGilt(Phase(SweepSeconds));
-            Repaint();
+            if (!Idle) { _lastTick = -1; return; } // l'auteur agit : tout attend, là où il en est
+            if (_lastTick >= 0) _time += Math.Min(0.25, now - _lastTick);
+            _lastTick = now;
+            _ticks++;
+            // Le reflet des filets : un passage, puis le repos (le reflet hors du cadre).
+            var sweep = Cycle(SweepSeconds);
+            if (sweep < SweepLasts)
+            {
+                _sweeping = true;
+                if (_gilt != null) PlaceGilt(sweep / SweepLasts);
+                Repaint(Kind.Gilt);
+            }
+            else if (_sweeping || (_gilt != null && _giltAt != 1))
+            {
+                _sweeping = false;
+                if (_gilt != null) PlaceGilt(1);
+                Repaint(Kind.Gilt);
+            }
+            // Le reflet des barres.
+            var shining = Cycle(ShineSeconds) < ShineLasts;
+            if (shining || _shining) { _shining = shining; Repaint(Kind.Shine); }
+            // La couronne du nimbe : huit images par seconde lui suffisent.
+            if (_ticks % 4 == 0) Repaint(Kind.Turn);
         }
 
-        private static void Repaint()
+        internal static bool AnimatedForProbe(Visual visual) { foreach (var mover in Moved) { Visual held; if (mover.Visual.TryGetTarget(out held) && ReferenceEquals(held, visual)) return true; } return false; }
+        internal static int AnimatedCountForProbe(Kind kind) { var count = 0; foreach (var mover in Moved) { Visual held; if (mover.Kind == kind && mover.Visual.TryGetTarget(out held)) count++; } return count; }
+
+        private static void Repaint(Kind kind)
         {
             for (var i = Moved.Count - 1; i >= 0; i--)
             {
                 Visual visual;
-                if (!Moved[i].TryGetTarget(out visual)) Moved.RemoveAt(i);
-                else if (visual.IsEffectivelyVisible) visual.InvalidateVisual();
+                if (!Moved[i].Visual.TryGetTarget(out visual)) Moved.RemoveAt(i);
+                else if (Moved[i].Kind == kind && visual.IsEffectivelyVisible) visual.InvalidateVisual();
             }
         }
 
@@ -202,7 +289,7 @@ namespace Marabook.App
             var offsets = new[] { 0.0, 0.20, 0.32, 0.40, 0.46, 0.52, 0.64, 0.80, 1.0 };
             for (var i = 0; i < colors.Length; i++) brush.GradientStops.Add(new GradientStop(colors[i], offsets[i]));
             _gilt = brush;
-            PlaceGilt(Moving ? Phase(SweepSeconds) : SweepRest);
+            PlaceGilt(Moving ? 1 : SweepRest);
             return _gilt;
         }
 
@@ -511,28 +598,52 @@ namespace Marabook.App
         private readonly TabItem _tab;
         private readonly Border _face;
 
-        /// <summary>Pour le gabarit d'un onglet (Theme.ChipFace) : <paramref name="face"/> est sa pastille.</summary>
+        /// <summary>La place laissée au losange au-dessus de l'onglet, dans le cadre du cimier.</summary>
+        private const double Above = 6;
+
+        /// <summary>Pour le gabarit d'un onglet (Theme.ChipFace) : <paramref name="face"/> est sa pastille.
+        /// LE CIMIER COUVRE SON ONGLET, plus six unités au-dessus (26/11, Rémi : « le losange reste parfois sur
+        /// l'onglet de départ ») : il ne mesurait rien et peignait HORS de son cadre — repeint vingt fois par
+        /// seconde, cela ne se voyait pas ; depuis le patch performance, un losange éteint pouvait rester à
+        /// l'écran. Il peint maintenant dans son cadre, et n'EXISTE à l'écran que sur l'onglet choisi.</summary>
         internal TabCrest(TabItem tab, Border face)
         {
             _tab = tab;
             _face = face;
             IsHitTestVisible = false;
             Tag = "tab-crest";
-            tab.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e) { if (e.Property == TabItem.IsSelectedProperty) InvalidateVisual(); };
-            face.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e) { if (e.Property == BoundsProperty) InvalidateVisual(); };
-            AscensionArt.Animate(this);
+            tab.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e) { if (e.Property == TabItem.IsSelectedProperty) Place(); };
+            face.PropertyChanged += delegate(object sender, AvaloniaPropertyChangedEventArgs e)
+            {
+                if (e.Property == Border.PaddingProperty || e.Property == Border.BorderThicknessProperty) Place();
+                else if (e.Property == BoundsProperty) InvalidateVisual();
+            };
+            AttachedToVisualTree += delegate { Place(); };
+            Place();
+        }
+
+        /// <summary>Étend le cimier jusqu'aux bords de la pastille (il vit dans son rembourrage), et ne le montre que sur l'onglet choisi.</summary>
+        private void Place()
+        {
+            var padding = _face.Padding;
+            var line = _face.BorderThickness;
+            var margin = new Thickness(-(padding.Left + line.Left), -(padding.Top + line.Top) - Above, -(padding.Right + line.Right), -(padding.Bottom + line.Bottom));
+            if (Margin != margin) Margin = margin;
+            var shown = AscensionArt.On && _tab.IsSelected;
+            if (IsVisible != shown) IsVisible = shown;
+            InvalidateVisual();
         }
 
         protected override Size MeasureOverride(Size availableSize) { return new Size(0, 0); }
 
-        internal bool ShownForProbe { get { return AscensionArt.On && _tab.IsSelected; } }
+        internal bool ShownForProbe { get { return AscensionArt.On && _tab.IsSelected && IsVisible; } }
+        /// <summary>Sonde : le losange est peint dans le cadre du cimier (rien ne déborde).</summary>
+        internal bool InsideForProbe { get { return Bounds.Width > 12 && Bounds.Height > Above + 4; } }
 
         public override void Render(DrawingContext context)
         {
             if (!AscensionArt.On || !_tab.IsSelected) return;
-            var origin = _face.TranslatePoint(new Point(0, 0), this);
-            if (!origin.HasValue) return;
-            Paint(context, new Rect(origin.Value, _face.Bounds.Size));
+            Paint(context, new Rect(0, Above, Bounds.Width, Math.Max(0, Bounds.Height - Above)));
         }
 
         /// <summary>Le losange or pâle, à cheval sur le milieu du bord haut de <paramref name="box"/>. Le filet doré

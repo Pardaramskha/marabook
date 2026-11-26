@@ -58,6 +58,9 @@ namespace Marabook.App
             var band = BandOf(to);
             var old = BandOf(from);
             var header = band == null ? null : band.Child as Control;
+            // Le cimier d'« Ascension » (son losange) vit à côté du libellé : il ne doit pas rester sur place avec lui,
+            // mais VOYAGER avec la pastille (26/11, Rémi : « il se téléporte à sa destination alors que le bouton est animé »).
+            var crest = header is Panel ? ((Panel)header).Children.OfType<TabCrest>().FirstOrDefault() : null;
             var top = TopLevel.GetTopLevel(to);
             if (band == null || old == null || header == null || top == null) return false;
             if (band.Bounds.Width < 1 || band.Bounds.Height < 1 || old.Bounds.Width < 1 || old.Bounds.Height < 1) return false;
@@ -77,15 +80,24 @@ namespace Marabook.App
             band.RenderTransformOrigin = new RelativePoint(0, 0, RelativeUnit.Relative);
             header.RenderTransformOrigin = new RelativePoint(0, 0, RelativeUnit.Relative);
             to.ZIndex = -1;
+            // UN ONGLET ROGNE CE QUI DÉPASSE DE SON CADRE (26/11, Rémi : « la zone disparaît du bouton d'origine,
+            // puis entre depuis le vide ») : la pastille, partie de l'onglet quitté, restait invisible tant
+            // qu'elle n'était pas entrée dans le nouveau. Le temps de la course, l'onglet ne rogne plus.
+            var clipped = to.ClipToBounds;
+            to.ClipToBounds = false;
+            AscensionArt.Quiet(Milliseconds + 120); // les ornements d'« Ascension » se taisent le temps de la course (26/11)
             var started = DateTime.Now;
             Action frame = null;
             Action finish = delegate
             {
                 band.RenderTransform = null;
                 header.RenderTransform = null;
+                if (crest != null) crest.RenderTransform = null;
                 band.RenderTransformOrigin = bandOrigin;
                 header.RenderTransformOrigin = headerOrigin;
                 to.ZIndex = zIndex;
+                to.ClearValue(Visual.ClipToBoundsProperty);
+                if (to.ClipToBounds != clipped) to.ClipToBounds = clipped;
             };
             frame = delegate
             {
@@ -102,6 +114,9 @@ namespace Marabook.App
                 // Le libellé défait ce que son cadre subit : il reste où il est.
                 header.RenderTransform = new MatrixTransform(new Matrix(1 / scaleX, 0, 0, 1 / scaleY,
                     (offset.X - moveX) / scaleX - offset.X, (offset.Y - moveY) / scaleY - offset.Y));
+                // Le losange suit le MILIEU DU BORD HAUT de la pastille en route, sans être étiré avec elle : dans le
+                // repère du libellé (resté en place), c'est un simple décalage.
+                if (crest != null) crest.RenderTransform = new TranslateTransform(moveX + (scaleX - 1) * band.Bounds.Width / 2, moveY);
                 top.RequestAnimationFrame(delegate { frame(); });
             };
             frame();
@@ -109,6 +124,26 @@ namespace Marabook.App
         }
 
         // — Sonde.
+        /// <summary>Sonde : pendant la course, la pastille se voit-elle HORS de son onglet (rien ne la rogne jusqu'à la rangée) ?</summary>
+        internal static bool FreeForProbe(TabItem tab)
+        {
+            var band = tab == null ? null : BandOf(tab);
+            if (band == null) return false;
+            for (Visual visual = band; visual != null && !(visual is TabControl); visual = visual.GetVisualParent())
+                if (visual.ClipToBounds || visual.Clip != null) return false;
+            return true;
+        }
+
+        /// <summary>Sonde : le décalage du losange pendant la course (0 ; 0 au repos, ou sans cimier).</summary>
+        internal static Point CrestShiftForProbe(TabItem tab)
+        {
+            var band = tab == null ? null : BandOf(tab);
+            var header = band == null ? null : band.Child as Panel;
+            var crest = header == null ? null : header.Children.OfType<TabCrest>().FirstOrDefault();
+            var move = crest == null ? null : crest.RenderTransform as TranslateTransform;
+            return move == null ? new Point(0, 0) : new Point(move.X, move.Y);
+        }
+
         internal static bool SlidingForProbe(TabItem tab) { var band = tab == null ? null : BandOf(tab); return band != null && band.RenderTransform != null; }
         internal static Point HeaderPlaceForProbe(TabItem tab, Visual relativeTo)
         {

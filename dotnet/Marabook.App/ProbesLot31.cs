@@ -92,11 +92,14 @@ namespace Marabook.App
             Check(shell.VisibleView == viewBefore && shell.CurrentForProbe == currentBefore, "…par-dessus l'application : la vue du centre et l'élément ouvert ne bougent pas (" + viewBefore + ")");
             Check(journal != null && ModalChrome.DressedForProbe(journal) && !ModalChrome.Grand(journal) && ModalChrome.Dimmed(shell), "…une fenêtre simple (barre de titre, croix), l'application voilée derrière");
             Check(journal != null && journal.GetVisualDescendants().OfType<JournalView>().Any() && journal.GetVisualDescendants().OfType<Control>().Any(delegate(Control control) { return "modal-close".Equals(control.Tag); }), "…elle porte la vue du Journal, et une icône pour fermer");
+            // Une fenêtre voilée ne décide plus des infobulles (26/11) : sinon elle annulait celles de son dialogue.
+            Check(!ToolTip.GetServiceEnabled(shell) && (journal == null || ToolTip.GetServiceEnabled(journal)), "…sous le voile, la fenêtre principale ne décide plus des infobulles (elle annulait celles du dialogue) ; le dialogue garde les siennes");
             if (journal != null) Shot(journal, "lot31-journal.png");
             // Échap : la touche arrive à la fenêtre, qui se ferme (ModalChrome).
             if (journal != null) journal.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Escape, Source = journal });
             for (var i = 0; i < 3; i++) await Settle();
             Check(!shell.JournalWindowShownForProbe && !ModalChrome.Dimmed(shell), "Échap la referme ; le voile se lève");
+            Check(ToolTip.GetServiceEnabled(shell), "…et la fenêtre principale retrouve ses infobulles");
             shell.ShowJournalPublic();
             for (var i = 0; i < 2; i++) await Settle();
             Check(shell.JournalWindowShownForProbe && shell.JournalWindowForProbe.GetVisualDescendants().OfType<JournalView>().Any(), "elle se rouvre, avec sa vue (rendue à la fermeture)");
@@ -490,10 +493,17 @@ namespace Marabook.App
                 var during = TabSlide.HeaderPlaceForProbe(tabs[1], prefs);
                 Check(sliding && ReferenceEquals(prefs.Tabs.SelectedItem, tabs[1]) && Math.Abs(during.Y - rest.Y) < 1.5 && Math.Abs(during.X - rest.X) < 3,
                     "…changer d'onglet : le contenu change aussitôt, la pastille GLISSE vers l'onglet choisi, son libellé reste en place (" + rest.Y.ToString("0.#") + " / " + during.Y.ToString("0.#") + ")");
+                if (AscensionArt.On)
+                {
+                    var shift = TabSlide.CrestShiftForProbe(tabs[1]);
+                    Check(Math.Abs(shift.X) + Math.Abs(shift.Y) > 1, "…sous « Ascension », le losange voyage avec la pastille (encore à " + shift.X.ToString("0") + " ; " + shift.Y.ToString("0") + " de sa place)");
+                }
+                Check(TabSlide.FreeForProbe(tabs[1]), "…et elle se voit tout du long : rien ne la rogne entre l'onglet quitté et le nouveau");
                 Shot(prefs, "lot31-" + id + "-onglet-en-glisse.png");
                 await Task.Delay((int)TabSlide.Milliseconds + 160);
                 await Settle();
-                Check(!TabSlide.SlidingForProbe(tabs[1]) && tabs[1].ZIndex == 0, "…arrivée en " + TabSlide.Milliseconds.ToString("0") + " ms, elle se pose : plus de transformation");
+                Check(TabSlide.CrestShiftForProbe(tabs[1]) == new Point(0, 0), "…le losange est posé à sa place");
+                Check(!TabSlide.SlidingForProbe(tabs[1]) && tabs[1].ZIndex == 0 && tabs[1].ClipToBounds == tabs[0].ClipToBounds, "…arrivée en " + TabSlide.Milliseconds.ToString("0") + " ms, elle se pose : plus de transformation");
                 AppSettings.Animations = false;
                 prefs.Tabs.SelectedItem = tabs[0];
                 await Settle();

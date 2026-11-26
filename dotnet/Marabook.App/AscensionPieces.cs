@@ -326,9 +326,9 @@ namespace Marabook.App
     /// un ciel qui s'éclaircit vers un PÔLE hors champ (0,80 L ; 1,08 H), 520 étoiles qui tournent
     /// autour de lui en dix minutes, quatre constellations, une SPHÈRE ARMILLAIRE dorée très pâle qui
     /// tourne à l'envers en quinze minutes, trois orbites inclinées et leurs astres. Tout est lent.
-    /// Quinze images par seconde, et seulement quand l'horloge d'« Ascension » tourne (animations
-    /// permises, fenêtre active) ; figé à l'instant zéro quand les animations sont coupées ou sous une
-    /// sonde. Au clair (non maquetté), le même dessin sur un ciel d'aube : le papier du skin, les
+    /// Dix images par seconde, seulement quand les ornements d'« Ascension » peuvent bouger (animations
+    /// permises, fenêtre active) et que l'auteur ne fait rien (AscensionArt.Idle) ; figé à l'instant zéro
+    /// quand les animations sont coupées ou sous une sonde. Au clair (non maquetté), le même dessin sur un ciel d'aube : le papier du skin, les
     /// astres en bronze.</summary>
     internal sealed class PlanetariumSky : Control
     {
@@ -343,6 +343,7 @@ namespace Marabook.App
             new[] { 0.98, 0.22, 260, 2.8, 0 }
         };
         private DispatcherTimer _timer;
+        private double _time, _lastTick = -1; // le temps que CE ciel a tourné, en secondes : une pause ne fait rien sauter
         private List<int[]> _chains;
         private Size _chainsFor;
         private readonly Dictionary<uint, IBrush> _inks = new Dictionary<uint, IBrush>();
@@ -366,7 +367,7 @@ namespace Marabook.App
         }
 
         /// <summary>Vrai quand le ciel tourne (sinon il est figé à l'instant zéro).</summary>
-        internal static bool Turning { get { var launch = App.Launch; return AppSettings.Animations && (launch == null || !launch.Unattended); } }
+        internal static bool Turning { get { var launch = App.Launch; return AppSettings.Animations && (launch == null || !launch.Unattended || AscensionArt.ForcedForBench); } }
         internal bool RunningForProbe { get { return _timer != null && _timer.IsEnabled; } }
         internal int ChainsForProbe { get { return _chains == null ? 0 : _chains.Count; } }
 
@@ -375,8 +376,16 @@ namespace Marabook.App
             base.OnAttachedToVisualTree(e);
             if (_timer == null)
             {
-                _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(66) };
-                _timer.Tick += delegate { if (IsEffectivelyVisible && AscensionArt.Moving) InvalidateVisual(); };
+                // Patch performance (26/11) : dix images par seconde (tout y est lent), et RIEN pendant que
+                // l'auteur agit — un ciel qui se repeint fait redessiner toute la fenêtre posée dessus.
+                _timer = new DispatcherTimer(TimeSpan.FromMilliseconds(100), DispatcherPriority.Render, delegate
+                {
+                    var now = Clock.Elapsed.TotalSeconds;
+                    if (!IsEffectivelyVisible || !AscensionArt.Moving || !AscensionArt.Idle) { _lastTick = -1; return; }
+                    if (_lastTick >= 0) _time += Math.Min(0.5, now - _lastTick);
+                    _lastTick = now;
+                    InvalidateVisual();
+                });
             }
             _timer.Start();
         }
@@ -449,7 +458,7 @@ namespace Marabook.App
             double w = Bounds.Width, h = Bounds.Height;
             if (w < 80 || h < 80) return;
             var dark = Chrome.Dark;
-            var t = Turning ? Clock.Elapsed.TotalSeconds : 0;
+            var t = Turning ? _time : 0;
             double px = w * 0.80, py = h * 1.08, d = Math.Sqrt(w * w + h * h) * 1.05;
             // Le ciel.
             Color c0, c1, c2, starInk, gold = AscensionArt.Gold, magicHi = dark ? AscensionArt.MagicHi : AscensionArt.MagicDeep;

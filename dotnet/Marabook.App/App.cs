@@ -51,6 +51,7 @@ namespace Marabook.App
             Styles.Add(Theme.Build());
             ModalChrome.Install();
             FootDiamond.Install(); // le losange du pied des menus et des listes déroulantes (skins « Museum », 25/11)
+            TipDiagnostics.Install(); // le journal des infobulles, sur demande (MARABOOK_BULLES, 26/11)
             TabSlide.Install(); // la pastille des onglets glisse (skins « Museum », 25/11)
             PillPearl.Install(); // la perle des pilules (skins « Museum », 24/11) // l'habit des fenêtres de dialogue : cadre arrondi, barre de titre, voile (24/11)
             Skin.Install(this, Styles.Count - 1); // le fond et l'habillage du skin (21/11)

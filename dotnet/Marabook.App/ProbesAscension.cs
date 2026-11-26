@@ -137,6 +137,26 @@ namespace Marabook.App
             for (var i = 0; i < 2; i++) await Settle();
             var crests = prefs.GetVisualDescendants().OfType<TabCrest>().ToList();
             Check(crests.Count > 3 && crests.Count(delegate(TabCrest crest) { return crest.ShownForProbe; }) == 1, "l'onglet choisi des Préférences porte le filet doré et son losange (un seul)");
+            // Le losange ne reste pas sur l'onglet quitté : un seul cimier à l'écran, avant comme après un changement d'onglet.
+            var shownCrest = crests.FirstOrDefault(delegate(TabCrest crest) { return crest.IsVisible; });
+            Check(crests.Count(delegate(TabCrest crest) { return crest.IsVisible; }) == 1 && shownCrest != null && shownCrest.InsideForProbe, "…un seul cimier existe à l'écran, et il peint dans son cadre (rien ne déborde)");
+            var keptTab = prefs.Tabs.SelectedIndex;
+            var animationsWere = AppSettings.Animations;
+            AppSettings.Animations = false;
+            foreach (var hop in new[] { 0, 3, 1, keptTab })
+            {
+                prefs.Tabs.SelectedIndex = hop;
+                for (var i = 0; i < 2; i++) await Settle();
+                var visible = crests.Where(delegate(TabCrest crest) { return crest.IsVisible; }).ToList();
+                Check(visible.Count == 1 && visible[0].ShownForProbe, "…onglet " + hop + " : le losange a suivi, aucun n'est resté sur l'onglet quitté");
+            }
+            AppSettings.Animations = animationsWere;
+            var chosenTab = prefs.Tabs.SelectedItem as TabItem;
+            Check(chosenTab != null && !chosenTab.ClipToBounds, "…ce losange, à cheval sur le bord haut, n'est pas rogné par son onglet");
+            // Patch performance (26/11) : le reflet se repose entre deux passages, et rien ne bouge pendant qu'on agit.
+            Check(AscensionArt.SweepLasts < AscensionArt.SweepSeconds / 3 && AscensionArt.ShineLasts < AscensionArt.ShineSeconds / 3 && crests.All(delegate(TabCrest crest) { return !AscensionArt.AnimatedForProbe(crest); })
+                && AscensionArt.AnimatedCountForProbe(AscensionArt.Kind.Turn) + AscensionArt.AnimatedCountForProbe(AscensionArt.Kind.Shine) + AscensionArt.AnimatedCountForProbe(AscensionArt.Kind.Gilt) > 0,
+                "les ornements ne sont repeints que le temps d'un reflet (" + AscensionArt.SweepLasts.ToString("0.0") + " s sur " + AscensionArt.SweepSeconds.ToString("0") + "), chacun pour ce qui le concerne ; les losanges d'onglet, jamais");
             Shot(prefs, "ascension-preferences-sombre.png");
 
             // L'autre visage : le clair (non maquetté — à juger sur ces images).

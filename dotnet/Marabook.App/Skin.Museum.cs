@@ -555,6 +555,9 @@ namespace Marabook.App
             }
             var tabFill = Linear(AscensionArt.WithAlpha(gold, 0.16), AscensionArt.WithAlpha(gold, 0), false);
             // Son filet doré est sa BORDURE (elle suit l'arrondi réglé, comme celle des autres onglets) ; TabCrest y pose le losange.
+            // Le losange est À CHEVAL sur le bord haut de l'onglet : un onglet rogne d'office ce qui dépasse de son cadre
+            // (26/11, Rémi : « tronqué, il n'apparaît pleinement que pendant la transition ») — sous « Ascension », il ne rogne plus.
+            styles.Add(Rule(x => x.OfType<TabItem>(), new Setter(Visual.ClipToBoundsProperty, false)));
             styles.Add(Rule(x => x.OfType<TabItem>().Class(":selected"), new Setter(TemplatedControl.BackgroundProperty, tabFill), new Setter(TemplatedControl.BorderBrushProperty, AscensionArt.GiltLine())));
             styles.Add(Rule(x => x.OfType<TabItem>().Class(":selected").Template().OfType<Border>().Name("Bg"),
                 new Setter(Avalonia.Controls.Documents.TextElement.ForegroundProperty, dark ? (IBrush)Chrome.Glow : Chrome.Ink)));
