@@ -17,7 +17,7 @@ using Marabook.Settings;
 
 namespace Marabook.App
 {
-    /// <summary>LA PAGE LIVRE (22/09) : cinq onglets. « Textes » (icône
+    /// <summary>LA PAGE LIVRE (22/09) : six onglets (« Statistiques » le 27/11). « Textes » (icône
     /// document) : le corkboard des écrits et les boutons d'ajout de pages ;
     /// « Édition » (icône livre) : métadonnées, couverture, présentation —
     /// l'ancien panneau Métadonnées et l'ancien panneau Édition du rail
@@ -26,7 +26,9 @@ namespace Marabook.App
     /// gabarits de pages, « Nouveau gabarit » en bouton principal ;
     /// « Styles » (icône style de caractère) : l'outil de gestion des styles
     /// à la portée du livre et le séparateur de texte du livre ;
-    /// « Publication » : Publier, la check-list et les tailles.</summary>
+    /// « Statistiques » (27/11) : mots, signes et pages de chaque texte, en
+    /// liste ou en graphique ; « Publication » : Publier, la check-list et
+    /// les tailles.</summary>
     public class BookView : Grid
     {
         private readonly TabControl _tabs;
@@ -34,8 +36,9 @@ namespace Marabook.App
         private readonly BookEditionTab _edition;
         private readonly BookFormatPanel _format;
         private readonly BookPublicationTab _publication;
+        private readonly BookStatsTab _stats;
         private readonly StackPanel _stylesHost;
-        private readonly TabItem _stylesTab, _publicationTab, _formatTab;
+        private readonly TabItem _stylesTab, _statsTab, _publicationTab, _formatTab;
         private StylesPanel _stylesPanel; // le panneau de l'onglet Styles (sonde du profil)
         private BinderItem _item;
         private Project _project;
@@ -112,7 +115,7 @@ namespace Marabook.App
                 if (_item.Book.FlowWarnings == on) return;
                 _item.Book.FlowWarnings = on;
                 _texts.Refresh(); // les pastilles des tuiles
-                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+                RefreshCountingTab();
                 RaiseChanged(); // la Pile et le fichier
             };
             formatSection.Children.Add(_flowWarnings);
@@ -138,6 +141,13 @@ namespace Marabook.App
             _stylesTab = Tab("text-a-underline-bold", "Styles", Scrolled(_stylesHost));
             _tabs.Items.Add(_stylesTab);
 
+            // « Statistiques » (27/11, 2.0.0), entre Styles et Publication :
+            // mots, signes et pages de chaque texte, en liste ou en graphique.
+            _stats = new BookStatsTab();
+            _stats.Changed += RaiseChanged; // un texte écarté du graphique : le fichier
+            _statsTab = Tab("calculator-fill", "Statistiques", Scrolled(_stats));
+            _tabs.Items.Add(_statsTab);
+
             _publication = new BookPublicationTab();
             _publication.PublishRequested += delegate(BinderItem book)
             { var h = PublishRequested; if (h != null) h(book); };
@@ -150,9 +160,17 @@ namespace Marabook.App
             {
                 if (!ReferenceEquals(e.Source, _tabs)) return;
                 _lastTab = _tabs.SelectedIndex;
-                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+                RefreshCountingTab();
             };
             Children.Add(_tabs);
+        }
+
+        /// <summary>Les onglets qui COMPTENT (pages, signes) ne se refont qu'à
+        /// l'écran : Statistiques et Publication.</summary>
+        private void RefreshCountingTab()
+        {
+            if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+            else if (_tabs.SelectedItem == _statsTab) _stats.Refresh();
         }
 
         /// <summary>Un onglet du livre : l'en-tête (icône + libellé) suit la
@@ -199,7 +217,7 @@ namespace Marabook.App
                 // Le gabarit appliqué depuis une carte : l'alerte de Gabarit &
                 // Format et la check-list de Publication suivent (30/09).
                 _format.RefreshAlert();
-                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+                RefreshCountingTab();
                 RaiseChanged();
             };
             corkboard.ExportRequested += delegate(BinderItem item)
@@ -265,6 +283,7 @@ namespace Marabook.App
             }
             else _format.Sync();
             _publication.Load(book, project, PageCounter);
+            _stats.Load(book, project, PageCounter);
             _syncingFlow = true;
             _flowWarnings.IsChecked = book.Book.FlowWarnings;
             _syncingFlow = false;
@@ -272,7 +291,7 @@ namespace Marabook.App
             if (_tabs.SelectedIndex != _lastTab && _lastTab >= 0 && _lastTab < _tabs.Items.Count)
                 _tabs.SelectedIndex = _lastTab;
             ApplyProfile();
-            if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+            RefreshCountingTab();
         }
 
         // Sonde (1.1.0) : ce que le profil cache dans le livre.
@@ -294,7 +313,7 @@ namespace Marabook.App
             {
                 _texts.Refresh(); // les boutons de pages extra, les alertes de gabarit
                 BuildStylesTab(); // les facettes PAO
-                if (_tabs.SelectedItem == _publicationTab) _publication.Refresh();
+                RefreshCountingTab();
             }
         }
 
@@ -306,6 +325,7 @@ namespace Marabook.App
             _edition.Clear();
             _format.Clear();
             _publication.Clear();
+            _stats.Clear();
         }
 
         public bool ShowsItem(BinderItem item) { return _item == item; }
@@ -354,6 +374,7 @@ namespace Marabook.App
         /// <summary>Sonde : la case « Avertir des enchaînements de pages ».</summary>
         internal CheckBox FlowWarningsBoxForProbe { get { return _flowWarnings; } }
         internal BookPublicationTab PublicationForProbe { get { return _publication; } }
+        internal BookStatsTab StatsForProbe { get { return _stats; } }
 
         /// <summary>Relais du compteur de pages vers le corkboard du livre
         /// (tri « Pages » des filtres, batch 28) et la check-list.</summary>
@@ -373,9 +394,9 @@ namespace Marabook.App
             _format.Sync();
         }
 
-        /// <summary>L'onglet courant (les sondes) : 0 Textes … 4 Publication.</summary>
+        /// <summary>L'onglet courant (les sondes) : 0 Textes … 4 Statistiques, 5 Publication.</summary>
         /// <summary>Tutoriel (29/10) : l'onglet par son libellé (« Textes »,
-        /// « Édition », « Gabarits & Format », « Styles », « Publication »).</summary>
+        /// « Édition », « Gabarits & Format », « Styles », « Statistiques », « Publication »).</summary>
         internal bool SelectTabForTutorial(string label)
         {
             foreach (var item in _tabs.Items)

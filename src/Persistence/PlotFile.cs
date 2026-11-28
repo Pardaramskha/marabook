@@ -1133,6 +1133,7 @@ namespace Marabook.Persistence
                 book["bleedMm"] = item.Book.BleedMm;
                 if (item.Book.ChapterGoal > 0) book["chapterGoal"] = item.Book.ChapterGoal;
                 if (!item.Book.FlowWarnings) book["flowWarnings"] = false; // v40 : avertissements d'enchaînement débrayés
+                if (item.Book.ChartExcluded.Count > 0) book["chartExcluded"] = new List<object>(item.Book.ChartExcluded.ToArray()); // 2.0.0 : textes écartés du graphique des statistiques
                 if (item.Book.Deadline.Length > 0) book["deadline"] = item.Book.Deadline; // v23
                 if (item.Book.SizeGoal > 0) book["sizeGoal"] = item.Book.SizeGoal;
                 if (item.Book.SizeUnit != "words") book["sizeUnit"] = item.Book.SizeUnit;
@@ -2147,6 +2148,13 @@ namespace Marabook.Persistence
                     item.Book.BleedMm = Json.AsDouble(Json.Field(book, "bleedMm"), 3);
                     item.Book.ChapterGoal = Math.Max(0, Json.AsInt(Json.Field(book, "chapterGoal"), 0));
                     item.Book.FlowWarnings = Json.AsBool(Json.Field(book, "flowWarnings"), true); // v40
+                    var chartExcluded = Json.AsList(Json.Field(book, "chartExcluded")); // 2.0.0
+                    if (chartExcluded != null)
+                        foreach (var excludedId in chartExcluded)
+                        {
+                            var excludedText = Json.AsString(excludedId);
+                            if (!string.IsNullOrEmpty(excludedText) && !item.Book.ChartExcluded.Contains(excludedText)) item.Book.ChartExcluded.Add(excludedText);
+                        }
                     item.Book.Deadline = Json.AsString(Json.Field(book, "deadline")) ?? ""; // v23
                     item.Book.SizeGoal = Math.Max(0, Json.AsInt(Json.Field(book, "sizeGoal"), 0));
                     item.Book.SizeUnit = Json.AsString(Json.Field(book, "sizeUnit")) ?? "words";

@@ -458,21 +458,28 @@ namespace Marabook.App
                             await Settle();
                             var bookView = shell.BookViewPublic;
                             Check(bookView.FlowWarningsBoxForProbe.IsChecked == true, "Gabarits & Format › Contenu & Fichiers : la case suit le livre (cochée)");
-                            bookView.SelectedTab = 4;
+                            bookView.SelectedTab = 5;
                             await Settle();
                             var publication = bookView.PublicationForProbe;
                             Check(publication.RowIsRedForProbe("flow-row") == true, "check-list : la ligne d'enchaînement est là, en rouge (critique)");
                             Check(publication.RowIsRedForProbe("template-row") != null, "check-list : la ligne du gabarit est là");
                             Check(publication.DividersForProbe() == publication.RowsForProbe() - 1, "les lignes sont séparées par des filets (" + publication.DividersForProbe() + " filets pour " + publication.RowsForProbe() + " lignes)");
+                            // L'onglet « Statistiques » (27/11, 2.0.0), entre Styles et Publication.
+                            Check(bookView.SelectTabForTutorial("Statistiques") && bookView.SelectedTab == 4, "le livre a son onglet Statistiques, entre Styles et Publication (rang " + bookView.SelectedTab + ")");
+                            await Settle();
+                            var stats = bookView.StatsForProbe;
+                            stats.ChartToggleForProbe.IsChecked = false;
+                            await Settle();
+                            Check(!stats.HasExpanderForProbe && stats.ListShownForProbe, "…la liste y est dépliée d'office, sans accordéon à refermer");
                             var ordered = new List<BinderItem>();
                             Marabook.Model.BookFlow.Texts(flowBook, ordered);
-                            Check(publication.StatsRowsForProbe() == ordered.Count, "Tailles › Statistiques : une ligne par texte (" + publication.StatsRowsForProbe() + ")");
-                            Check(publication.HoverStatsRowForProbe(0, true) && publication.HoverStatsRowForProbe(0, false), "…la ligne entière se surligne au survol, et s'éteint");
+                            Check(stats.StatsRowsForProbe() == ordered.Count, "onglet Statistiques : une ligne par texte (" + stats.StatsRowsForProbe() + ")");
+                            Check(stats.HoverStatsRowForProbe(0, true) && stats.HoverStatsRowForProbe(0, false), "…la ligne entière se surligne au survol, et s'éteint");
                             // L'ordre des lignes (29/10) : apparition d'office, puis mots décroissants.
                             var byPages = new List<string>();
                             foreach (var t in ordered) byPages.Add(t.Title);
-                            Check(string.Join("|", publication.StatsTitlesForProbe().ToArray()) == string.Join("|", byPages.ToArray()), "…dans l'ordre d'apparition d'office");
-                            publication.SetStatsOrderForProbe(2); // Mots, décroissant
+                            Check(string.Join("|", stats.StatsTitlesForProbe().ToArray()) == string.Join("|", byPages.ToArray()), "…dans l'ordre d'apparition d'office");
+                            stats.SetStatsOrderForProbe(2); // Mots, décroissant
                             await Settle();
                             var byWords = new List<BinderItem>(ordered);
                             var wordCounts = new Dictionary<string, int>();
@@ -480,8 +487,42 @@ namespace Marabook.App
                             byWords.Sort(delegate(BinderItem a, BinderItem b) { var by = wordCounts[b.Id].CompareTo(wordCounts[a.Id]); return by != 0 ? by : ordered.IndexOf(a).CompareTo(ordered.IndexOf(b)); });
                             var expected = new List<string>();
                             foreach (var t in byWords) expected.Add(t.Title);
-                            Check(string.Join("|", publication.StatsTitlesForProbe().ToArray()) == string.Join("|", expected.ToArray()), "…« Mots, décroissant » réordonne les lignes (" + string.Join(", ", expected.ToArray()) + ")");
-                            publication.SetStatsOrderForProbe(0);
+                            Check(string.Join("|", stats.StatsTitlesForProbe().ToArray()) == string.Join("|", expected.ToArray()), "…« Mots, décroissant » réordonne les lignes (" + string.Join(", ", expected.ToArray()) + ")");
+                            stats.SetStatsOrderForProbe(0);
+                            await Settle();
+                            // « Graphique » (27/11) : la courbe des signes remplace la liste.
+                            var chart = stats.ChartForProbe;
+                            stats.ChartToggleForProbe.IsChecked = true;
+                            await Settle();
+                            Check(chart.IsVisible && !stats.ListShownForProbe, "« Graphique » remplace la liste par le graphique");
+                            if (chart.LaidOutForProbe)
+                            {
+                                Check(chart.PointsForProbe == ordered.Count && chart.CrossesForProbe == ordered.Count, "…un point et une croix par texte (" + chart.PointsForProbe + ")");
+                                long longest = 0;
+                                foreach (var t in ordered) longest = Math.Max(longest, Marabook.Correction.TextStats.Compute(t.Document.ToPlainText()).Sec);
+                                Check(chart.CeilingForProbe >= longest && chart.CeilingForProbe == Marabook.Model.BookChart.Ceiling(longest), "…l'échelle monte au nombre rond au-dessus du plus long texte (" + chart.CeilingForProbe + " pour " + longest + " signes)");
+                                Check(chart.ScrollsForProbe, "…la courbe défile à l'horizontale quand elle dépasse");
+                                Shot(shell, "livre-statistiques-graphique.png");
+                                // La croix écarte un texte ; sa pastille le remet.
+                                var dirtyBefore = shell.DirtyForProbe;
+                                chart.ExcludeForProbe(0);
+                                await Settle();
+                                Check(Marabook.Model.BookChart.IsExcluded(flowBook, ordered[0]) && chart.PointsForProbe == ordered.Count - 1, "la croix écarte le texte du graphique (" + chart.PointsForProbe + " points)");
+                                Check(stats.ExcludedChipsForProbe().Count == 1, "…il attend dans « Écartés du graphique »");
+                                Check(shell.DirtyForProbe || dirtyBefore, "…et le fichier est à enregistrer");
+                                stats.ChartToggleForProbe.IsChecked = false;
+                                await Settle();
+                                Check(stats.StatsRowsForProbe() == ordered.Count, "…la liste, elle, garde tous les textes");
+                                stats.ChartToggleForProbe.IsChecked = true;
+                                await Settle();
+                                Check(stats.RestoreForProbe(0), "la pastille se clique");
+                                await Settle();
+                                Check(!Marabook.Model.BookChart.IsExcluded(flowBook, ordered[0]) && chart.PointsForProbe == ordered.Count && stats.ExcludedChipsForProbe().Count == 0, "…et remet le texte dans le graphique");
+                            }
+                            else Check(true, "(graphique sans place à l'écran : tracé non vérifié)");
+                            stats.ChartToggleForProbe.IsChecked = false;
+                            await Settle();
+                            bookView.SelectedTab = 5;
                             await Settle();
                             bookView.FlowWarningsBoxForProbe.IsChecked = false;
                             await Settle();

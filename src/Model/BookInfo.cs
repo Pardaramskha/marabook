@@ -67,6 +67,12 @@ namespace Marabook.Model
         // ("flowWarnings", omis = vrai).
         public bool FlowWarnings = true;
 
+        // Les textes ÉCARTÉS du graphique des statistiques (27/11, 2.0.0) :
+        // leurs identifiants — une page de titre, un entre-chapitre, trop
+        // courts pour l'échelle des chapitres (BookChart). Persisté
+        // ("chartExcluded", omis = aucun).
+        public System.Collections.Generic.List<string> ChartExcluded = new System.Collections.Generic.List<string>();
+
         // b48 « objectifs et temps » (v23) : l'ÉCHÉANCE du livre (« yyyy-MM-dd »,
         // vide = aucune) et l'objectif de TAILLE (0 = aucun) en mots ou en
         // caractères — réglés dans les Options du livre, à côté de la

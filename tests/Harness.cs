@@ -139,6 +139,7 @@ namespace Marabook.Tests
                 ImageImportTests.Run,    // C39 — images des documents importés (23/09)
                 SubCategoryTests.Run,    // C50 — sous-catégories de fiches, hygiène des liens (1.0.5)
                 BookFlowTests.Run,       // C51 — enchaînement des pages d'un livre (1.0.6)
+                BookChartTests.Run,      // C94 — graphique des statistiques d'un livre (2.0.0)
                 AutoCapitalTests.Run,    // C52 — majuscule automatique en début de phrase (1.0.6)
                 GrammarFilterTests.Run,  // C40 — second regard sur Grammalecte (23/09)
                 Patch050Tests.Run,       // C41 — patch 0.50.0 : sélection par mot, format d'insertion, notes riches (25/09)
